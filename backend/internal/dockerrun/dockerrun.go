@@ -32,7 +32,7 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	routerName := subdomain
 	serviceName := subdomain
 	containerName := subdomain
-	internalPort := 80 // Default port, can be made configurable if needed
+	internalPort := 8080 // Default port, can be made configurable if needed
 
 	// Create Traefik labels with HTTPS/TLS support
 	labels := map[string]string{
