@@ -61,7 +61,7 @@ func (s *Store) List() ([]*App, error) {
 	var apps []*App
 	for rows.Next() {
 		var app App
-		if err := rows.Scan(&app.ID, &app.Name, &app.RepoURL, &app.CreatedAt, &app.UpdatedAt); err != nil {
+		if err := rows.Scan(&app.ID, &app.Name, &app.RepoURL, &app.Branch, &app.URL, &app.Status, &app.CreatedAt, &app.UpdatedAt); err != nil {
 			return nil, err
 		}
 		apps = append(apps, &app)
