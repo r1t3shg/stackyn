@@ -174,10 +174,10 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 		os.RemoveAll(repoPath)
 
 		// If validation passes, deployment remains in "pending" status for worker to process
-		// respondJSON(w, http.StatusCreated, map[string]interface{}{
-		// 	"app":        app,
-		// 	"deployment": deployment,
-		// })
+		respondJSON(w, http.StatusCreated, map[string]interface{}{
+			"app":        app,
+			"deployment": deployment,
+		})
 	}
 }
 
