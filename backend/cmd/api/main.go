@@ -106,6 +106,7 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 		var req struct {
 			Name    string `json:"name"`
 			RepoURL string `json:"repo_url"`
+			Branch  string `json:"branch"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -122,6 +123,11 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 				"app":   nil,
 			})
 			return
+		}
+
+		// Default branch to "main" if not provided
+		if req.Branch == "" {
+			req.Branch = "main"
 		}
 
 		// Create app first
@@ -152,7 +158,7 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 		// Validate repository has Dockerfile after creating app and deployment
 		// Use a temporary deployment ID for validation
 		tempDeploymentID := int(time.Now().Unix())
-		repoPath, err := cloner.Clone(req.RepoURL, tempDeploymentID)
+		repoPath, err := cloner.Clone(req.RepoURL, tempDeploymentID, req.Branch)
 		if err != nil {
 			// Update deployment with error
 			errorMsg := fmt.Sprintf("Failed to clone repository: %v", err)
