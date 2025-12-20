@@ -62,10 +62,14 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
-	// Default branch to "main" if not set
+	// Use branch from app, default to "main" only if empty
 	branch := app.Branch
+	log.Printf("App branch from database: '%s'", branch)
 	if branch == "" {
+		log.Printf("Branch is empty, defaulting to 'main'")
 		branch = "main"
+	} else {
+		log.Printf("Using branch: '%s'", branch)
 	}
 
 	repoPath, err := e.cloner.Clone(app.RepoURL, deploymentID, branch)

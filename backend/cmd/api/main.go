@@ -226,10 +226,10 @@ func getApp(appStore *apps.Store, deploymentStore *deployments.Store) http.Handl
 		}
 
 		// Get the latest deployment for this app
-		deployments, err := deploymentStore.ListByAppID(id)
+		appDeployments, err := deploymentStore.ListByAppID(id)
 		var activeDeployment *deployments.Deployment
-		if err == nil && len(deployments) > 0 {
-			activeDeployment = deployments[0] // First one is the latest (ordered by created_at DESC)
+		if err == nil && len(appDeployments) > 0 {
+			activeDeployment = appDeployments[0] // First one is the latest (ordered by created_at DESC)
 		}
 
 		// Build response with runtime and deployment info

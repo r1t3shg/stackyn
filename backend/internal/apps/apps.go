@@ -3,6 +3,7 @@ package apps
 import (
 	"context"
 	"database/sql"
+	"log"
 	"time"
 )
 
@@ -28,6 +29,7 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) Create(name, repoURL, branch string) (*App, error) {
+	log.Printf("Creating app with branch: '%s'", branch)
 	var app App
 	err := s.db.QueryRow(
 		"INSERT INTO apps (name, repo_url, branch) VALUES ($1, $2, $3) RETURNING id, name, repo_url, branch, COALESCE(url, '') as url, COALESCE(status, '') as status, created_at, updated_at",
@@ -36,6 +38,7 @@ func (s *Store) Create(name, repoURL, branch string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("App created with ID: %s, branch saved as: '%s'", app.ID, app.Branch)
 	return &app, nil
 }
 
