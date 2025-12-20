@@ -4,9 +4,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,19 +18,20 @@ import (
 	"mvp-be/internal/config"
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
+	"mvp-be/internal/gitrepo"
 )
 
 // main is the entry point for the API server.
 // It initializes the database, sets up routes, and starts the HTTP server.
 //
 // Server setup process:
-//   1. Load configuration from environment variables
-//   2. Connect to PostgreSQL database
-//   3. Run database migrations
-//   4. Initialize data stores (apps, deployments)
-//   5. Configure HTTP router with middleware
-//   6. Register API endpoints
-//   7. Start listening for HTTP requests
+//  1. Load configuration from environment variables
+//  2. Connect to PostgreSQL database
+//  3. Run database migrations
+//  4. Initialize data stores (apps, deployments)
+//  5. Configure HTTP router with middleware
+//  6. Register API endpoints
+//  7. Start listening for HTTP requests
 func main() {
 	// Load configuration from environment variables
 	cfg := config.Load()
@@ -52,29 +56,36 @@ func main() {
 	appStore := apps.NewStore(database.DB)
 	deploymentStore := deployments.NewStore(database.DB)
 
+	// Initialize git cloner for Dockerfile validation
+	workDir := "/tmp/mvp-api-valiadation"
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		log.Fatalf("Failed to create validation work directory: %v", err)
+	}
+	cloner := gitrepo.NewCloner(workDir)
+
 	// Setup HTTP router using chi (lightweight, fast router)
 	r := chi.NewRouter()
 
 	// Add middleware (executed in order for all requests)
-	r.Use(middleware.Logger)      // Log all HTTP requests
-	r.Use(middleware.Recoverer)   // Recover from panics and return 500 errors
-	r.Use(middleware.RequestID)   // Add unique request ID to each request
-	r.Use(middleware.RealIP)      // Get real client IP (useful behind proxies)
+	r.Use(middleware.Logger)    // Log all HTTP requests
+	r.Use(middleware.Recoverer) // Recover from panics and return 500 errors
+	r.Use(middleware.RequestID) // Add unique request ID to each request
+	r.Use(middleware.RealIP)    // Get real client IP (useful behind proxies)
 
 	// Register API routes under /api/v1 prefix
 	r.Route("/api/v1", func(r chi.Router) {
 		// Apps endpoints - manage applications
 		r.Route("/apps", func(r chi.Router) {
-			r.Get("/", listApps(appStore))                                    // GET /api/v1/apps - List all apps
-			r.Post("/", createApp(appStore, deploymentStore))                  // POST /api/v1/apps - Create new app
-			r.Get("/{id}", getApp(appStore))                                   // GET /api/v1/apps/{id} - Get app by ID
-			r.Delete("/{id}", deleteApp(appStore))                             // DELETE /api/v1/apps/{id} - Delete app
-			r.Get("/{id}/deployments", listDeployments(deploymentStore))       // GET /api/v1/apps/{id}/deployments - List app deployments
+			r.Get("/", listApps(appStore))                               // GET /api/v1/apps - List all apps
+			r.Post("/", createApp(appStore, deploymentStore, cloner))    // POST /api/v1/apps - Create new app
+			r.Get("/{id}", getApp(appStore))                             // GET /api/v1/apps/{id} - Get app by ID
+			r.Delete("/{id}", deleteApp(appStore))                       // DELETE /api/v1/apps/{id} - Delete app
+			r.Get("/{id}/deployments", listDeployments(deploymentStore)) // GET /api/v1/apps/{id}/deployments - List app deployments
 		})
 
 		// Deployments endpoints - manage deployments
 		r.Route("/deployments", func(r chi.Router) {
-			r.Get("/{id}", getDeployment(deploymentStore))                     // GET /api/v1/deployments/{id} - Get deployment by ID
+			r.Get("/{id}", getDeployment(deploymentStore)) // GET /api/v1/deployments/{id} - Get deployment by ID
 		})
 	})
 
@@ -117,16 +128,17 @@ func listApps(store *apps.Store) http.HandlerFunc {
 // POST /api/v1/apps
 //
 // Request body:
-//   {
-//     "name": "my-app",
-//     "repo_url": "https://github.com/user/repo.git"
-//   }
+//
+//	{
+//	  "name": "my-app",
+//	  "repo_url": "https://github.com/user/repo.git"
+//	}
 //
 // Returns:
 //   - 201 Created: JSON object with created app and initial deployment
 //   - 400 Bad Request: Invalid request body or missing required fields
 //   - 500 Internal Server Error: Database error
-func createApp(appStore *apps.Store, deploymentStore *deployments.Store) http.HandlerFunc {
+func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner *gitrepo.Cloner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse request body
 		var req struct {
@@ -146,7 +158,27 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store) http.Ha
 			return
 		}
 
-		// Create the app in the database
+		// Validate repository has Dockerfile before creating app
+		// Use a temporary deployment ID for validation
+		tempDeploymentID := int(time.Now().Unix())
+		repoPath, err := cloner.Clone(req.RepoURL, tempDeploymentID)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("Failed to clone repository: %v", err))
+			return
+		}
+
+		// Check if Dockerfile exists
+		if err := gitrepo.CheckDockerfile(repoPath); err != nil {
+			// Clean up cloned repository
+			os.RemoveAll(repoPath)
+			respondError(w, http.StatusBadRequest, "Dockerfile is not available in the repository root directory. Please ensure your repository contains a Dockerfile.")
+			return
+		}
+
+		// Clean up validation repository
+		os.RemoveAll(repoPath)
+
+		// Create app if Dockerfile validation passes
 		app, err := appStore.Create(req.Name, req.RepoURL)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, err.Error())
@@ -308,4 +340,3 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	// Send error as JSON with format: {"error": "message"}
 	respondJSON(w, status, map[string]string{"error": message})
 }
-
