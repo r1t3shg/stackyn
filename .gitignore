@@ -1,48 +1,115 @@
 # Dependencies
 node_modules/
 vendor/
+frontend/node_modules/
+backend/vendor/
 
-# Build outputs
+# Build outputs and compiled binaries
 frontend/dist/
 backend/bin/
 *.exe
+backend/api
+backend/worker
+backend/api.exe
+backend/worker.exe
 
-# Environment files
+# Environment files (contain secrets)
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
 backend/config/prod.env
-traefik/acme/acme.json
+frontend/.env.local
+frontend/.env.production
 
-# IDE
+# SSL Certificates (auto-generated)
+traefik/acme/acme.json
+traefik/acme/*.json
+
+# IDE and Editor files
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
 
-# OS
+# OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
 
 # Logs
 *.log
 logs/
 volumes/logs/
+backend/logs/
+frontend/logs/
+*.log.*
 
-# Database
+# Database and persistent data
 volumes/db/
+volumes/redis/
 *.db
 *.sqlite
+*.sqlite3
 
-# Docker
-.dockerignore
+# User deployed apps (runtime data)
+apps/*/
+!apps/README.md
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+.cache/
 
-# User deployed apps (optional - you may want to track these)
-# apps/*/
+# Old Next.js files (migrated to React/Vite)
+frontend/app/
+frontend/components/
+frontend/lib/
+frontend/next.config.ts
+frontend/next-env.d.ts
+frontend/.next/
+frontend/out/
 
+# Old deployment files (replaced by Traefik)
+frontend/nginx.conf
+frontend/DEPLOYMENT.md
+frontend/MIGRATION_NOTES.md
+frontend/deploy.sh
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js.snap
+*.spec.js.snap
+
+# Package manager locks (optional - some teams track these)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Build tools
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Misc
+*.bak
+*.backup
+*.old
+*.orig
