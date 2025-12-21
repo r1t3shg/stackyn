@@ -1,3 +1,29 @@
+# Backend Dockerfile - Go API Server and Worker
+# Multi-stage build for optimized production image
+#
+# This Dockerfile builds both the API server and worker binaries.
+# The same image can run either service depending on the CMD override.
+#
+# Build Instructions:
+#   docker build -t stackyn-backend .
+#
+# Run API Server:
+#   docker run -p 8080:8080 stackyn-backend /app/api
+#
+# Run Worker:
+#   docker run stackyn-backend /app/worker
+#
+# Environment Variables:
+#   - DATABASE_URL: PostgreSQL connection string
+#   - DOCKER_HOST: Docker daemon address (unix:///var/run/docker.sock)
+#   - BASE_DOMAIN: Base domain for subdomain routing
+#   - PORT: HTTP server port (API only, default: 8080)
+#
+# Security Notes:
+#   - Runs as non-root user (appuser) by default
+#   - Worker may need root access for Docker socket (override USER if needed)
+#   - CGO disabled for static binary (smaller image, no C dependencies)
+
 ########################################
 # Stage 1: Build the Go binaries
 ########################################

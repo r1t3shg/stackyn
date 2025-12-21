@@ -1,3 +1,11 @@
+// Package gitrepo provides Git repository cloning functionality.
+// It handles cloning repositories from Git URLs with support for:
+//   - Specific branch selection
+//   - Shallow cloning (depth=1) for faster operations
+//   - Dockerfile validation
+//
+// The cloner creates isolated directories for each deployment
+// to avoid conflicts between concurrent deployments.
 package gitrepo
 
 import (

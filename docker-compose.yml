@@ -1,5 +1,51 @@
+# Stackyn Platform-as-a-Service Docker Compose Configuration
+#
+# This file defines all services required to run the Stackyn PaaS platform:
+#   - Traefik: Reverse proxy and load balancer with automatic SSL/TLS
+#   - Frontend: React/Vite web application
+#   - Backend: Go API server
+#   - Worker: Background deployment processor
+#   - PostgreSQL: Database for apps and deployments
+#
+# Setup Instructions:
+#   1. Ensure Docker and Docker Compose are installed
+#   2. Set environment variables (or use defaults):
+#      - DATABASE_URL: PostgreSQL connection string
+#      - POSTGRES_USER: Database user (default: stackyn)
+#      - POSTGRES_PASSWORD: Database password (default: changeme)
+#      - POSTGRES_DB: Database name (default: stackyn)
+#      - BASE_DOMAIN: Base domain for deployments (default: staging.stackyn.com)
+#   3. Create required directories:
+#      - ./volumes/db (for PostgreSQL data)
+#      - ./volumes/logs (for application logs)
+#      - ./traefik/acme (for SSL certificates)
+#   4. Run: docker compose up -d
+#
+# Deployment Checklist:
+#   - [ ] Update BASE_DOMAIN environment variable
+#   - [ ] Update Traefik email in traefik/traefik.yml
+#   - [ ] Set secure POSTGRES_PASSWORD
+#   - [ ] Configure production environment variables in backend/config/prod.env
+#   - [ ] Ensure volumes directory has proper permissions
+#   - [ ] Verify Docker socket permissions for backend/worker
+#   - [ ] Test health endpoints: http://localhost/health
+#   - [ ] Verify Traefik dashboard (if enabled): http://localhost:8080
+#
+# Network Architecture:
+#   All services run on the 'stackyn-network' bridge network.
+#   Traefik acts as the entry point, routing requests to frontend/backend.
+#   Deployed apps are also routed through Traefik with dynamic subdomains.
+#
+# Volume Mounts:
+#   - ./volumes/db: PostgreSQL data persistence
+#   - ./volumes/logs: Application logs
+#   - ./traefik/acme: SSL certificate storage (Let's Encrypt)
+#   - /var/run/docker.sock: Docker socket for container management
+
 services:
   # Traefik - Reverse Proxy and Load Balancer
+  # Handles routing, SSL/TLS termination, and load balancing
+  # Migrated from direct nginx configuration to Traefik for better Docker integration
   traefik:
     image: traefik:v3.6.5
     container_name: stackyn-traefik
@@ -26,6 +72,9 @@ services:
       - TRAEFIK_LOG_LEVEL=INFO
 
   # Frontend - React (Vite) Application
+  # Serves the web UI for managing applications and deployments
+  # Built with Vite and served using 'serve' static file server
+  # API base URL is configured at build time via VITE_API_BASE_URL
   frontend:
     build:
       context: ./frontend
@@ -52,6 +101,9 @@ services:
       - backend
 
   # Backend - Go API Server
+  # Provides REST API for app and deployment management
+  # Requires access to Docker socket for container operations
+  # Connects to PostgreSQL for data persistence
   backend:
     build:
       context: ./backend
@@ -87,6 +139,13 @@ services:
     command: ["/app/api"]
 
   # Worker - Deployment Processor
+  # Background service that processes pending deployments
+  # Continuously polls for pending deployments and executes:
+  #   1. Git repository cloning
+  #   2. Docker image building
+  #   3. Container creation and startup
+  #   4. Traefik routing configuration
+  # Runs as root to access Docker socket (required for container management)
   worker:
     build:
       context: ./backend
@@ -111,6 +170,9 @@ services:
     command: ["/app/worker"]
 
   # PostgreSQL Database
+  # Stores application metadata, deployment records, and status
+  # Data persists in ./volumes/db directory
+  # Health check ensures database is ready before other services start
   postgres:
     image: postgres:16-alpine
     container_name: stackyn-postgres

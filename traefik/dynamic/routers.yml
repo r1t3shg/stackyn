@@ -1,5 +1,16 @@
 # Traefik Dynamic Router Configuration
 # This file defines routing rules for services
+#
+# Router Configuration:
+#   - Routes HTTP/HTTPS traffic to appropriate services
+#   - Supports both .local (development) and production domains
+#   - Automatic HTTPS redirect for production domains
+#   - SSL/TLS termination via Let's Encrypt
+#
+# Migration Notes:
+#   - Migrated from nginx configuration to Traefik
+#   - Routes are defined here for static services (frontend/backend)
+#   - Dynamic routes for deployed apps are configured via Docker labels
 
 http:
   routers:

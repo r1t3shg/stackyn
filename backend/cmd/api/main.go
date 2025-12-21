@@ -1,3 +1,24 @@
+// Package main provides the HTTP API server for Stackyn PaaS.
+// Stackyn is a Platform-as-a-Service that allows users to deploy applications
+// from Git repositories. This API server handles:
+//   - App management (create, list, get, delete)
+//   - Deployment operations (create, list, get logs)
+//   - Repository validation (Dockerfile checking)
+//
+// The API follows RESTful conventions and uses Chi router for HTTP routing.
+// It connects to PostgreSQL for data persistence and Docker for container management.
+//
+// API Endpoints:
+//   - GET  /health - Health check endpoint
+//   - GET  /api/v1/apps - List all apps
+//   - POST /api/v1/apps - Create new app
+//   - GET  /api/v1/apps/{id} - Get app by ID
+//   - DELETE /api/v1/apps/{id} - Delete app
+//   - POST /api/v1/apps/{id}/redeploy - Trigger redeployment
+//   - GET  /api/v1/apps/{id}/deployments - List deployments for an app
+//   - GET  /api/v1/deployments/{id} - Get deployment details
+//   - GET  /api/v1/deployments/{id}/logs - Get deployment logs
+//   - GET  /api/apps - List apps by authenticated user
 package main
 
 import (
@@ -24,6 +45,22 @@ type contextKey string
 
 const userIDKey contextKey = "user_id"
 
+// main is the entry point for the API server.
+// It performs the following initialization steps:
+//   1. Load configuration from environment variables
+//   2. Connect to PostgreSQL database
+//   3. Run database migrations
+//   4. Initialize data stores (apps, deployments)
+//   5. Initialize Git cloner for repository validation
+//   6. Setup HTTP router with CORS and middleware
+//   7. Register API routes
+//   8. Start HTTP server on configured port
+//
+// Environment Variables:
+//   - DATABASE_URL: PostgreSQL connection string (default: postgres://postgres:ritesh@localhost:5432/mvp?sslmode=disable)
+//   - DOCKER_HOST: Docker daemon address (default: tcp://localhost:2375)
+//   - BASE_DOMAIN: Base domain for subdomain routing (default: localhost)
+//   - PORT: HTTP server port (default: 8080)
 func main() {
 	log.Println("=== Starting Stackyn API Server ===")
 	cfg := config.Load()

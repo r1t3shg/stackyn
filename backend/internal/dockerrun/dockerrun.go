@@ -1,3 +1,10 @@
+// Package dockerrun provides functionality for running Docker containers.
+// It handles container creation, startup, and Traefik label configuration
+// for automatic routing. Containers are configured with:
+//   - Traefik labels for automatic service discovery
+//   - SSL/TLS support via Let's Encrypt
+//   - Network configuration for Traefik routing
+//   - Port mapping and health checks
 package dockerrun
 
 import (

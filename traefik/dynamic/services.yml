@@ -1,5 +1,14 @@
 # Traefik Dynamic Service Configuration
 # This file defines backend services
+#
+# Service Configuration:
+#   - Maps router rules to actual backend services
+#   - Load balancer configuration for high availability
+#   - Services are referenced by Docker service names
+#   - Ports match the exposed ports in docker-compose.yml
+#
+# Note: Deployed app services are automatically discovered via Docker labels
+# and don't need to be configured here.
 
 http:
   services:

@@ -1,3 +1,17 @@
+// Package apps provides data models and database operations for applications.
+// An app represents a deployable application with a Git repository, branch,
+// and deployment status. Apps are the primary entity that users interact with.
+//
+// Key Concepts:
+//   - App: A deployable application with name, repository URL, and branch
+//   - Slug: URL-friendly version of the app name (auto-generated)
+//   - Status: Current deployment status (Pending, Building, Running, Failed)
+//   - URL: The public URL where the app is accessible
+//
+// Database Schema:
+//   - apps table stores app metadata
+//   - Each app can have multiple deployments (one-to-many relationship)
+//   - Apps are associated with users via user_id (for multi-tenancy)
 package apps
 
 import (

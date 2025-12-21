@@ -1,4 +1,13 @@
 # Traefik Dynamic Middleware Configuration
+#
+# Middleware provides request/response transformation:
+#   - Security headers (XSS protection, frame options, etc.)
+#   - CORS configuration for API endpoints
+#   - HTTPS redirect for production domains
+#   - Custom headers for forwarded protocol
+#
+# Middlewares are applied to routers to add cross-cutting concerns
+# without modifying individual service code.
 
 http:
   middlewares:

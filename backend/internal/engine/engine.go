@@ -1,3 +1,14 @@
+// Package engine provides the core deployment orchestration logic.
+// The Engine coordinates the entire deployment pipeline:
+//   1. Git repository cloning
+//   2. Docker image building
+//   3. Container creation and startup
+//   4. Traefik routing configuration
+//   5. Status updates and error handling
+//
+// The engine runs in a continuous loop, polling for pending deployments
+// and processing them one at a time. It handles all state transitions
+// and updates the database accordingly.
 package engine
 
 import (
