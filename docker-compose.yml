@@ -93,6 +93,7 @@ services:
       dockerfile: Dockerfile
     container_name: stackyn-worker
     restart: unless-stopped
+    user: "0"  # Run as root to access Docker socket
     networks:
       - stackyn-network
     volumes:
