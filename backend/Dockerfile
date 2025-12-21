@@ -31,6 +31,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 ########################################
 FROM alpine:3.20
 
+# Install git (needed for cloning repositories)
+RUN apk add --no-cache git
+
 # Create non-root user for security
 RUN adduser -D -g '' appuser
 
