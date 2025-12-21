@@ -84,6 +84,30 @@ services:
       - "traefik.http.services.backend.loadbalancer.server.port=8080"
     depends_on:
       - postgres
+    command: ["/app/api"]
+
+  # Worker - Deployment Processor
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stackyn-worker
+    restart: unless-stopped
+    networks:
+      - stackyn-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./backend/config/prod.env:/app/.env:ro
+      - ./volumes/db:/app/data/db:rw
+      - ./volumes/logs:/app/data/logs:rw
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgres://stackyn:changeme@postgres:5432/stackyn?sslmode=disable}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - BASE_DOMAIN=${BASE_DOMAIN:-staging.stackyn.com}
+    depends_on:
+      - postgres
+      - backend
+    command: ["/app/worker"]
 
   # PostgreSQL Database
   postgres:
