@@ -13,29 +13,20 @@ RUN npm ci
 COPY . .
 
 # Build the application
+ENV VITE_API_BASE_URL=https://staging.stackyn.com
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine AS runner
+# Production stage with nginx
+FROM nginx:alpine
 
-WORKDIR /app
+# Copy built files from builder
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-ENV NODE_ENV=production
-
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production
-
-# Copy built application from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.ts ./next.config.ts
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port
-EXPOSE 3000
+EXPOSE 80
 
-# Start the application
-CMD ["npm", "start"]
-
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]

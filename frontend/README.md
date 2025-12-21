@@ -1,19 +1,20 @@
 # Stackyn Frontend
 
-A Next.js frontend application for managing applications and deployments on the Stackyn PaaS platform.
+A React frontend application built with Vite for managing applications and deployments on the Stackyn PaaS platform.
 
 ## Features
 
 - 📱 **App Management**: Create, view, and delete applications
 - 🚀 **Deployment Tracking**: Monitor deployment status and view logs
 - 🎨 **Modern UI**: Beautiful, responsive interface built with Tailwind CSS
-- ⚡ **Real-time Updates**: View deployment status and logs in real-time
+- ⚡ **Fast Development**: Lightning-fast HMR with Vite
+- 🔄 **Client-Side Routing**: React Router for seamless navigation
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - Backend API server running (see backend README)
 
 ### Installation
@@ -25,7 +26,7 @@ npm install
 
 2. Configure the API base URL:
    - Copy `.env.example` to `.env.local`
-   - Update `NEXT_PUBLIC_API_BASE_URL` to match your backend server URL
+   - Update `VITE_API_BASE_URL` to match your backend server URL
 
 3. Run the development server:
 ```bash
@@ -38,21 +39,27 @@ npm run dev
 
 ```
 frontend/
-├── app/                    # Next.js app directory
-│   ├── apps/              # App-related pages
-│   │   ├── new/           # Create new app
-│   │   └── [id]/          # App details page
-│   └── page.tsx           # Home page (apps list)
-├── components/            # React components
-│   ├── AppCard.tsx        # App card component
-│   ├── DeploymentCard.tsx # Deployment card component
-│   ├── StatusBadge.tsx    # Status badge component
-│   └── LogsViewer.tsx     # Logs viewer component
-├── lib/                   # Utility functions
-│   ├── api.ts            # API client functions
-│   ├── config.ts         # Configuration
-│   └── types.ts          # TypeScript type definitions
-└── public/               # Static assets
+├── src/
+│   ├── pages/              # Page components
+│   │   ├── Home.tsx        # Apps list page
+│   │   ├── NewApp.tsx      # Create new app
+│   │   ├── AppDetails.tsx  # App details page
+│   │   └── DeploymentDetails.tsx # Deployment details
+│   ├── components/         # React components
+│   │   ├── AppCard.tsx
+│   │   ├── DeploymentCard.tsx
+│   │   ├── StatusBadge.tsx
+│   │   └── LogsViewer.tsx
+│   ├── lib/                # Utility functions
+│   │   ├── api.ts         # API client functions
+│   │   ├── config.ts      # Configuration
+│   │   └── types.ts       # TypeScript type definitions
+│   ├── App.tsx            # Main app component with routing
+│   ├── main.tsx           # Entry point
+│   └── index.css          # Global styles
+├── public/                # Static assets
+├── index.html             # HTML template
+└── vite.config.ts         # Vite configuration
 ```
 
 ## API Integration
@@ -72,9 +79,36 @@ The frontend communicates with the backend API at the following endpoints:
 
 ```bash
 npm run build
-npm start
+```
+
+This creates a `dist/` directory with optimized production files. Serve these files with a static file server like nginx.
+
+For preview:
+```bash
+npm run preview
 ```
 
 ## Environment Variables
 
-- `NEXT_PUBLIC_API_BASE_URL`: Base URL for the backend API (default: `http://localhost:8080`)
+- `VITE_API_BASE_URL`: Base URL for the backend API (default: `http://localhost:8080`)
+
+**Note**: In Vite, only environment variables prefixed with `VITE_` are exposed to the client code.
+
+## Deployment
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
+
+## Development
+
+- **Dev Server**: `npm run dev` - Starts Vite dev server with HMR
+- **Build**: `npm run build` - Creates production build
+- **Preview**: `npm run preview` - Preview production build locally
+- **Lint**: `npm run lint` - Run ESLint
+
+## Technologies
+
+- **React 19** - UI library
+- **Vite 6** - Build tool and dev server
+- **React Router 7** - Client-side routing
+- **TypeScript** - Type safety
+- **Tailwind CSS 4** - Styling
