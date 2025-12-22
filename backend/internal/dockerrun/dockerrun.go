@@ -15,7 +15,6 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -105,40 +104,45 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	}
 
 	// Resource limits constants
-	const (
-		// Memory limit: 256 MB (256 * 1024 * 1024 bytes)
-		// This is a hard limit - container cannot exceed this memory usage
-		memoryLimitBytes = 256 * 1024 * 1024
-		// Memory swap: 256 MB (same as memory limit to disable swap)
-		// Setting swap equal to memory effectively disables swap usage
-		memorySwapBytes = 256 * 1024 * 1024
-		// CPU limit: 0.25 vCPU (250000000 nano CPUs)
-		// 1 vCPU = 1,000,000,000 nano CPUs, so 0.25 = 250,000,000
-		cpuNanoCPUs = 250000000
-		// Process limit: 128 PIDs
-		// Prevents fork bombs and excessive process creation
-		pidsLimit = int64(128)
-	)
+	// Memory limit: 256 MB (256 * 1024 * 1024 bytes)
+	// This is a hard limit - container cannot exceed this memory usage
+	memoryLimitBytes := int64(256 * 1024 * 1024)
+	// Memory swap: 256 MB (same as memory limit to disable swap)
+	// Setting swap equal to memory effectively disables swap usage
+	memorySwapBytes := int64(256 * 1024 * 1024)
+	// CPU limit: 0.25 vCPU
+	// Using CPU quota and period: quota = 25000, period = 100000
+	// This gives us 0.25 vCPU (25000/100000 = 0.25)
+	cpuQuota := int64(25000)  // 25% of CPU
+	cpuPeriod := int64(100000) // Standard period
+	// Process limit: 128 PIDs
+	// Prevents fork bombs and excessive process creation
+	pidsLimit := int64(128)
+	pidsLimitPtr := &pidsLimit
 
 	// Create host config with resource limits
 	hostConfig := &container.HostConfig{
 		AutoRemove: false,
-		// Memory limit: Hard limit of 256 MB
-		// Container will be OOM killed if it exceeds this limit
-		Memory: memoryLimitBytes,
-		// Memory swap: Set to same as memory to disable swap
-		// This ensures total memory usage (RAM + swap) cannot exceed 256 MB
-		MemorySwap: memorySwapBytes,
-		// CPU limit: 0.25 vCPU using nano CPUs
-		// Container can use at most 25% of one CPU core
-		NanoCPUs: cpuNanoCPUs,
-		// Process limit: Maximum 128 processes
-		// Prevents fork bombs and resource exhaustion attacks
-		PidsLimit: &pidsLimit,
 		// Restart policy: unless-stopped
 		// Container will automatically restart on failure, unless manually stopped
 		RestartPolicy: container.RestartPolicy{
 			Name: "unless-stopped",
+		},
+		// Resource limits: Memory, CPU, and process limits
+		Resources: container.Resources{
+			// Memory limit: Hard limit of 256 MB
+			// Container will be OOM killed if it exceeds this limit
+			Memory: memoryLimitBytes,
+			// Memory swap: Set to same as memory to disable swap
+			// This ensures total memory usage (RAM + swap) cannot exceed 256 MB
+			MemorySwap: memorySwapBytes,
+			// CPU limit: 0.25 vCPU using quota/period
+			// Container can use at most 25% of one CPU core
+			CPUQuota: cpuQuota,
+			CPUPeriod: cpuPeriod,
+			// Process limit: Maximum 128 processes
+			// Prevents fork bombs and resource exhaustion attacks
+			PidsLimit: pidsLimitPtr,
 		},
 		// Logging configuration: JSON file driver with rotation
 		// Prevents log files from consuming unlimited disk space
@@ -196,7 +200,7 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		log.Printf("[DOCKER] ERROR - Failed to start container: %s", errorDetails)
 		
 		// Try to get container logs for additional context
-		logsReader, logsErr := r.client.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
+		logsReader, logsErr := r.client.ContainerLogs(ctx, resp.ID, container.LogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Tail:       "50",
@@ -211,7 +215,7 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		}
 		
 		// Clean up the failed container
-		removeErr := r.client.ContainerRemove(ctx, resp.ID, types.ContainerRemoveOptions{Force: true})
+		removeErr := r.client.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 		if removeErr != nil {
 			log.Printf("[DOCKER] WARNING - Failed to remove failed container %s: %v", resp.ID, removeErr)
 		}
