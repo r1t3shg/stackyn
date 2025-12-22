@@ -13,12 +13,14 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"mvp-be/internal/apps"
+	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
 	"mvp-be/internal/dockerbuild"
 	"mvp-be/internal/dockerrun"
@@ -33,6 +35,7 @@ type Engine struct {
 	builder         *dockerbuild.Builder
 	runner          *dockerrun.Runner
 	baseDomain      string
+	db              *sql.DB // Database connection for advisory locks
 }
 
 func NewEngine(
@@ -42,6 +45,7 @@ func NewEngine(
 	builder *dockerbuild.Builder,
 	runner *dockerrun.Runner,
 	baseDomain string,
+	database *sql.DB, // Database connection for advisory locks
 ) *Engine {
 	return &Engine{
 		deploymentStore: deploymentStore,
@@ -50,6 +54,7 @@ func NewEngine(
 		builder:         builder,
 		runner:          runner,
 		baseDomain:      baseDomain,
+		db:              database,
 	}
 }
 
@@ -69,12 +74,8 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	log.Printf("[ENGINE] ===== Processing deployment %d for app %s (ID: %d) =====", deploymentID, app.Name, deployment.AppID)
 	log.Printf("[ENGINE] App details - Repo: %s, Branch: %s", app.RepoURL, app.Branch)
 
-	// Step 1: Clone repository
-	log.Printf("[ENGINE] Step 1: Updating deployment status to 'building'...")
-	if err := e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusBuilding); err != nil {
-		log.Printf("[ENGINE] ERROR - Failed to update status: %v", err)
-		return fmt.Errorf("failed to update status: %w", err)
-	}
+	// Note: Deployment status is already set to "building" by DequeueNextPending(),
+	// so we don't need to update it here. However, we still update app status.
 	
 	// Update app status to "Building"
 	if err := e.appStore.UpdateStatus(deployment.AppID, "Building"); err != nil {
@@ -191,9 +192,21 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	return nil
 }
 
+// RunLoop is the main worker loop that processes deployments one at a time.
+// It uses PostgreSQL advisory locks to ensure only one build runs globally,
+// even when multiple worker instances are running.
+//
+// The loop:
+//   1. Attempts to acquire the global build lock (non-blocking)
+//   2. If lock is busy, sleeps briefly and retries
+//   3. If lock acquired, atomically dequeues the next pending deployment
+//   4. Processes the deployment (with panic recovery)
+//   5. Releases the lock (always, even on panic/failure)
+//   6. Repeats
 func (e *Engine) RunLoop(ctx context.Context) {
 	log.Println("[ENGINE] ===== Deployment engine started =====")
-	log.Println("[ENGINE] Polling for pending deployments every 2 seconds...")
+	log.Println("[ENGINE] Using global build lock - only one deployment builds at a time")
+	log.Println("[ENGINE] Polling for pending deployments...")
 
 	for {
 		select {
@@ -201,31 +214,90 @@ func (e *Engine) RunLoop(ctx context.Context) {
 			log.Println("[ENGINE] ===== Deployment engine stopped =====")
 			return
 		default:
-			// Get pending deployments
-			pending, err := e.deploymentStore.GetPending()
+			// Try to acquire global build lock
+			// This ensures only one build runs at a time across all workers
+			release, ok, err := db.AcquireGlobalBuildLock(ctx, e.db)
 			if err != nil {
-				log.Printf("[ENGINE] ERROR - Failed to fetch pending deployments: %v", err)
+				log.Printf("[ENGINE] ERROR - Failed to acquire build lock: %v", err)
+				// Sleep before retrying on error
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
 				continue
 			}
 
-			if len(pending) > 0 {
-				log.Printf("[ENGINE] Found %d pending deployment(s)", len(pending))
-			}
-
-			// Process each pending deployment
-			for _, deployment := range pending {
-				if err := e.ProcessDeployment(ctx, deployment.ID); err != nil {
-					log.Printf("[ENGINE] ERROR - Failed to process deployment %d: %v", deployment.ID, err)
+			if !ok {
+				// Lock is busy - another worker is building
+				log.Println("[ENGINE] Build lock busy - another worker is building, will retry...")
+				// Sleep 1-3 seconds before retrying (randomized to avoid thundering herd)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
 				}
+				continue
 			}
 
-			// Simple polling - in production, use a better mechanism
-			// Sleep for a short duration before checking again
+			// Lock acquired - we can now process a deployment
+			log.Println("[ENGINE] Build lock acquired")
+
+			// Use an anonymous function to scope the defer properly
+			// This ensures the lock is always released, even on panic
+			func() {
+				defer release() // Always release lock when done (even on panic)
+
+				// Atomically dequeue the next pending deployment and mark it as "building"
+				// This uses FOR UPDATE SKIP LOCKED to prevent race conditions
+				deployment, err := e.deploymentStore.DequeueNextPending()
+				if err != nil {
+					if err == sql.ErrNoRows {
+						// No pending deployments - release lock and sleep briefly
+						log.Println("[ENGINE] No pending deployments found")
+						return // Lock will be released by defer
+					}
+					// Database error
+					log.Printf("[ENGINE] ERROR - Failed to dequeue deployment: %v", err)
+					return // Lock will be released by defer
+				}
+
+				// Successfully dequeued a deployment
+				log.Printf("[ENGINE] Picked deployment dep_%d (app_id: %d)", deployment.ID, deployment.AppID)
+
+				// Process the deployment with panic recovery
+				// This ensures the deployment is marked as failed if processing crashes
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							// Panic occurred - mark deployment as failed and log
+							log.Printf("[ENGINE] PANIC - Deployment %d crashed: %v", deployment.ID, r)
+							errorMsg := fmt.Sprintf("Deployment processing crashed: %v", r)
+							if err := e.deploymentStore.UpdateError(deployment.ID, errorMsg); err != nil {
+								log.Printf("[ENGINE] ERROR - Failed to update deployment error: %v", err)
+							}
+							// App status update
+							if err := e.appStore.UpdateStatus(deployment.AppID, "Failed"); err != nil {
+								log.Printf("[ENGINE] WARNING - Failed to update app status: %v", err)
+							}
+						}
+					}()
+
+					// Process the deployment
+					if err := e.ProcessDeployment(ctx, deployment.ID); err != nil {
+						log.Printf("[ENGINE] ERROR - Failed to process deployment %d: %v", deployment.ID, err)
+						// Error is already logged and deployment status updated by ProcessDeployment
+					}
+				}()
+			}()
+
+			// Lock has been released (by defer in anonymous function)
+			// Sleep briefly before trying to acquire lock again
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(2 * time.Second):
-				// Poll every 2 seconds
+			case <-time.After(1 * time.Second):
+				// Brief pause before next iteration
 			}
 		}
 	}

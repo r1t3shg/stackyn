@@ -106,6 +106,7 @@ func main() {
 		builder,         // Docker image builder
 		runner,          // Docker container runner
 		cfg.BaseDomain,  // Base domain for subdomain routing
+		database.DB,     // Database connection for advisory locks
 	)
 
 	// Setup graceful shutdown

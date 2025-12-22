@@ -275,3 +275,52 @@ func (s *Store) ListByAppID(appID int) ([]*Deployment, error) {
 	}
 	return deployments, rows.Err()
 }
+
+// DequeueNextPending atomically dequeues the next pending deployment and marks it as "building".
+// This method uses PostgreSQL's FOR UPDATE SKIP LOCKED to ensure only one worker can claim
+// a deployment at a time, even when multiple workers are running concurrently.
+//
+// The query:
+//   1. Selects the oldest pending deployment (ORDER BY created_at ASC)
+//   2. Locks it with FOR UPDATE SKIP LOCKED (skips rows already locked by other workers)
+//   3. Atomically updates its status to "building" and updated_at timestamp
+//   4. Returns the deployment data
+//
+// This ensures:
+//   - Only one deployment is processed at a time (when combined with global build lock)
+//   - No race conditions between multiple workers
+//   - FIFO ordering (oldest deployments processed first)
+//
+// Returns:
+//   - *Deployment: The dequeued deployment with status="building", or nil if no pending deployments
+//   - error: Database error if query fails, or sql.ErrNoRows if no pending deployments found
+func (s *Store) DequeueNextPending() (*Deployment, error) {
+	var d Deployment
+	// Atomically update the oldest pending deployment to "building" status.
+	// FOR UPDATE SKIP LOCKED ensures that if another worker is already processing
+	// a deployment, we skip it and move to the next one (though with global lock,
+	// this should rarely happen, but provides extra safety).
+	//
+	// The subquery selects the oldest pending deployment and locks it.
+	// The outer UPDATE then changes its status to "building".
+	// RETURNING clause gives us the updated deployment data in one query.
+	err := s.db.QueryRow(`
+		UPDATE deployments
+		SET status = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = (
+			SELECT id FROM deployments
+			WHERE status = $2
+			ORDER BY created_at ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at
+	`, StatusBuilding, StatusPending).Scan(
+		&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain,
+		&d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
