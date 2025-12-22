@@ -146,13 +146,17 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("failed to update image name: %w", err)
 	}
 
-	// Step 3: Run container with Traefik labels
+	// Step 3: Run container with Traefik labels and resource limits
 	subdomain := fmt.Sprintf("%s-%d", strings.ToLower(app.Name), deploymentID)
-	log.Printf("[ENGINE] Step 5: Running container - Subdomain: %s, Base Domain: %s", subdomain, e.baseDomain)
-	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain)
+	log.Printf("[ENGINE] Step 5: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID)
+	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID)
 	if err != nil {
 		log.Printf("[ENGINE] ERROR - Container run failed: %v", err)
-		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Container run failed: %v", err))
+		// Capture detailed error message for deployment record
+		errorMsg := fmt.Sprintf("Container run failed: %v", err)
+		e.deploymentStore.UpdateError(deploymentID, errorMsg)
+		// Update deployment status to FAILED
+		e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusFailed)
 		// Update app status to "Failed"
 		e.appStore.UpdateStatus(deployment.AppID, "Failed")
 		return fmt.Errorf("container run failed: %w", err)

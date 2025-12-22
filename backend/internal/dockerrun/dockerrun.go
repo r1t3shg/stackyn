@@ -5,14 +5,17 @@
 //   - SSL/TLS support via Let's Encrypt
 //   - Network configuration for Traefik routing
 //   - Port mapping and health checks
+//   - Resource limits (memory, CPU, disk, process limits)
 package dockerrun
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"strconv"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -37,15 +40,42 @@ func NewRunner(dockerHost string) (*Runner, error) {
 	return &Runner{client: cli}, nil
 }
 
-func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string) (string, error) {
+// Run starts a Docker container with enforced resource limits and Traefik routing.
+// It applies hard limits for memory, CPU, process count, and logging.
+//
+// Resource Limits Applied:
+//   - Memory: 256 MB (hard limit, no swap)
+//   - CPU: 0.25 vCPU (250000000 nano CPUs)
+//   - Process limit: 128 PIDs
+//   - Logging: JSON file driver with 10MB max size, 3 file rotation
+//   - Restart policy: unless-stopped
+//
+// Disk Limit Strategy:
+//   - MVP: Uses Docker's default volume management without explicit size limits
+//   - TODO: Implement filesystem quota enforcement (requires host-level quota support)
+//     Options: XFS project quotas, btrfs quotas, or Docker volume size limits
+//
+// Parameters:
+//   - ctx: Context for cancellation/timeout
+//   - imageName: Docker image name (already built)
+//   - subdomain: Subdomain for Traefik routing
+//   - baseDomain: Base domain for FQDN construction
+//   - appID: Application ID for container naming
+//   - deploymentID: Deployment ID for container naming
+//
+// Returns:
+//   - containerID: Docker container ID on success
+//   - error: Detailed error if container creation/start fails
+func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string, appID, deploymentID int) (string, error) {
 	// Build FQDN and determine router/service names
 	fqdn := fmt.Sprintf("%s.%s", subdomain, baseDomain)
 	routerName := subdomain
 	serviceName := subdomain
-	containerName := subdomain
+	// Container name format: app-<appID>-<deploymentID>
+	containerName := fmt.Sprintf("app-%d-%d", appID, deploymentID)
 	internalPort := 8080 // Default port, can be made configurable if needed
 
-	log.Printf("[DOCKER] Running container - Image: %s, Subdomain: %s, FQDN: %s", imageName, subdomain, fqdn)
+	log.Printf("[DOCKER] Running container - Image: %s, Subdomain: %s, FQDN: %s, Name: %s", imageName, subdomain, fqdn, containerName)
 
 	// Create Traefik labels with HTTPS/TLS support
 	labels := map[string]string{
@@ -74,13 +104,70 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		Labels: labels,
 	}
 
-	// Create host config
+	// Resource limits constants
+	const (
+		// Memory limit: 256 MB (256 * 1024 * 1024 bytes)
+		// This is a hard limit - container cannot exceed this memory usage
+		memoryLimitBytes = 256 * 1024 * 1024
+		// Memory swap: 256 MB (same as memory limit to disable swap)
+		// Setting swap equal to memory effectively disables swap usage
+		memorySwapBytes = 256 * 1024 * 1024
+		// CPU limit: 0.25 vCPU (250000000 nano CPUs)
+		// 1 vCPU = 1,000,000,000 nano CPUs, so 0.25 = 250,000,000
+		cpuNanoCPUs = 250000000
+		// Process limit: 128 PIDs
+		// Prevents fork bombs and excessive process creation
+		pidsLimit = int64(128)
+	)
+
+	// Create host config with resource limits
 	hostConfig := &container.HostConfig{
 		AutoRemove: false,
+		// Memory limit: Hard limit of 256 MB
+		// Container will be OOM killed if it exceeds this limit
+		Memory: memoryLimitBytes,
+		// Memory swap: Set to same as memory to disable swap
+		// This ensures total memory usage (RAM + swap) cannot exceed 256 MB
+		MemorySwap: memorySwapBytes,
+		// CPU limit: 0.25 vCPU using nano CPUs
+		// Container can use at most 25% of one CPU core
+		NanoCPUs: cpuNanoCPUs,
+		// Process limit: Maximum 128 processes
+		// Prevents fork bombs and resource exhaustion attacks
+		PidsLimit: &pidsLimit,
+		// Restart policy: unless-stopped
+		// Container will automatically restart on failure, unless manually stopped
 		RestartPolicy: container.RestartPolicy{
 			Name: "unless-stopped",
 		},
+		// Logging configuration: JSON file driver with rotation
+		// Prevents log files from consuming unlimited disk space
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				// Maximum size per log file: 10 MB
+				// When a log file reaches this size, it rotates
+				"max-size": "10m",
+				// Maximum number of log files to keep: 3
+				// Total log storage per container: ~30 MB (3 files * 10 MB)
+				"max-file": "3",
+			},
+		},
 	}
+
+	// Disk limit enforcement strategy:
+	// MVP: Docker volumes are created without explicit size limits.
+	// The container's writable layer and volumes are managed by Docker's storage driver.
+	// TODO: Implement filesystem quota enforcement for 1 GB disk limit per app.
+	// Options for future implementation:
+	//   1. XFS project quotas: Set quota on per-app volume directories
+	//   2. btrfs quotas: Use btrfs subvolume quotas if using btrfs storage driver
+	//   3. Docker volume size limits: Use volume plugins that support size limits
+	//   4. Periodic cleanup: Monitor disk usage and clean up old data
+	// Implementation would require:
+	//   - Host filesystem support for quotas (XFS or btrfs)
+	//   - Volume creation with quota settings
+	//   - Monitoring and enforcement logic
 
 	// Create network config to connect to stackyn-network
 	networkConfig := &network.NetworkingConfig{
@@ -90,10 +177,13 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	}
 
 	// Create container
-	log.Printf("[DOCKER] Creating container: %s", containerName)
+	log.Printf("[DOCKER] Creating container: %s (Memory: 256MB, CPU: 0.25, PIDs: 128)", containerName)
 	resp, err := r.client.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, containerName)
 	if err != nil {
-		log.Printf("[DOCKER] ERROR - Failed to create container: %v", err)
+		// Capture Docker error details for debugging
+		errorDetails := err.Error()
+		log.Printf("[DOCKER] ERROR - Failed to create container: %s", errorDetails)
+		
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 	log.Printf("[DOCKER] Container created - ID: %s", resp.ID)
@@ -101,7 +191,31 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	// Start container
 	log.Printf("[DOCKER] Starting container: %s", resp.ID)
 	if err := r.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		log.Printf("[DOCKER] ERROR - Failed to start container: %v", err)
+		// Capture Docker error details
+		errorDetails := err.Error()
+		log.Printf("[DOCKER] ERROR - Failed to start container: %s", errorDetails)
+		
+		// Try to get container logs for additional context
+		logsReader, logsErr := r.client.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       "50",
+		})
+		if logsErr == nil {
+			defer logsReader.Close()
+			logsData, _ := io.ReadAll(logsReader)
+			if len(logsData) > 0 {
+				log.Printf("[DOCKER] Container logs (last 50 lines): %s", string(logsData))
+				errorDetails = fmt.Sprintf("%s\nContainer logs: %s", errorDetails, string(logsData))
+			}
+		}
+		
+		// Clean up the failed container
+		removeErr := r.client.ContainerRemove(ctx, resp.ID, types.ContainerRemoveOptions{Force: true})
+		if removeErr != nil {
+			log.Printf("[DOCKER] WARNING - Failed to remove failed container %s: %v", resp.ID, removeErr)
+		}
+		
 		return "", fmt.Errorf("failed to start container: %w", err)
 	}
 
