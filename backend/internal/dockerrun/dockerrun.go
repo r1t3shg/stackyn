@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -61,18 +62,18 @@ func NewRunner(dockerHost string) (*Runner, error) {
 //   - baseDomain: Base domain for FQDN construction
 //   - appID: Application ID for container naming
 //   - deploymentID: Deployment ID for container naming
+//   - internalPort: Port the application listens on inside the container
 //
 // Returns:
 //   - containerID: Docker container ID on success
 //   - error: Detailed error if container creation/start fails
-func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string, appID, deploymentID int) (string, error) {
+func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string, appID, deploymentID int, internalPort int) (string, error) {
 	// Build FQDN and determine router/service names
 	fqdn := fmt.Sprintf("%s.%s", subdomain, baseDomain)
 	routerName := subdomain
 	serviceName := subdomain
 	// Container name format: app-<appID>-<deploymentID>
 	containerName := fmt.Sprintf("app-%d-%d", appID, deploymentID)
-	internalPort := 8080 // Default port, can be made configurable if needed
 
 	log.Printf("[DOCKER] Running container - Image: %s, Subdomain: %s, FQDN: %s, Name: %s", imageName, subdomain, fqdn, containerName)
 
@@ -224,6 +225,37 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	}
 
 	log.Printf("[DOCKER] Container started successfully - ID: %s, Name: %s, URL: https://%s", resp.ID, containerName, fqdn)
+	
+	// Wait a moment for the container to initialize
+	// Then check if it's still running (basic health check)
+	time.Sleep(2 * time.Second)
+	
+	// Check container status
+	containerInfo, err := r.client.ContainerInspect(ctx, resp.ID)
+	if err != nil {
+		log.Printf("[DOCKER] WARNING - Failed to inspect container: %v", err)
+	} else {
+		if !containerInfo.State.Running {
+			// Container stopped - get logs for debugging
+			logsReader, logsErr := r.client.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+				ShowStdout: true,
+				ShowStderr: true,
+				Tail:       "100",
+			})
+			if logsErr == nil {
+				defer logsReader.Close()
+				logsData, _ := io.ReadAll(logsReader)
+				if len(logsData) > 0 {
+					log.Printf("[DOCKER] Container stopped after startup. Logs: %s", string(logsData))
+					return "", fmt.Errorf("container stopped after startup. Exit code: %d. Logs: %s", 
+						containerInfo.State.ExitCode, string(logsData))
+				}
+			}
+			return "", fmt.Errorf("container stopped after startup. Exit code: %d", containerInfo.State.ExitCode)
+		}
+		log.Printf("[DOCKER] Container health check passed - Status: %s", containerInfo.State.Status)
+	}
+	
 	return resp.ID, nil
 }
 

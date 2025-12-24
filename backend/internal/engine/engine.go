@@ -122,6 +122,11 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		// Don't fail the deployment - let Docker build handle it
 	}
 
+	// Detect port from Dockerfile
+	log.Printf("[ENGINE] Step 3.6: Detecting application port from Dockerfile...")
+	detectedPort := gitrepo.DetectPortFromDockerfile(repoPath)
+	log.Printf("[ENGINE] Using port %d for Traefik routing", detectedPort)
+
 	// Step 2: Build Docker image
 	imageName := fmt.Sprintf("mvp-%s:%d", strings.ToLower(app.Name), deploymentID)
 	log.Printf("[ENGINE] Step 4: Building Docker image: %s", imageName)
@@ -157,8 +162,8 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 
 	// Step 3: Run container with Traefik labels and resource limits
 	subdomain := fmt.Sprintf("%s-%d", strings.ToLower(app.Name), deploymentID)
-	log.Printf("[ENGINE] Step 5: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID)
-	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID)
+	log.Printf("[ENGINE] Step 5: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d, Port: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
+	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
 	if err != nil {
 		log.Printf("[ENGINE] ERROR - Container run failed: %v", err)
 		// Capture detailed error message for deployment record

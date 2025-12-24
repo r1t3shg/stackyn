@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -171,4 +173,41 @@ func fixDockerfileNpmCi(repoPath, dockerfilePath string) error {
 
 	log.Printf("[GIT] Dockerfile modified successfully to use 'npm install' instead of 'npm ci'")
 	return nil
+}
+
+// DetectPortFromDockerfile attempts to detect the port from the Dockerfile's EXPOSE directive.
+// Returns the first port found, or 8080 as default if no EXPOSE directive is found.
+func DetectPortFromDockerfile(repoPath string) int {
+	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+	
+	file, err := os.Open(dockerfilePath)
+	if err != nil {
+		log.Printf("[GIT] WARNING - Failed to open Dockerfile for port detection: %v, using default port 8080", err)
+		return 8080
+	}
+	defer file.Close()
+
+	// Regex to match EXPOSE directive: EXPOSE 3000, EXPOSE 8080, EXPOSE 5000:8080, etc.
+	exposeRegex := regexp.MustCompile(`(?i)^\s*EXPOSE\s+(\d+)`)
+	
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := exposeRegex.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			port, err := strconv.Atoi(matches[1])
+			if err == nil && port > 0 && port < 65536 {
+				log.Printf("[GIT] Detected port %d from Dockerfile EXPOSE directive", port)
+				return port
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("[GIT] WARNING - Error reading Dockerfile: %v, using default port 8080", err)
+		return 8080
+	}
+
+	log.Printf("[GIT] No EXPOSE directive found in Dockerfile, using default port 8080")
+	return 8080
 }
