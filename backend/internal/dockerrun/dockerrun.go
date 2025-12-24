@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -338,4 +339,19 @@ func (r *Runner) Stop(ctx context.Context, containerID string) error {
 
 func (r *Runner) Remove(ctx context.Context, containerID string) error {
 	return r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+}
+
+// RemoveImage removes a Docker image by name
+func (r *Runner) RemoveImage(ctx context.Context, imageName string) error {
+	log.Printf("[DOCKER] Removing image: %s", imageName)
+	_, err := r.client.ImageRemove(ctx, imageName, types.ImageRemoveOptions{
+		Force:         true, // Force removal even if in use
+		PruneChildren: true, // Remove all untagged parents
+	})
+	if err != nil {
+		log.Printf("[DOCKER] ERROR - Failed to remove image %s: %v", imageName, err)
+		return fmt.Errorf("failed to remove image %s: %w", imageName, err)
+	}
+	log.Printf("[DOCKER] Image removed successfully: %s", imageName)
+	return nil
 }

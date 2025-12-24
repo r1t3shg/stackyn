@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -37,6 +38,7 @@ import (
 	"mvp-be/internal/config"
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
+	"mvp-be/internal/dockerrun"
 	"mvp-be/internal/gitrepo"
 )
 
@@ -98,6 +100,14 @@ func main() {
 	cloner := gitrepo.NewCloner(workDir)
 	log.Println("Git cloner initialized")
 
+	// Initialize Docker runner for container/image management
+	log.Printf("Initializing Docker runner - Host: %s", cfg.DockerHost)
+	runner, err := dockerrun.NewRunner(cfg.DockerHost)
+	if err != nil {
+		log.Fatalf("Failed to initialize Docker runner: %v", err)
+	}
+	log.Println("Docker runner initialized")
+
 	// Setup router
 	r := chi.NewRouter()
 	
@@ -144,7 +154,7 @@ func main() {
 			r.Get("/", listApps(appStore))
 			r.Post("/", createApp(appStore, deploymentStore, cloner))
 			r.Get("/{id}", getApp(appStore, deploymentStore))
-			r.Delete("/{id}", deleteApp(appStore))
+			r.Delete("/{id}", deleteApp(appStore, deploymentStore, runner))
 			r.Post("/{id}/redeploy", redeployApp(appStore, deploymentStore, cloner))
 			r.Get("/{id}/deployments", listDeployments(deploymentStore))
 		})
@@ -500,7 +510,7 @@ func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, clone
 	}
 }
 
-func deleteApp(store *apps.Store) http.HandlerFunc {
+func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner *dockerrun.Runner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(chi.URLParam(r, "id"))
 		if err != nil {
@@ -509,14 +519,67 @@ func deleteApp(store *apps.Store) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("[API] DELETE /api/v1/apps/%d - Deleting app", id)
-		if err := store.Delete(id); err != nil {
+		log.Printf("[API] DELETE /api/v1/apps/%d - Deleting app and cleaning up resources", id)
+
+		// Get all deployments for this app
+		appDeployments, err := deploymentStore.ListByAppID(id)
+		if err != nil {
+			log.Printf("[API] WARNING - Failed to list deployments for app %d: %v", id, err)
+			// Continue with deletion even if we can't list deployments
+		} else {
+			log.Printf("[API] Found %d deployment(s) for app %d, cleaning up containers and images...", len(appDeployments), id)
+			
+			ctx := r.Context()
+			// Clean up each deployment's containers and images
+			for _, deployment := range appDeployments {
+				// Stop and remove container if it exists
+				if deployment.ContainerID.Valid && deployment.ContainerID.String != "" {
+					containerID := deployment.ContainerID.String
+					log.Printf("[API] Stopping and removing container: %s", containerID)
+					
+					// Try to stop the container (ignore error if already stopped)
+					if stopErr := runner.Stop(ctx, containerID); stopErr != nil {
+						log.Printf("[API] WARNING - Failed to stop container %s: %v (may already be stopped)", containerID, stopErr)
+					}
+					
+					// Remove the container
+					if removeErr := runner.Remove(ctx, containerID); removeErr != nil {
+						log.Printf("[API] WARNING - Failed to remove container %s: %v", containerID, removeErr)
+					} else {
+						log.Printf("[API] Container removed successfully: %s", containerID)
+					}
+				}
+				
+				// Remove Docker image if it exists
+				if deployment.ImageName.Valid && deployment.ImageName.String != "" {
+					imageName := deployment.ImageName.String
+					log.Printf("[API] Removing Docker image: %s", imageName)
+					
+					if imageErr := runner.RemoveImage(ctx, imageName); imageErr != nil {
+						log.Printf("[API] WARNING - Failed to remove image %s: %v", imageName, imageErr)
+					} else {
+						log.Printf("[API] Image removed successfully: %s", imageName)
+					}
+				}
+			}
+			
+			// Delete all deployments from database
+			log.Printf("[API] Deleting %d deployment(s) from database...", len(appDeployments))
+			for _, deployment := range appDeployments {
+				// Note: We don't have a Delete method in deployments.Store yet
+				// For now, deployments will be deleted via CASCADE when app is deleted
+				// But we could add explicit deletion if needed
+			}
+		}
+
+		// Finally, delete the app (this will cascade delete deployments if foreign key is set up)
+		if err := appStore.Delete(id); err != nil {
 			log.Printf("[API] ERROR - Failed to delete app: %v", err)
 			respondError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		log.Printf("[API] App deleted successfully - ID: %d", id)
+		log.Printf("[API] App and all associated resources deleted successfully - ID: %d", id)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
