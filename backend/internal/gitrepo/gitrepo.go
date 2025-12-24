@@ -232,6 +232,9 @@ func DetectPortFromDockerfile(repoPath string) int {
 	// Regex patterns for port detection
 	exposeRegex := regexp.MustCompile(`(?i)^\s*EXPOSE\s+(\d+)`)
 	envPortRegex := regexp.MustCompile(`(?i)^\s*ENV\s+PORT\s*=\s*(\d+)`)
+	// Python patterns: uvicorn --port 8000, gunicorn -b :8000
+	uvicornRegex := regexp.MustCompile(`(?i)uvicorn.*--port\s+(\d+)`)
+	gunicornRegex := regexp.MustCompile(`(?i)gunicorn.*-b\s+[:\d.]*:(\d+)`)
 	
 	scanner := bufio.NewScanner(file)
 	var detectedPort int
@@ -250,7 +253,7 @@ func DetectPortFromDockerfile(repoPath string) int {
 			}
 		}
 		
-		// Check for ENV PORT=3000 (common in Node.js apps)
+		// Check for ENV PORT=3000 (common in Node.js apps) or ENV PORT=8000 (Python)
 		if !foundExpose {
 			envMatches := envPortRegex.FindStringSubmatch(line)
 			if len(envMatches) > 1 {
@@ -258,6 +261,24 @@ func DetectPortFromDockerfile(repoPath string) int {
 				if err == nil && port > 0 && port < 65536 {
 					detectedPort = port
 					log.Printf("[GIT] Detected port %d from Dockerfile ENV PORT directive", port)
+				}
+			}
+			
+			// Check for uvicorn command with --port
+			if uvicornMatches := uvicornRegex.FindStringSubmatch(line); len(uvicornMatches) > 1 {
+				port, err := strconv.Atoi(uvicornMatches[1])
+				if err == nil && port > 0 && port < 65536 {
+					detectedPort = port
+					log.Printf("[GIT] Detected port %d from Dockerfile uvicorn command", port)
+				}
+			}
+			
+			// Check for gunicorn command with -b :port
+			if gunicornMatches := gunicornRegex.FindStringSubmatch(line); len(gunicornMatches) > 1 {
+				port, err := strconv.Atoi(gunicornMatches[1])
+				if err == nil && port > 0 && port < 65536 {
+					detectedPort = port
+					log.Printf("[GIT] Detected port %d from Dockerfile gunicorn command", port)
 				}
 			}
 		}
@@ -273,8 +294,16 @@ func DetectPortFromDockerfile(repoPath string) int {
 		return detectedPort
 	}
 
-	// No EXPOSE or ENV PORT found, try detecting from package.json or source files
-	log.Printf("[GIT] No EXPOSE or ENV PORT found in Dockerfile, checking package.json and source files...")
+	// No EXPOSE or ENV PORT found, try detecting from package.json, Python files, or source files
+	log.Printf("[GIT] No EXPOSE or ENV PORT found in Dockerfile, checking source files...")
+	
+	// First check for Python apps (FastAPI, Flask, etc.)
+	port := detectPortFromPythonFiles(repoPath)
+	if port > 0 {
+		return port
+	}
+	
+	// Then check for Node.js apps
 	return detectPortFromPackageJSON(repoPath)
 }
 
@@ -328,7 +357,89 @@ func detectPortFromPackageJSON(repoPath string) int {
 	return 8080
 }
 
-// detectPortFromSourceFile attempts to detect port from source code patterns
+// detectPortFromPythonFiles attempts to detect port from Python source files (FastAPI, Flask, etc.)
+func detectPortFromPythonFiles(repoPath string) int {
+	// Common Python entry points
+	pythonFiles := []string{"main.py", "app.py", "server.py", "application.py", "wsgi.py"}
+	
+	for _, pyFile := range pythonFiles {
+		filePath := filepath.Join(repoPath, pyFile)
+		if _, err := os.Stat(filePath); err == nil {
+			// File exists, check for port patterns
+			port := detectPortFromPythonFile(filePath)
+			if port > 0 {
+				return port
+			}
+			// If it's a Python file but no port found, check if it's FastAPI/Flask and use defaults
+			if isFastAPIOrFlask(filePath) {
+				log.Printf("[GIT] Found FastAPI/Flask app in %s, using default port 8000", pyFile)
+				return 8000
+			}
+		}
+	}
+	
+	return 0
+}
+
+// detectPortFromPythonFile attempts to detect port from Python source code patterns
+func detectPortFromPythonFile(filePath string) int {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	// Common port patterns in Python: PORT = int(os.getenv("PORT", "8000")), port=8000, etc.
+	portPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)PORT\s*=\s*int\(os\.getenv\([^,)]+,\s*["'](\d+)["']\)`), // PORT = int(os.getenv("PORT", "8000"))
+		regexp.MustCompile(`(?i)PORT\s*=\s*os\.getenv\([^,)]+,\s*["'](\d+)["']`),        // PORT = os.getenv("PORT", "8000")
+		regexp.MustCompile(`(?i)port\s*=\s*(\d+)`),                                        // port = 8000
+		regexp.MustCompile(`(?i)uvicorn\.run\([^,)]+,\s*port\s*=\s*(\d+)`),              // uvicorn.run(..., port=8000
+		regexp.MustCompile(`(?i)app\.run\([^,)]*port\s*=\s*(\d+)`),                      // app.run(port=8000
+		regexp.MustCompile(`(?i)--port\s+(\d+)`),                                        // --port 8000
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		for _, pattern := range portPatterns {
+			matches := pattern.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				port, err := strconv.Atoi(matches[1])
+				if err == nil && port > 0 && port < 65536 {
+					log.Printf("[GIT] Detected port %d from Python file %s", port, filepath.Base(filePath))
+					return port
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// isFastAPIOrFlask checks if a Python file contains FastAPI or Flask imports
+func isFastAPIOrFlask(filePath string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.ToLower(scanner.Text())
+		if strings.Contains(line, "from fastapi") || strings.Contains(line, "import fastapi") {
+			return true
+		}
+		if strings.Contains(line, "from flask") || strings.Contains(line, "import flask") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// detectPortFromSourceFile attempts to detect port from source code patterns (Node.js)
 func detectPortFromSourceFile(filePath string) int {
 	file, err := os.Open(filePath)
 	if err != nil {
