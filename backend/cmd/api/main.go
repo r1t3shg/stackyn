@@ -107,7 +107,8 @@ func main() {
 			// Set CORS headers
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+			// Include all common headers that browsers might send
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "false")
 			w.Header().Set("Access-Control-Max-Age", "3600")
 			
