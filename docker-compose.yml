@@ -104,12 +104,14 @@ services:
   # Provides REST API for app and deployment management
   # Requires access to Docker socket for container operations
   # Connects to PostgreSQL for data persistence
+  # Runs as root to access Docker socket (required for container management)
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stackyn-backend
     restart: unless-stopped
+    user: "0"  # Run as root to access Docker socket
     networks:
       - stackyn-network
     volumes:
