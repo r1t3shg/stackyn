@@ -254,7 +254,7 @@ func (e *Engine) RunLoop(ctx context.Context) {
 			}
 
 			// Lock acquired - we can now process a deployment
-			log.Println("[ENGINE] Build lock acquired")
+			// log.Println("[ENGINE] Build lock acquired")
 
 			// Use an anonymous function to scope the defer properly
 			// This ensures the lock is always released, even on panic
@@ -267,7 +267,7 @@ func (e *Engine) RunLoop(ctx context.Context) {
 				if err != nil {
 					if err == sql.ErrNoRows {
 						// No pending deployments - release lock and sleep briefly
-						log.Println("[ENGINE] No pending deployments found")
+						// log.Println("[ENGINE] No pending deployments found")
 						return // Lock will be released by defer
 					}
 					// Database error
