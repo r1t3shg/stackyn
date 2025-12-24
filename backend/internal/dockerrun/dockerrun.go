@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -254,9 +255,56 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 			return "", fmt.Errorf("container stopped after startup. Exit code: %d", containerInfo.State.ExitCode)
 		}
 		log.Printf("[DOCKER] Container health check passed - Status: %s", containerInfo.State.Status)
+		
+		// Check container logs to verify the app is listening on the expected port
+		// This helps catch cases where port detection failed
+		logsReader, logsErr := r.client.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       "20", // Just check last 20 lines for port info
+		})
+		if logsErr == nil {
+			defer logsReader.Close()
+			logsData, _ := io.ReadAll(logsReader)
+			if len(logsData) > 0 {
+				logsStr := string(logsData)
+				log.Printf("[DOCKER] Container startup logs (last 20 lines): %s", logsStr)
+				// Log a warning if we see common port patterns that don't match our detected port
+				// This helps debug port mismatches
+				if internalPort == 8080 {
+					// Check for common alternative ports in logs
+					if containsPort(logsStr, "8000") {
+						log.Printf("[DOCKER] WARNING - Container logs mention port 8000, but Traefik is configured for 8080. This may cause 502 errors.")
+					} else if containsPort(logsStr, "5000") {
+						log.Printf("[DOCKER] WARNING - Container logs mention port 5000, but Traefik is configured for 8080. This may cause 502 errors.")
+					}
+				}
+			}
+		}
 	}
 	
 	return resp.ID, nil
+}
+
+// containsPort checks if a string contains common port patterns
+func containsPort(text, port string) bool {
+	// Check for common patterns: "port 8000", ":8000", "8000", "listening on 8000", etc.
+	patterns := []string{
+		"port " + port,
+		":" + port,
+		" " + port + " ",
+		" " + port + "\n",
+		"listening on " + port,
+		"running on " + port,
+		"bound to " + port,
+	}
+	lowerText := strings.ToLower(text)
+	for _, pattern := range patterns {
+		if strings.Contains(lowerText, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) Stop(ctx context.Context, containerID string) error {
