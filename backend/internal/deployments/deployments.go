@@ -60,6 +60,10 @@ type Deployment struct {
 	// This is captured during the Docker image build process
 	BuildLog sql.NullString `json:"build_log,omitempty"`
 
+	// RuntimeLog contains the container runtime logs (stdout/stderr)
+	// This is captured from the running container
+	RuntimeLog sql.NullString `json:"runtime_log,omitempty"`
+
 	// ErrorMessage contains any error message if the deployment failed
 	// Empty if deployment is successful or still in progress
 	ErrorMessage sql.NullString `json:"error_message,omitempty"`
@@ -103,9 +107,9 @@ func (s *Store) Create(appID int) (*Deployment, error) {
 	// Create deployment with initial status of "pending"
 	// Use RETURNING clause to get all fields in one query
 	err := s.db.QueryRow(
-		"INSERT INTO deployments (app_id, status) VALUES ($1, $2) RETURNING id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at",
+		"INSERT INTO deployments (app_id, status) VALUES ($1, $2) RETURNING id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at",
 		appID, StatusPending,
-	).Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -123,9 +127,9 @@ func (s *Store) Create(appID int) (*Deployment, error) {
 func (s *Store) GetByID(id int) (*Deployment, error) {
 	var d Deployment
 	err := s.db.QueryRow(
-		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at FROM deployments WHERE id = $1",
+		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at FROM deployments WHERE id = $1",
 		id,
-	).Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +145,7 @@ func (s *Store) GetByID(id int) (*Deployment, error) {
 func (s *Store) GetPending() ([]*Deployment, error) {
 	// Order by created_at ASC so oldest pending deployments are processed first (FIFO)
 	rows, err := s.db.Query(
-		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at FROM deployments WHERE status = $1 ORDER BY created_at ASC",
+		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at FROM deployments WHERE status = $1 ORDER BY created_at ASC",
 		StatusPending,
 	)
 	if err != nil {
@@ -152,7 +156,7 @@ func (s *Store) GetPending() ([]*Deployment, error) {
 	var deployments []*Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, &d)
@@ -228,6 +232,23 @@ func (s *Store) UpdateBuildLog(id int, log string) error {
 	return err
 }
 
+// UpdateRuntimeLog updates the runtime log for a deployment.
+// The runtime log contains the container stdout/stderr output.
+//
+// Parameters:
+//   - id: The deployment ID to update
+//   - log: The runtime log content (typically container stdout/stderr)
+//
+// Returns:
+//   - error: Database error if update fails
+func (s *Store) UpdateRuntimeLog(id int, log string) error {
+	_, err := s.db.Exec(
+		"UPDATE deployments SET runtime_log = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+		log, id,
+	)
+	return err
+}
+
 // UpdateError updates the error message and sets status to "failed" for a deployment.
 // This is called when a deployment encounters an error during processing.
 //
@@ -257,7 +278,7 @@ func (s *Store) UpdateError(id int, errorMsg string) error {
 func (s *Store) ListByAppID(appID int) ([]*Deployment, error) {
 	// Order by created_at DESC so most recent deployments appear first
 	rows, err := s.db.Query(
-		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at FROM deployments WHERE app_id = $1 ORDER BY created_at DESC",
+		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at FROM deployments WHERE app_id = $1 ORDER BY created_at DESC",
 		appID,
 	)
 	if err != nil {
@@ -268,7 +289,7 @@ func (s *Store) ListByAppID(appID int) ([]*Deployment, error) {
 	var deployments []*Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, &d)
@@ -287,7 +308,7 @@ func (s *Store) ListByAppID(appID int) ([]*Deployment, error) {
 //   - error: Database error if query fails
 func (s *Store) GetRunningByAppID(appID int) ([]*Deployment, error) {
 	rows, err := s.db.Query(
-		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at FROM deployments WHERE app_id = $1 AND status = $2",
+		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at FROM deployments WHERE app_id = $1 AND status = $2",
 		appID, StatusRunning,
 	)
 	if err != nil {
@@ -298,7 +319,7 @@ func (s *Store) GetRunningByAppID(appID int) ([]*Deployment, error) {
 	var deployments []*Deployment
 	for rows.Next() {
 		var d Deployment
-		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		deployments = append(deployments, &d)
@@ -344,10 +365,10 @@ func (s *Store) DequeueNextPending() (*Deployment, error) {
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at
+		RETURNING id, app_id, status, image_name, container_id, subdomain, build_log, runtime_log, error_message, created_at, updated_at
 	`, StatusBuilding, StatusPending).Scan(
 		&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain,
-		&d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt,
+		&d.BuildLog, &d.RuntimeLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

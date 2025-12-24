@@ -155,9 +155,22 @@ export default function DeploymentDetailsPage() {
             </div>
           )}
 
-          {(!logs || !extractString(logs.build_log)) && (
+          {logs && !extractString(logs.build_log) && (
             <div className="bg-white rounded-lg shadow-md p-8 text-center">
               <p className="text-gray-600">No build logs available yet</p>
+            </div>
+          )}
+
+          {logs && extractString(logs.runtime_log) && (
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Runtime Logs</h2>
+              <LogsViewer logs={extractString(logs.runtime_log)} title="Runtime Logs" />
+            </div>
+          )}
+
+          {logs && !extractString(logs.runtime_log) && (
+            <div className="bg-white rounded-lg shadow-md p-8 text-center">
+              <p className="text-gray-600">No runtime logs available yet</p>
             </div>
           )}
         </div>

@@ -31,6 +31,7 @@ export interface Deployment {
   container_id?: string | null | NullString;
   subdomain?: string | null | NullString;
   build_log?: string | null | NullString;
+  runtime_log?: string | null | NullString;
   error_message?: string | null | NullString;
   created_at: string;
   updated_at: string;
@@ -50,6 +51,7 @@ export interface DeploymentLogs {
   deployment_id: number;
   status: string;
   build_log?: string | null;
+  runtime_log?: string | null;
   error_message?: string | null;
 }
 

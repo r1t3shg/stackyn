@@ -705,7 +705,7 @@ func getDeploymentLogs(store *deployments.Store) http.HandlerFunc {
 			respondError(w, http.StatusNotFound, "Deployment not found")
 			return
 		}
-		log.Printf("[API] Deployment logs retrieved - ID: %d, Has build log: %v", id, deployment.BuildLog.Valid)
+		log.Printf("[API] Deployment logs retrieved - ID: %d, Has build log: %v, Has runtime log: %v", id, deployment.BuildLog.Valid, deployment.RuntimeLog.Valid)
 
 		// Build response with logs
 		response := map[string]interface{}{
@@ -718,6 +718,13 @@ func getDeploymentLogs(store *deployments.Store) http.HandlerFunc {
 			response["build_log"] = deployment.BuildLog.String
 		} else {
 			response["build_log"] = nil
+		}
+
+		// Add runtime log if available
+		if deployment.RuntimeLog.Valid && deployment.RuntimeLog.String != "" {
+			response["runtime_log"] = deployment.RuntimeLog.String
+		} else {
+			response["runtime_log"] = nil
 		}
 
 		// Add error message if available

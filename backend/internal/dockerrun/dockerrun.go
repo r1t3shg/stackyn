@@ -461,3 +461,38 @@ func (r *Runner) RemoveImage(ctx context.Context, imageName string) error {
 	log.Printf("[DOCKER] Image removed successfully: %s", imageName)
 	return nil
 }
+
+// GetLogs retrieves the runtime logs from a Docker container.
+// It returns an io.ReadCloser that contains the container's stdout and stderr logs.
+// The caller is responsible for closing the reader.
+//
+// Parameters:
+//   - ctx: Context for cancellation/timeout
+//   - containerID: The Docker container ID to get logs from
+//   - tail: Number of lines to fetch from the end (e.g., "100" for last 100 lines, "all" for all logs)
+//
+// Returns:
+//   - io.ReadCloser: A reader containing the container logs (must be closed by caller)
+//   - error: Error if log retrieval fails (container doesn't exist, etc.)
+func (r *Runner) GetLogs(ctx context.Context, containerID string, tail string) (io.ReadCloser, error) {
+	log.Printf("[DOCKER] Fetching logs for container: %s (tail: %s)", containerID, tail)
+	
+	// Use a timeout of 30 seconds for fetching logs
+	logsCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	
+	// Fetch container logs
+	logsReader, err := r.client.ContainerLogs(logsCtx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       tail,
+		Follow:     false, // Don't follow, just get current logs
+	})
+	if err != nil {
+		log.Printf("[DOCKER] ERROR - Failed to fetch logs for container %s: %v", containerID, err)
+		return nil, fmt.Errorf("failed to fetch container logs: %w", err)
+	}
+	
+	log.Printf("[DOCKER] Logs fetched successfully for container: %s", containerID)
+	return logsReader, nil
+}

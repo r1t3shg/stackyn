@@ -334,8 +334,26 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
+	// Step 10: Capture and store runtime logs
+	log.Printf("[ENGINE] Step 10: Capturing initial runtime logs from container %s...", containerID)
+	runtimeLogReader, runtimeLogErr := e.runner.GetLogs(ctx, containerID, "100")
+	if runtimeLogErr != nil {
+		log.Printf("[ENGINE] WARNING - Failed to fetch runtime logs: %v (continuing anyway)", runtimeLogErr)
+	} else {
+		runtimeLog, parseErr := logs.ParseRuntimeLog(runtimeLogReader)
+		if parseErr != nil {
+			log.Printf("[ENGINE] WARNING - Failed to parse runtime logs: %v (continuing anyway)", parseErr)
+		} else {
+			if updateErr := e.deploymentStore.UpdateRuntimeLog(deploymentID, runtimeLog); updateErr != nil {
+				log.Printf("[ENGINE] WARNING - Failed to update runtime log: %v (continuing anyway)", updateErr)
+			} else {
+				log.Printf("[ENGINE] Runtime logs captured and stored successfully")
+			}
+		}
+	}
+
 	// Update app status to "Healthy" and set URL
-	log.Printf("[ENGINE] Step 10: Updating app status to 'Healthy' with URL: %s", appURL)
+	log.Printf("[ENGINE] Step 11: Updating app status to 'Healthy' with URL: %s", appURL)
 	if err := e.appStore.UpdateStatusAndURL(deployment.AppID, "Healthy", appURL); err != nil {
 		log.Printf("[ENGINE] WARNING - Failed to update app status and URL: %v", err)
 	}
