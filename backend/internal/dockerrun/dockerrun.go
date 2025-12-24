@@ -344,21 +344,76 @@ func isWorkerAppFromLogs(logs string) bool {
 }
 
 func (r *Runner) Stop(ctx context.Context, containerID string) error {
-	return r.client.ContainerStop(ctx, containerID, container.StopOptions{})
+	log.Printf("[DOCKER] Stopping container: %s", containerID)
+	
+	// Use a timeout of 30 seconds for stopping the container
+	stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	
+	// Stop the container with a 10 second timeout (in seconds)
+	timeout := 10
+	err := r.client.ContainerStop(stopCtx, containerID, container.StopOptions{
+		Timeout: &timeout,
+	})
+	if err != nil {
+		// Check if container doesn't exist or is already stopped
+		if strings.Contains(err.Error(), "No such container") || 
+		   strings.Contains(err.Error(), "is not running") ||
+		   strings.Contains(err.Error(), "already stopped") {
+			log.Printf("[DOCKER] Container %s is already stopped or doesn't exist: %v", containerID, err)
+			return nil // Not an error if already stopped
+		}
+		log.Printf("[DOCKER] ERROR - Failed to stop container %s: %v", containerID, err)
+		return fmt.Errorf("failed to stop container %s: %w", containerID, err)
+	}
+	
+	log.Printf("[DOCKER] Container stopped successfully: %s", containerID)
+	return nil
 }
 
 func (r *Runner) Remove(ctx context.Context, containerID string) error {
-	return r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+	log.Printf("[DOCKER] Removing container: %s", containerID)
+	
+	// Use a timeout of 30 seconds for removing the container
+	removeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	
+	err := r.client.ContainerRemove(removeCtx, containerID, container.RemoveOptions{
+		Force: true, // Force removal even if running
+	})
+	if err != nil {
+		// Check if container doesn't exist
+		if strings.Contains(err.Error(), "No such container") {
+			log.Printf("[DOCKER] Container %s doesn't exist (may already be removed): %v", containerID, err)
+			return nil // Not an error if already removed
+		}
+		log.Printf("[DOCKER] ERROR - Failed to remove container %s: %v", containerID, err)
+		return fmt.Errorf("failed to remove container %s: %w", containerID, err)
+	}
+	
+	log.Printf("[DOCKER] Container removed successfully: %s", containerID)
+	return nil
 }
 
 // RemoveImage removes a Docker image by name
 func (r *Runner) RemoveImage(ctx context.Context, imageName string) error {
 	log.Printf("[DOCKER] Removing image: %s", imageName)
-	_, err := r.client.ImageRemove(ctx, imageName, image.RemoveOptions{
+	
+	// Use a timeout of 60 seconds for removing the image
+	removeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	
+	_, err := r.client.ImageRemove(removeCtx, imageName, image.RemoveOptions{
 		Force:         true, // Force removal even if in use
 		PruneChildren: true, // Remove all untagged parents
 	})
 	if err != nil {
+		// Check if image doesn't exist
+		if strings.Contains(err.Error(), "No such image") || 
+		   strings.Contains(err.Error(), "image not known") {
+			log.Printf("[DOCKER] Image %s doesn't exist (may already be removed): %v", imageName, err)
+			return nil // Not an error if already removed
+		}
 		log.Printf("[DOCKER] ERROR - Failed to remove image %s: %v", imageName, err)
 		return fmt.Errorf("failed to remove image %s: %w", imageName, err)
 	}

@@ -521,12 +521,10 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 
 		log.Printf("[API] DELETE /api/v1/apps/%d - Deleting app and cleaning up resources", id)
 
-		// Use request context for cleanup operations
-		// If request context is cancelled, use background context as fallback
-		ctx := r.Context()
-		if ctx.Err() != nil {
-			ctx = context.Background()
-		}
+		// Use a background context with timeout for cleanup operations
+		// This ensures cleanup completes even if the HTTP request is cancelled
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
 
 		// Step 1: Get all deployments for this app
 		appDeployments, err := deploymentStore.ListByAppID(id)
@@ -538,6 +536,7 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 			
 			// Step 2: Stop all Docker containers first
 			log.Printf("[API] Step 1: Stopping all Docker containers...")
+			stoppedContainers := make([]string, 0)
 			for i := range appDeployments {
 				deployment := appDeployments[i]
 				if deployment.ContainerID.Valid && deployment.ContainerID.String != "" {
@@ -546,11 +545,18 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 					
 					// Stop the container (ignore error if already stopped)
 					if stopErr := runner.Stop(ctx, containerID); stopErr != nil {
-						log.Printf("[API] WARNING - Failed to stop container %s: %v (may already be stopped)", containerID, stopErr)
+						log.Printf("[API] WARNING - Failed to stop container %s: %v (may already be stopped, will try to remove anyway)", containerID, stopErr)
 					} else {
 						log.Printf("[API] Container stopped successfully: %s", containerID)
+						stoppedContainers = append(stoppedContainers, containerID)
 					}
 				}
+			}
+			
+			// Wait a moment for containers to fully stop
+			if len(stoppedContainers) > 0 {
+				log.Printf("[API] Waiting 2 seconds for containers to fully stop...")
+				time.Sleep(2 * time.Second)
 			}
 			
 			// Step 3: Remove all containers (after they're stopped)
@@ -562,12 +568,16 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 					log.Printf("[API] Removing container: %s", containerID)
 					
 					if removeErr := runner.Remove(ctx, containerID); removeErr != nil {
-						log.Printf("[API] WARNING - Failed to remove container %s: %v", containerID, removeErr)
+						log.Printf("[API] WARNING - Failed to remove container %s: %v (continuing anyway)", containerID, removeErr)
 					} else {
 						log.Printf("[API] Container removed successfully: %s", containerID)
 					}
 				}
 			}
+			
+			// Wait a moment for containers to be fully removed before deleting images
+			log.Printf("[API] Waiting 1 second before deleting images...")
+			time.Sleep(1 * time.Second)
 			
 			// Step 4: Delete all Docker images (after containers are stopped and removed)
 			log.Printf("[API] Step 2: Deleting all Docker images...")
