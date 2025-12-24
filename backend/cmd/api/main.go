@@ -529,9 +529,15 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 		} else {
 			log.Printf("[API] Found %d deployment(s) for app %d, cleaning up containers and images...", len(appDeployments), id)
 			
+			// Use request context for cleanup operations
+			// If request context is cancelled, use background context as fallback
 			ctx := r.Context()
+			if ctx.Err() != nil {
+				ctx = context.Background()
+			}
 			// Clean up each deployment's containers and images
-			for _, deployment := range appDeployments {
+			for i := range appDeployments {
+				deployment := appDeployments[i]
 				// Stop and remove container if it exists
 				if deployment.ContainerID.Valid && deployment.ContainerID.String != "" {
 					containerID := deployment.ContainerID.String
@@ -563,13 +569,9 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 				}
 			}
 			
-			// Delete all deployments from database
-			log.Printf("[API] Deleting %d deployment(s) from database...", len(appDeployments))
-			for _, deployment := range appDeployments {
-				// Note: We don't have a Delete method in deployments.Store yet
-				// For now, deployments will be deleted via CASCADE when app is deleted
-				// But we could add explicit deletion if needed
-			}
+			// Note: Deployments will be deleted via CASCADE when app is deleted
+			// No explicit deletion needed as database foreign key handles it
+			log.Printf("[API] Deployments will be deleted via CASCADE when app is deleted")
 		}
 
 		// Finally, delete the app (this will cascade delete deployments if foreign key is set up)
