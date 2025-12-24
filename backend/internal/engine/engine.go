@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -193,9 +194,62 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Container started successfully - ID: %s", containerID)
 
-	// Step 6: Stop any previous running deployments for this app
-	// Ensure only one container is running per app
-	log.Printf("[ENGINE] Step 6: Stopping previous running deployments for app %d...", deployment.AppID)
+	// Step 6: Verify new container is healthy before stopping old containers
+	// This ensures zero-downtime deployment - old containers keep running if new one fails
+	appURL := fmt.Sprintf("https://%s.%s", subdomain, e.baseDomain)
+	log.Printf("[ENGINE] Step 6: Verifying new container health at %s...", appURL)
+	
+	// Wait a bit for Traefik to register the new container and for the app to start
+	log.Printf("[ENGINE] Waiting 5 seconds for Traefik routing and app initialization...")
+	time.Sleep(5 * time.Second)
+	
+	// Perform health check - try to reach the HTTP endpoint
+	healthCheckPassed := verifyContainerHealth(ctx, appURL)
+	
+	if !healthCheckPassed {
+		log.Printf("[ENGINE] ERROR - New container health check failed at %s", appURL)
+		log.Printf("[ENGINE] New container failed to respond - keeping old containers running")
+		
+		// Clean up the failed new container
+		log.Printf("[ENGINE] Cleaning up failed new container: %s", containerID)
+		if stopErr := e.runner.Stop(ctx, containerID); stopErr != nil {
+			log.Printf("[ENGINE] WARNING - Failed to stop failed container %s: %v", containerID, stopErr)
+		}
+		if removeErr := e.runner.Remove(ctx, containerID); removeErr != nil {
+			log.Printf("[ENGINE] WARNING - Failed to remove failed container %s: %v", containerID, removeErr)
+		}
+		
+		// Mark deployment as failed
+		errorMsg := fmt.Sprintf("Container health check failed - container did not respond at %s. Old deployment kept running.", appURL)
+		e.deploymentStore.UpdateError(deploymentID, errorMsg)
+		e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusFailed)
+		
+		// Restore app status to previous state (if there was a running deployment, keep it as Healthy)
+		previousDeployments, _ := e.deploymentStore.GetRunningByAppID(deployment.AppID)
+		if len(previousDeployments) > 0 {
+			// There's still a running deployment, keep app as Healthy
+			log.Printf("[ENGINE] Previous deployment(s) still running - keeping app status as Healthy")
+			// Get the most recent running deployment to restore its URL
+			if len(previousDeployments) > 0 {
+				prevDeployment := previousDeployments[0]
+				if prevDeployment.Subdomain.Valid {
+					prevURL := fmt.Sprintf("https://%s.%s", prevDeployment.Subdomain.String, e.baseDomain)
+					e.appStore.UpdateStatusAndURL(deployment.AppID, "Healthy", prevURL)
+				}
+			}
+		} else {
+			// No previous deployment, mark app as Failed
+			e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		}
+		
+		return fmt.Errorf("container health check failed: new container did not respond at %s", appURL)
+	}
+	
+	log.Printf("[ENGINE] New container health check passed - proceeding to stop old containers")
+
+	// Step 7: Stop any previous running deployments for this app
+	// Only stop old containers after new one is verified healthy
+	log.Printf("[ENGINE] Step 7: Stopping previous running deployments for app %d...", deployment.AppID)
 	previousDeployments, err := e.deploymentStore.GetRunningByAppID(deployment.AppID)
 	if err != nil {
 		log.Printf("[ENGINE] WARNING - Failed to get previous running deployments: %v", err)
@@ -237,22 +291,21 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 
 	// Update container info
-	log.Printf("[ENGINE] Step 7: Updating deployment with container info...")
+	log.Printf("[ENGINE] Step 8: Updating deployment with container info...")
 	if err := e.deploymentStore.UpdateContainer(deploymentID, containerID, subdomain); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update container info: %v", err)
 		return fmt.Errorf("failed to update container info: %w", err)
 	}
 
-	// Step 4: Mark as running
-	log.Printf("[ENGINE] Step 8: Updating deployment status to 'running'...")
+	// Step 9: Mark as running
+	log.Printf("[ENGINE] Step 9: Updating deployment status to 'running'...")
 	if err := e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusRunning); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update status: %v", err)
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
 	// Update app status to "Healthy" and set URL
-	appURL := fmt.Sprintf("https://%s.%s", subdomain, e.baseDomain)
-	log.Printf("[ENGINE] Step 9: Updating app status to 'Healthy' with URL: %s", appURL)
+	log.Printf("[ENGINE] Step 10: Updating app status to 'Healthy' with URL: %s", appURL)
 	if err := e.appStore.UpdateStatusAndURL(deployment.AppID, "Healthy", appURL); err != nil {
 		log.Printf("[ENGINE] WARNING - Failed to update app status and URL: %v", err)
 	}
@@ -468,4 +521,63 @@ func sanitizeSubdomain(name string) string {
 	}
 
 	return sanitized
+}
+
+// verifyContainerHealth checks if the container is responding to HTTP requests.
+// It attempts to reach the container's URL multiple times with retries.
+// Returns true if the container responds with any HTTP status code (even errors),
+// false if it cannot be reached at all.
+func verifyContainerHealth(ctx context.Context, url string) bool {
+	log.Printf("[ENGINE] Health check: Attempting to reach %s", url)
+	
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	
+	// Try up to 3 times with increasing delays
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("[ENGINE] Health check attempt %d/%d for %s", attempt, maxRetries, url)
+		
+		// Create request with context
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			log.Printf("[ENGINE] WARNING - Failed to create health check request: %v", err)
+			if attempt < maxRetries {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return false
+		}
+		
+		// Set a reasonable timeout for this request
+		req.Header.Set("User-Agent", "Stackyn-HealthCheck/1.0")
+		
+		// Make the request
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[ENGINE] Health check attempt %d failed: %v", attempt, err)
+			if attempt < maxRetries {
+				// Wait before retry (exponential backoff: 2s, 4s)
+				waitTime := time.Duration(attempt) * 2 * time.Second
+				log.Printf("[ENGINE] Waiting %v before retry...", waitTime)
+				time.Sleep(waitTime)
+				continue
+			}
+			log.Printf("[ENGINE] Health check failed after %d attempts: %v", maxRetries, err)
+			return false
+		}
+		
+		// Close response body
+		resp.Body.Close()
+		
+		// Any HTTP response (even 4xx/5xx) means the container is running and responding
+		// We consider it healthy if we get any response
+		log.Printf("[ENGINE] Health check passed - Container responded with status %d", resp.StatusCode)
+		return true
+	}
+	
+	log.Printf("[ENGINE] Health check failed - Container did not respond after %d attempts", maxRetries)
+	return false
 }
