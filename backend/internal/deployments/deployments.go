@@ -276,6 +276,36 @@ func (s *Store) ListByAppID(appID int) ([]*Deployment, error) {
 	return deployments, rows.Err()
 }
 
+// GetRunningByAppID retrieves all running deployments for a specific app.
+// This is used to stop previous deployments when a new one starts.
+//
+// Parameters:
+//   - appID: The ID of the app whose running deployments to retrieve
+//
+// Returns:
+//   - []*Deployment: A slice of all running deployments for the app, or nil on error
+//   - error: Database error if query fails
+func (s *Store) GetRunningByAppID(appID int) ([]*Deployment, error) {
+	rows, err := s.db.Query(
+		"SELECT id, app_id, status, image_name, container_id, subdomain, build_log, error_message, created_at, updated_at FROM deployments WHERE app_id = $1 AND status = $2",
+		appID, StatusRunning,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deployments []*Deployment
+	for rows.Next() {
+		var d Deployment
+		if err := rows.Scan(&d.ID, &d.AppID, &d.Status, &d.ImageName, &d.ContainerID, &d.Subdomain, &d.BuildLog, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		deployments = append(deployments, &d)
+	}
+	return deployments, rows.Err()
+}
+
 // DequeueNextPending atomically dequeues the next pending deployment and marks it as "building".
 // This method uses PostgreSQL's FOR UPDATE SKIP LOCKED to ensure only one worker can claim
 // a deployment at a time, even when multiple workers are running concurrently.

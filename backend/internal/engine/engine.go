@@ -188,15 +188,58 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Container started successfully - ID: %s", containerID)
 
+	// Step 6: Stop any previous running deployments for this app
+	// Ensure only one container is running per app
+	log.Printf("[ENGINE] Step 6: Stopping previous running deployments for app %d...", deployment.AppID)
+	previousDeployments, err := e.deploymentStore.GetRunningByAppID(deployment.AppID)
+	if err != nil {
+		log.Printf("[ENGINE] WARNING - Failed to get previous running deployments: %v", err)
+	} else if len(previousDeployments) > 0 {
+		log.Printf("[ENGINE] Found %d previous running deployment(s), stopping them...", len(previousDeployments))
+		for _, prevDeployment := range previousDeployments {
+			// Skip the current deployment
+			if prevDeployment.ID == deploymentID {
+				continue
+			}
+			
+			// Stop and remove the container if it exists
+			if prevDeployment.ContainerID.Valid && prevDeployment.ContainerID.String != "" {
+				prevContainerID := prevDeployment.ContainerID.String
+				log.Printf("[ENGINE] Stopping previous container: %s (deployment %d)", prevContainerID, prevDeployment.ID)
+				
+				// Stop the container
+				if stopErr := e.runner.Stop(ctx, prevContainerID); stopErr != nil {
+					log.Printf("[ENGINE] WARNING - Failed to stop previous container %s: %v (may already be stopped)", prevContainerID, stopErr)
+				} else {
+					log.Printf("[ENGINE] Previous container stopped: %s", prevContainerID)
+				}
+				
+				// Remove the container
+				if removeErr := e.runner.Remove(ctx, prevContainerID); removeErr != nil {
+					log.Printf("[ENGINE] WARNING - Failed to remove previous container %s: %v", prevContainerID, removeErr)
+				} else {
+					log.Printf("[ENGINE] Previous container removed: %s", prevContainerID)
+				}
+			}
+			
+			// Update deployment status to stopped
+			if err := e.deploymentStore.UpdateStatus(prevDeployment.ID, deployments.StatusStopped); err != nil {
+				log.Printf("[ENGINE] WARNING - Failed to update previous deployment status to stopped: %v", err)
+			} else {
+				log.Printf("[ENGINE] Previous deployment %d marked as stopped", prevDeployment.ID)
+			}
+		}
+	}
+
 	// Update container info
-	log.Printf("[ENGINE] Step 6: Updating deployment with container info...")
+	log.Printf("[ENGINE] Step 7: Updating deployment with container info...")
 	if err := e.deploymentStore.UpdateContainer(deploymentID, containerID, subdomain); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update container info: %v", err)
 		return fmt.Errorf("failed to update container info: %w", err)
 	}
 
 	// Step 4: Mark as running
-	log.Printf("[ENGINE] Step 7: Updating deployment status to 'running'...")
+	log.Printf("[ENGINE] Step 8: Updating deployment status to 'running'...")
 	if err := e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusRunning); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update status: %v", err)
 		return fmt.Errorf("failed to update status: %w", err)
@@ -204,7 +247,7 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 
 	// Update app status to "Healthy" and set URL
 	appURL := fmt.Sprintf("https://%s.%s", subdomain, e.baseDomain)
-	log.Printf("[ENGINE] Step 8: Updating app status to 'Healthy' with URL: %s", appURL)
+	log.Printf("[ENGINE] Step 9: Updating app status to 'Healthy' with URL: %s", appURL)
 	if err := e.appStore.UpdateStatusAndURL(deployment.AppID, "Healthy", appURL); err != nil {
 		log.Printf("[ENGINE] WARNING - Failed to update app status and URL: %v", err)
 	}
