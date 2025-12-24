@@ -12,15 +12,13 @@
 
 http:
   services:
-    # Frontend Service
-    frontend:
-      loadBalancer:
-        servers:
-          - url: "http://frontend:3000"
-
-    # Backend API Service
-    backend:
-      loadBalancer:
-        servers:
-          - url: "http://backend:8080"
+    # Note: Frontend and backend services are now configured via Docker labels
+    # in docker-compose.yml, so they don't need to be defined here.
+    # This file is kept for any additional custom services.
+    
+    # Backend API Service (kept for reference, but Docker labels take precedence)
+    # backend:
+    #   loadBalancer:
+    #     servers:
+    #       - url: "http://backend:8080"
 

@@ -14,34 +14,37 @@
 
 http:
   routers:
-    # Frontend Router - HTTP (for .local domains)
-    frontend-http:
-      rule: "Host(`stackyn.local`)"
-      entryPoints:
-        - web
-      service: frontend
-      middlewares:
-        - frontend-headers
+    # Note: Frontend routers are now configured via Docker labels in docker-compose.yml
+    # Commented out to avoid conflicts with Docker label-based configuration
+    
+    # # Frontend Router - HTTP (for .local domains)
+    # frontend-http:
+    #   rule: "Host(`stackyn.local`)"
+    #   entryPoints:
+    #     - web
+    #   service: frontend
+    #   middlewares:
+    #     - frontend-headers
 
-    # Frontend Router - HTTPS (for real domains with SSL)
-    frontend-https:
-      rule: "Host(`staging.stackyn.com`)"
-      entryPoints:
-        - websecure
-      service: frontend
-      tls:
-        certResolver: letsencrypt
-      middlewares:
-        - frontend-headers
+    # # Frontend Router - HTTPS (for real domains with SSL)
+    # frontend-https:
+    #   rule: "Host(`staging.stackyn.com`)"
+    #   entryPoints:
+    #     - websecure
+    #   service: frontend
+    #   tls:
+    #     certResolver: letsencrypt
+    #   middlewares:
+    #     - frontend-headers
 
-    # Frontend Router - HTTP to HTTPS redirect (for real domains)
-    frontend-redirect:
-      rule: "Host(`staging.stackyn.com`)"
-      entryPoints:
-        - web
-      middlewares:
-        - https-redirect
-      service: frontend
+    # # Frontend Router - HTTP to HTTPS redirect (for real domains)
+    # frontend-redirect:
+    #   rule: "Host(`staging.stackyn.com`)"
+    #   entryPoints:
+    #     - web
+    #   middlewares:
+    #     - https-redirect
+    #   service: frontend
 
     # Backend API Router - HTTP (for .local domains)
     backend-http:
