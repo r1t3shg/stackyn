@@ -19,6 +19,13 @@ export interface App {
       cpu: number;
       disk_gb: number;
     };
+    usage_stats?: {
+      memory_usage_mb: number;
+      memory_usage_percent: number;
+      disk_usage_gb: number;
+      disk_usage_percent: number;
+      restart_count: number;
+    };
   };
 }
 

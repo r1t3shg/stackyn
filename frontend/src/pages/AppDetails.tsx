@@ -276,6 +276,84 @@ export default function AppDetailsPage() {
                     </div>
                   </div>
                 )}
+                
+                {app.deployment.usage_stats && (
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Resource Usage</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Memory Usage */}
+                      <div className="bg-white rounded-lg p-3 border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-gray-500">Memory Usage</p>
+                          <p className="text-xs font-semibold text-gray-900">
+                            {app.deployment.usage_stats.memory_usage_percent.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              app.deployment.usage_stats.memory_usage_percent > 90
+                                ? 'bg-red-500'
+                                : app.deployment.usage_stats.memory_usage_percent > 70
+                                ? 'bg-yellow-500'
+                                : 'bg-green-500'
+                            }`}
+                            style={{
+                              width: `${Math.min(app.deployment.usage_stats.memory_usage_percent, 100)}%`,
+                            }}
+                          ></div>
+                        </div>
+                        <p className="text-xs text-gray-600">
+                          {app.deployment.usage_stats.memory_usage_mb} MB /{' '}
+                          {app.deployment.resource_limits?.memory_mb || 0} MB
+                        </p>
+                      </div>
+                      
+                      {/* Disk Usage */}
+                      <div className="bg-white rounded-lg p-3 border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-gray-500">Disk Usage</p>
+                          <p className="text-xs font-semibold text-gray-900">
+                            {app.deployment.usage_stats.disk_usage_percent.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              app.deployment.usage_stats.disk_usage_percent > 90
+                                ? 'bg-red-500'
+                                : app.deployment.usage_stats.disk_usage_percent > 70
+                                ? 'bg-yellow-500'
+                                : 'bg-green-500'
+                            }`}
+                            style={{
+                              width: `${Math.min(app.deployment.usage_stats.disk_usage_percent, 100)}%`,
+                            }}
+                          ></div>
+                        </div>
+                        <p className="text-xs text-gray-600">
+                          {app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB /{' '}
+                          {app.deployment.resource_limits?.disk_gb || 0} GB
+                        </p>
+                      </div>
+                      
+                      {/* Restart Count */}
+                      <div className="bg-white rounded-lg p-3 border border-gray-200">
+                        <p className="text-xs text-gray-500 mb-1">Restart Count</p>
+                        <p className="text-lg font-semibold text-gray-900">
+                          {app.deployment.usage_stats.restart_count}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {app.deployment.usage_stats.restart_count === 0
+                            ? 'No restarts'
+                            : app.deployment.usage_stats.restart_count === 1
+                            ? 'Restarted once'
+                            : `Restarted ${app.deployment.usage_stats.restart_count} times`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

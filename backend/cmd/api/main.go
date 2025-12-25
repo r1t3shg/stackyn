@@ -420,9 +420,9 @@ func getApp(appStore *apps.Store, deploymentStore *deployments.Store, runner *do
 				"state":                state,
 			}
 			
-			// Try to get resource limits from Docker container if it exists
+			// Try to get resource limits and usage stats from Docker container if it exists
 			if activeDeployment.ContainerID.Valid && activeDeployment.ContainerID.String != "" {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				
 				memoryLimitMB, cpuLimit, diskLimitGB, limitsErr := runner.GetResourceLimits(ctx, activeDeployment.ContainerID.String)
@@ -434,6 +434,23 @@ func getApp(appStore *apps.Store, deploymentStore *deployments.Store, runner *do
 					}
 					log.Printf("[API] Resource limits retrieved - Memory: %d MB, CPU: %.2f, Disk: %d GB", 
 						memoryLimitMB, cpuLimit, diskLimitGB)
+					
+					// Get usage stats
+					usageStats, usageErr := runner.GetContainerUsageStats(ctx, activeDeployment.ContainerID.String, memoryLimitMB, diskLimitGB)
+					if usageErr == nil {
+						deploymentInfo["usage_stats"] = map[string]interface{}{
+							"memory_usage_mb":     usageStats.MemoryUsageMB,
+							"memory_usage_percent": usageStats.MemoryUsagePercent,
+							"disk_usage_gb":        usageStats.DiskUsageGB,
+							"disk_usage_percent":   usageStats.DiskUsagePercent,
+							"restart_count":        usageStats.RestartCount,
+						}
+						log.Printf("[API] Usage stats retrieved - Memory: %d MB (%.1f%%), Disk: %.2f GB (%.1f%%), Restarts: %d",
+							usageStats.MemoryUsageMB, usageStats.MemoryUsagePercent,
+							usageStats.DiskUsageGB, usageStats.DiskUsagePercent, usageStats.RestartCount)
+					} else {
+						log.Printf("[API] WARNING - Failed to get usage stats: %v", usageErr)
+					}
 				} else {
 					log.Printf("[API] WARNING - Failed to get resource limits: %v", limitsErr)
 				}

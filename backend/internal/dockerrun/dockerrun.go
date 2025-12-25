@@ -17,10 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"encoding/json"
 )
 
 type Runner struct {
@@ -557,4 +559,119 @@ func (r *Runner) GetResourceLimits(ctx context.Context, containerID string) (mem
 		containerID, memoryLimitMB, cpuLimit, diskLimitGB)
 	
 	return memoryLimitMB, cpuLimit, diskLimitGB, nil
+}
+
+// ContainerUsageStats represents the current usage statistics for a container
+type ContainerUsageStats struct {
+	MemoryUsageMB    int64   // Current memory usage in MB
+	MemoryUsagePercent float64 // Memory usage as percentage of limit
+	DiskUsageGB      float64 // Current disk usage in GB (writable layer size)
+	DiskUsagePercent float64 // Disk usage as percentage of limit
+	RestartCount     int64   // Number of times container has been restarted
+}
+
+// GetContainerUsageStats retrieves the current usage statistics for a Docker container.
+// This includes memory usage, disk usage, and restart count.
+//
+// Parameters:
+//   - ctx: Context for cancellation/timeout
+//   - containerID: The Docker container ID to get stats for
+//   - memoryLimitMB: The memory limit in MB (to calculate percentage)
+//   - diskLimitGB: The disk limit in GB (to calculate percentage)
+//
+// Returns:
+//   - *ContainerUsageStats: Container usage statistics
+//   - error: Error if stats retrieval fails
+func (r *Runner) GetContainerUsageStats(ctx context.Context, containerID string, memoryLimitMB int64, diskLimitGB int64) (*ContainerUsageStats, error) {
+	log.Printf("[DOCKER] Fetching usage stats for container: %s", containerID)
+	
+	// Use a timeout of 10 seconds for inspecting the container
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	
+	// Get container inspection for restart count and disk size
+	containerInfo, err := r.client.ContainerInspect(inspectCtx, containerID)
+	if err != nil {
+		log.Printf("[DOCKER] ERROR - Failed to inspect container %s: %v", containerID, err)
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	
+	// Get restart count
+	restartCount := int64(containerInfo.RestartCount)
+	
+	// Get disk usage from container size (writable layer size in bytes)
+	// SizeRw is the size of the files that have been created or changed in the container
+	var diskUsageGB float64
+	if containerInfo.SizeRw > 0 {
+		diskUsageGB = float64(containerInfo.SizeRw) / (1024 * 1024 * 1024) // Convert bytes to GB
+	}
+	
+	// Get memory usage from container stats
+	statsCtx, statsCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer statsCancel()
+	
+	statsResponse, err := r.client.ContainerStats(statsCtx, containerID, false)
+	if err != nil {
+		log.Printf("[DOCKER] ERROR - Failed to get container stats %s: %v", containerID, err)
+		// Return partial stats if stats fail
+		return &ContainerUsageStats{
+			MemoryUsageMB:     0,
+			MemoryUsagePercent: 0,
+			DiskUsageGB:       diskUsageGB,
+			DiskUsagePercent:  calculatePercent(diskUsageGB, float64(diskLimitGB)),
+			RestartCount:      restartCount,
+		}, nil
+	}
+	defer statsResponse.Body.Close()
+	
+	// Parse stats JSON
+	var stats types.StatsJSON
+	if err := json.NewDecoder(statsResponse.Body).Decode(&stats); err != nil {
+		log.Printf("[DOCKER] ERROR - Failed to decode container stats %s: %v", containerID, err)
+		// Return partial stats if decode fails
+		return &ContainerUsageStats{
+			MemoryUsageMB:     0,
+			MemoryUsagePercent: 0,
+			DiskUsageGB:       diskUsageGB,
+			DiskUsagePercent:  calculatePercent(diskUsageGB, float64(diskLimitGB)),
+			RestartCount:      restartCount,
+		}, nil
+	}
+	
+	// Calculate memory usage
+	// MemoryStats.Usage is the current memory usage in bytes
+	memoryUsageBytes := int64(stats.MemoryStats.Usage)
+	memoryUsageMB := memoryUsageBytes / (1024 * 1024)
+	
+	// Calculate memory usage percentage
+	var memoryUsagePercent float64
+	if memoryLimitMB > 0 {
+		memoryUsagePercent = (float64(memoryUsageMB) / float64(memoryLimitMB)) * 100
+	}
+	
+	// Calculate disk usage percentage
+	diskUsagePercent := calculatePercent(diskUsageGB, float64(diskLimitGB))
+	
+	log.Printf("[DOCKER] Usage stats for container %s - Memory: %d MB (%.1f%%), Disk: %.2f GB (%.1f%%), Restarts: %d",
+		containerID, memoryUsageMB, memoryUsagePercent, diskUsageGB, diskUsagePercent, restartCount)
+	
+	return &ContainerUsageStats{
+		MemoryUsageMB:     memoryUsageMB,
+		MemoryUsagePercent: memoryUsagePercent,
+		DiskUsageGB:       diskUsageGB,
+		DiskUsagePercent:  diskUsagePercent,
+		RestartCount:      restartCount,
+	}, nil
+}
+
+// calculatePercent calculates percentage, handling edge cases
+func calculatePercent(used, limit float64) float64 {
+	if limit <= 0 {
+		return 0
+	}
+	percent := (used / limit) * 100
+	if percent > 100 {
+		return 100
+	}
+	return percent
 }
