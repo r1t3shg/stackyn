@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -602,8 +601,8 @@ func (r *Runner) GetContainerUsageStats(ctx context.Context, containerID string,
 	// Get disk usage from container size (writable layer size in bytes)
 	// SizeRw is the size of the files that have been created or changed in the container
 	var diskUsageGB float64
-	if containerInfo.SizeRw > 0 {
-		diskUsageGB = float64(containerInfo.SizeRw) / (1024 * 1024 * 1024) // Convert bytes to GB
+	if containerInfo.SizeRw != nil && *containerInfo.SizeRw > 0 {
+		diskUsageGB = float64(*containerInfo.SizeRw) / (1024 * 1024 * 1024) // Convert bytes to GB
 	}
 	
 	// Get memory usage from container stats
@@ -625,7 +624,7 @@ func (r *Runner) GetContainerUsageStats(ctx context.Context, containerID string,
 	defer statsResponse.Body.Close()
 	
 	// Parse stats JSON
-	var stats types.StatsJSON
+	var stats container.Stats
 	if err := json.NewDecoder(statsResponse.Body).Decode(&stats); err != nil {
 		log.Printf("[DOCKER] ERROR - Failed to decode container stats %s: %v", containerID, err)
 		// Return partial stats if decode fails

@@ -14,6 +14,7 @@ require (
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
+	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
@@ -35,7 +36,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.28.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
+	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
