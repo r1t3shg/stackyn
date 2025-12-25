@@ -23,9 +23,12 @@ export default function AppDetailsPage() {
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
   const [addingEnvVar, setAddingEnvVar] = useState(false);
+  const [envVarsError, setEnvVarsError] = useState<string | null>(null);
+  const [loadingEnvVars, setLoadingEnvVars] = useState(false);
 
   useEffect(() => {
     if (appId) {
+      console.log('Loading app details for ID:', appId);
       loadApp();
       loadDeployments();
       loadEnvVars();
@@ -55,11 +58,20 @@ export default function AppDetailsPage() {
   };
 
   const loadEnvVars = async () => {
+    setLoadingEnvVars(true);
+    setEnvVarsError(null);
     try {
       const data = await appsApi.getEnvVars(appId);
       setEnvVars(data);
+      console.log('Environment variables loaded:', data);
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load environment variables';
       console.error('Error loading environment variables:', err);
+      setEnvVarsError(errorMessage);
+      // Still show the section even if there's an error
+      setEnvVars([]);
+    } finally {
+      setLoadingEnvVars(false);
     }
   };
 
@@ -242,6 +254,7 @@ export default function AppDetailsPage() {
           )}
         </div>
 
+        {/* Environment Variables Section */}
         <div className="bg-white rounded-lg shadow-md p-8 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-gray-900">Environment Variables</h2>
@@ -253,7 +266,15 @@ export default function AppDetailsPage() {
             </button>
           </div>
 
-          {showAddEnvVar && (
+          {envVarsError && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <p className="text-yellow-800 text-sm">
+                <strong>Warning:</strong> {envVarsError}
+              </p>
+            </div>
+          )}
+
+          {!loadingEnvVars && showAddEnvVar && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -291,7 +312,12 @@ export default function AppDetailsPage() {
             </div>
           )}
 
-          {envVars.length === 0 ? (
+          {loadingEnvVars ? (
+            <div className="text-center py-8 text-gray-500">
+              <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mb-2"></div>
+              <p>Loading environment variables...</p>
+            </div>
+          ) : envVars.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p>No environment variables configured</p>
               <p className="text-sm mt-2">Add environment variables that will be injected into your running container</p>
