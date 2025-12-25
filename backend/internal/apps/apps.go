@@ -17,8 +17,12 @@ package apps
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
+	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type App struct {
@@ -50,6 +54,21 @@ func (s *Store) Create(userID, name, repoURL, branch string) (*App, error) {
 		userID, name, repoURL, branch,
 	).Scan(&app.ID, &app.UserID, &app.Name, &app.RepoURL, &app.Branch, &app.URL, &app.Status, &app.CreatedAt, &app.UpdatedAt)
 	if err != nil {
+		// Check if it's a unique constraint violation (duplicate app name for this user)
+		if pqErr, ok := err.(*pq.Error); ok {
+			if pqErr.Code == "23505" { // unique_violation
+				// Check if it's the user_id+name unique constraint
+				// The constraint name might be the index name or a generated constraint name
+				constraintName := strings.ToLower(pqErr.Constraint)
+				errorMessage := strings.ToLower(pqErr.Message)
+				if strings.Contains(constraintName, "user_id") && strings.Contains(constraintName, "name") ||
+					strings.Contains(errorMessage, "user_id") && strings.Contains(errorMessage, "name") ||
+					strings.Contains(constraintName, "idx_apps_user_id_name_unique") ||
+					strings.Contains(errorMessage, "idx_apps_user_id_name_unique") {
+					return nil, errors.New("an app with this name already exists")
+				}
+			}
+		}
 		return nil, err
 	}
 	log.Printf("App created with ID: %s, branch saved as: '%s'", app.ID, app.Branch)

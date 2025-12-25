@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -276,6 +277,14 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 		app, err := appStore.Create(userID, req.Name, req.RepoURL, req.Branch)
 		if err != nil {
 			log.Printf("[API] ERROR - Failed to create app: %v", err)
+			// Check if it's a duplicate app name error
+			if strings.Contains(err.Error(), "an app with this name already exists") {
+				respondJSON(w, http.StatusConflict, map[string]interface{}{
+					"error": "An app with this name already exists. Please choose a different name.",
+					"app":   nil,
+				})
+				return
+			}
 			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
 				"error": err.Error(),
 				"app":   nil,
