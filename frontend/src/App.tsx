@@ -11,9 +11,25 @@ import Login from './pages/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
+  // Check if we're on the console subdomain
+  const isConsoleSubdomain = typeof window !== 'undefined' && 
+    window.location.hostname === 'console.staging.stackyn.com';
+
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      {/* On console subdomain, root shows apps list; otherwise show landing page */}
+      <Route 
+        path="/" 
+        element={
+          isConsoleSubdomain ? (
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          ) : (
+            <LandingPage />
+          )
+        } 
+      />
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/pricing" element={<Pricing />} />

@@ -45,6 +45,7 @@ http:
         accessControlAllowOriginList:
           - "https://stackyn.local"
           - "https://staging.stackyn.com"
+          - "https://console.staging.stackyn.com"
         accessControlMaxAge: 100
         addVaryHeader: true
 
