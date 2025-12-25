@@ -4,12 +4,14 @@ import { appsApi, healthCheck } from '@/lib/api';
 import type { App } from '@/lib/types';
 import AppCard from '@/components/AppCard';
 import { API_BASE_URL } from '@/lib/config';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Home() {
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     // Test backend connection first
@@ -32,7 +34,7 @@ export default function Home() {
     try {
       setLoading(true);
       setError(null);
-      console.log('Loading apps from:', `${API_BASE_URL}/api/v1/apps`);
+      console.log('Loading apps from:', `${API_BASE_URL}/api/apps`);
       const data = await appsApi.list();
       console.log('Apps loaded successfully:', data);
       // Ensure data is always an array, never null or undefined
@@ -52,13 +54,26 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Applications</h1>
-          <Link
-            to="/apps/new"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-          >
-            + Create New App
-          </Link>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">My Applications</h1>
+            {user && (
+              <p className="text-sm text-gray-600 mt-1">Signed in as {user.email}</p>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <Link
+              to="/apps/new"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+            >
+              + Create New App
+            </Link>
+            <button
+              onClick={logout}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         {loading && (
@@ -87,7 +102,7 @@ export default function Home() {
             <ul className="text-red-700 text-sm list-disc list-inside mb-4 space-y-1">
               <li>Backend API is running: <code className="bg-red-100 px-1 rounded">go run cmd/api/main.go</code></li>
               <li>Backend is accessible at: <code className="bg-red-100 px-1 rounded">http://localhost:8080</code></li>
-              <li>API endpoint: <code className="bg-red-100 px-1 rounded">{API_BASE_URL}/api/v1/apps</code></li>
+              <li>API endpoint: <code className="bg-red-100 px-1 rounded">{API_BASE_URL}/api/apps</code></li>
               <li>Check browser console (F12) for more details</li>
               <li>Verify CORS is enabled in backend (should be after recent update)</li>
             </ul>

@@ -42,13 +42,13 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-func (s *Store) Create(name, repoURL, branch string) (*App, error) {
-	log.Printf("Creating app with branch: '%s'", branch)
+func (s *Store) Create(userID, name, repoURL, branch string) (*App, error) {
+	log.Printf("Creating app with branch: '%s' for user: %s", branch, userID)
 	var app App
 	err := s.db.QueryRow(
-		"INSERT INTO apps (name, repo_url, branch) VALUES ($1, $2, $3) RETURNING id, name, repo_url, branch, COALESCE(url, '') as url, COALESCE(status, '') as status, created_at, updated_at",
-		name, repoURL, branch,
-	).Scan(&app.ID, &app.Name, &app.RepoURL, &app.Branch, &app.URL, &app.Status, &app.CreatedAt, &app.UpdatedAt)
+		"INSERT INTO apps (user_id, name, repo_url, branch) VALUES ($1, $2, $3, $4) RETURNING id, user_id, name, repo_url, branch, COALESCE(url, '') as url, COALESCE(status, '') as status, created_at, updated_at",
+		userID, name, repoURL, branch,
+	).Scan(&app.ID, &app.UserID, &app.Name, &app.RepoURL, &app.Branch, &app.URL, &app.Status, &app.CreatedAt, &app.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

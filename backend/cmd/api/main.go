@@ -35,6 +35,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"mvp-be/internal/apps"
+	"mvp-be/internal/auth"
 	"mvp-be/internal/config"
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
@@ -42,12 +43,9 @@ import (
 	"mvp-be/internal/envvars"
 	"mvp-be/internal/gitrepo"
 	"mvp-be/internal/logs"
+	"mvp-be/internal/users"
 )
 
-// contextKey is a type for context keys to avoid collisions
-type contextKey string
-
-const userIDKey contextKey = "user_id"
 
 // main is the entry point for the API server.
 // It performs the following initialization steps:
@@ -92,6 +90,7 @@ func main() {
 	appStore := apps.NewStore(database.DB)
 	deploymentStore := deployments.NewStore(database.DB)
 	envVarStore := envvars.NewStore(database.DB)
+	userStore := users.NewStore(database.DB)
 	log.Println("Data stores initialized")
 
 	// Initialize git cloner for Dockerfile validation
@@ -140,21 +139,18 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 
-	// Required APIs
-	// GET : Fetch all apps
-	// POST : create app
-	// GET : fetch app by id
-	// POST : redeploy
-	// GET : deployment status
-	// GET : logs
-	// POST : add env var
-	// DELETE : env var
+	// Public authentication endpoints (no auth required)
+	r.Route("/api/auth", func(r chi.Router) {
+		r.Post("/signup", signup(userStore))
+		r.Post("/login", login(userStore))
+	})
 
-	// API routes
+	// Protected API routes (require authentication)
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(auth.AuthMiddleware) // All routes under /api/v1 require authentication
+
 		// Apps endpoints
 		r.Route("/apps", func(r chi.Router) {
-			r.Get("/", listApps(appStore))
 			r.Post("/", createApp(appStore, deploymentStore, cloner))
 			r.Get("/{id}", getApp(appStore, deploymentStore))
 			r.Delete("/{id}", deleteApp(appStore, deploymentStore, runner))
@@ -173,8 +169,11 @@ func main() {
 		})
 	})
 
-	// New API route for listing apps by user (GET /api/apps)
-	r.Get("/api/apps", listAppsByUser(appStore))
+	// Authenticated endpoint for listing apps by user (GET /api/apps)
+	r.Route("/api/apps", func(r chi.Router) {
+		r.Use(auth.AuthMiddleware)
+		r.Get("/", listAppsByUser(appStore))
+	})
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -187,17 +186,19 @@ func main() {
 	log.Printf("=== API server starting on port %s ===", port)
 	log.Println("API endpoints available:")
 	log.Println("  GET  /health - Health check")
-	log.Println("  GET  /api/v1/apps - List all apps")
-	log.Println("  POST /api/v1/apps - Create new app")
-	log.Println("  GET  /api/v1/apps/{id} - Get app by ID")
-	log.Println("  DELETE /api/v1/apps/{id} - Delete app")
-	log.Println("  POST /api/v1/apps/{id}/redeploy - Redeploy app")
-	log.Println("  GET  /api/v1/apps/{id}/deployments - List deployments")
-	log.Println("  GET  /api/v1/deployments/{id} - Get deployment")
-	log.Println("  GET  /api/v1/deployments/{id}/logs - Get deployment logs")
-	log.Println("  GET  /api/v1/apps/{id}/env - List environment variables")
-	log.Println("  POST /api/v1/apps/{id}/env - Create/update environment variable")
-	log.Println("  DELETE /api/v1/apps/{id}/env/{key} - Delete environment variable")
+	log.Println("  POST /api/auth/signup - Sign up new user")
+	log.Println("  POST /api/auth/login - Login user")
+	log.Println("  GET  /api/apps - List apps for authenticated user (protected)")
+	log.Println("  POST /api/v1/apps - Create new app (protected)")
+	log.Println("  GET  /api/v1/apps/{id} - Get app by ID (protected)")
+	log.Println("  DELETE /api/v1/apps/{id} - Delete app (protected)")
+	log.Println("  POST /api/v1/apps/{id}/redeploy - Redeploy app (protected)")
+	log.Println("  GET  /api/v1/apps/{id}/deployments - List deployments (protected)")
+	log.Println("  GET  /api/v1/deployments/{id} - Get deployment (protected)")
+	log.Println("  GET  /api/v1/deployments/{id}/logs - Get deployment logs (protected)")
+	log.Println("  GET  /api/v1/apps/{id}/env - List environment variables (protected)")
+	log.Println("  POST /api/v1/apps/{id}/env - Create/update environment variable (protected)")
+	log.Println("  DELETE /api/v1/apps/{id}/env/{key} - Delete environment variable (protected)")
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
@@ -246,9 +247,17 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 			return
 		}
 
+		// Get user_id from context (set by auth middleware)
+		userID, ok := auth.GetUserID(r)
+		if !ok {
+			log.Printf("[API] ERROR - User ID not found in context")
+			respondError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+
 		// Create app first
-		log.Printf("[API] Creating app in database...")
-		app, err := appStore.Create(req.Name, req.RepoURL, req.Branch)
+		log.Printf("[API] Creating app in database for user: %s", userID)
+		app, err := appStore.Create(userID, req.Name, req.RepoURL, req.Branch)
 		if err != nil {
 			log.Printf("[API] ERROR - Failed to create app: %v", err)
 			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
@@ -793,18 +802,106 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
 }
 
-// getUserID extracts user_id from request context.
-// Assumes authentication middleware has set user_id in context.
-func getUserID(r *http.Request) (string, bool) {
-	// Try different context key formats that might be used
-	if userID, ok := r.Context().Value(userIDKey).(string); ok {
-		return userID, true
+// signup handles POST /api/auth/signup
+func signup(store *users.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if req.Email == "" || req.Password == "" {
+			respondError(w, http.StatusBadRequest, "email and password are required")
+			return
+		}
+
+		// Check if user already exists
+		_, err := store.GetUserByEmail(req.Email)
+		if err == nil {
+			respondError(w, http.StatusConflict, "Email already registered")
+			return
+		}
+
+		// Create new user
+		user, err := store.CreateUser(req.Email, req.Password)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to create user: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to create user")
+			return
+		}
+
+		// Generate JWT token
+		token, err := auth.GenerateToken(user.ID, user.Email)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to generate token: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to generate token")
+			return
+		}
+
+		respondJSON(w, http.StatusCreated, map[string]interface{}{
+			"user": map[string]interface{}{
+				"id":    user.ID,
+				"email": user.Email,
+			},
+			"token": token,
+		})
 	}
-	// Also try string key directly (common pattern)
-	if userID, ok := r.Context().Value("user_id").(string); ok {
-		return userID, true
+}
+
+// login handles POST /api/auth/login
+func login(store *users.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if req.Email == "" || req.Password == "" {
+			respondError(w, http.StatusBadRequest, "email and password are required")
+			return
+		}
+
+		// Get user by email
+		user, err := store.GetUserByEmail(req.Email)
+		if err != nil {
+			log.Printf("[API] ERROR - User not found: %v", err)
+			respondError(w, http.StatusUnauthorized, "Invalid email or password")
+			return
+		}
+
+		// Verify password
+		if !store.VerifyPassword(user, req.Password) {
+			log.Printf("[API] ERROR - Invalid password for user: %s", req.Email)
+			respondError(w, http.StatusUnauthorized, "Invalid email or password")
+			return
+		}
+
+		// Generate JWT token
+		token, err := auth.GenerateToken(user.ID, user.Email)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to generate token: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to generate token")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"user": map[string]interface{}{
+				"id":    user.ID,
+				"email": user.Email,
+			},
+			"token": token,
+		})
 	}
-	return "", false
 }
 
 // listAppsByUser handles GET /api/apps
@@ -826,8 +923,8 @@ func getUserID(r *http.Request) (string, bool) {
 //	]
 func listAppsByUser(store *apps.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract user_id from request context
-		userID, ok := getUserID(r)
+		// Extract user_id from request context (set by auth middleware)
+		userID, ok := auth.GetUserID(r)
 		if !ok {
 			respondError(w, http.StatusUnauthorized, "user_id not found in request context")
 			return
