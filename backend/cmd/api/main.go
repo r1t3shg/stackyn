@@ -703,6 +703,31 @@ func deleteApp(appStore *apps.Store, deploymentStore *deployments.Store, runner 
 			}
 			
 			log.Printf("[API] Docker cleanup summary for app %d: %d images deleted, %d failed", id, deletedImages, failedImages)
+			
+			// Step 4.5: Clean up cloned repository directories
+			// Note: This cleanup attempts to remove repos from /tmp/mvp-deployments.
+			// If API and worker run in separate containers without shared volumes,
+			// this may fail silently (logged as warning). In that case, repos should
+			// be cleaned up manually or via a shared volume/cleanup job.
+			log.Printf("[API] Step 2.5: Cleaning up cloned repository directories...")
+			cleanedRepos := 0
+			failedRepos := 0
+			// Worker clones repos to /tmp/mvp-deployments/deployment-{deploymentID}
+			workerWorkDir := "/tmp/mvp-deployments"
+			for i := range appDeployments {
+				deployment := appDeployments[i]
+				repoDir := fmt.Sprintf("%s/deployment-%d", workerWorkDir, deployment.ID)
+				log.Printf("[API] Attempting to remove cloned repository: %s (deployment ID: %d)", repoDir, deployment.ID)
+				
+				if err := os.RemoveAll(repoDir); err != nil {
+					log.Printf("[API] WARNING - Failed to remove cloned repository %s: %v (may be in different container)", repoDir, err)
+					failedRepos++
+				} else {
+					log.Printf("[API] Cloned repository removed successfully: %s", repoDir)
+					cleanedRepos++
+				}
+			}
+			log.Printf("[API] Repository cleanup summary for app %d: %d repos cleaned, %d failed", id, cleanedRepos, failedRepos)
 		}
 
 		// Step 5: Finally, delete the app from PostgreSQL database (this will cascade delete deployments)
