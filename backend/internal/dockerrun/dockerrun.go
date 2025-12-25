@@ -65,11 +65,12 @@ func NewRunner(dockerHost string) (*Runner, error) {
 //   - appID: Application ID for container naming
 //   - deploymentID: Deployment ID for container naming
 //   - internalPort: Port the application listens on inside the container
+//   - envVars: Map of environment variables to inject into the container (key-value pairs)
 //
 // Returns:
 //   - containerID: Docker container ID on success
 //   - error: Detailed error if container creation/start fails
-func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string, appID, deploymentID int, internalPort int) (string, error) {
+func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain string, appID, deploymentID int, internalPort int, envVars map[string]string) (string, error) {
 	// Build FQDN and determine router/service names
 	fqdn := fmt.Sprintf("%s.%s", subdomain, baseDomain)
 	routerName := subdomain
@@ -100,10 +101,18 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		"traefik.http.services." + serviceName + ".loadbalancer.server.port": strconv.Itoa(internalPort),
 	}
 
+	// Convert environment variables map to slice of strings in KEY=VALUE format
+	envSlice := make([]string, 0, len(envVars))
+	for key, value := range envVars {
+		envSlice = append(envSlice, fmt.Sprintf("%s=%s", key, value))
+	}
+	log.Printf("[DOCKER] Injecting %d environment variable(s) into container", len(envSlice))
+
 	// Create container config
 	containerConfig := &container.Config{
-		Image:  imageName,
-		Labels: labels,
+		Image:      imageName,
+		Labels:     labels,
+		Env:        envSlice,
 	}
 
 	// Resource limits constants

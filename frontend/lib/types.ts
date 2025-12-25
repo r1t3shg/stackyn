@@ -67,4 +67,18 @@ export interface CreateAppResponse {
   error?: string;
 }
 
+export interface EnvVar {
+  id: number;
+  app_id: number;
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEnvVarRequest {
+  key: string;
+  value: string;
+}
+
 

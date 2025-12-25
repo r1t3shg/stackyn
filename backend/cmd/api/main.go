@@ -39,6 +39,7 @@ import (
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
 	"mvp-be/internal/dockerrun"
+	"mvp-be/internal/envvars"
 	"mvp-be/internal/gitrepo"
 	"mvp-be/internal/logs"
 )
@@ -90,6 +91,7 @@ func main() {
 	log.Println("Initializing data stores...")
 	appStore := apps.NewStore(database.DB)
 	deploymentStore := deployments.NewStore(database.DB)
+	envVarStore := envvars.NewStore(database.DB)
 	log.Println("Data stores initialized")
 
 	// Initialize git cloner for Dockerfile validation
@@ -158,6 +160,10 @@ func main() {
 			r.Delete("/{id}", deleteApp(appStore, deploymentStore, runner))
 			r.Post("/{id}/redeploy", redeployApp(appStore, deploymentStore, cloner))
 			r.Get("/{id}/deployments", listDeployments(deploymentStore))
+			// Environment variables endpoints
+			r.Get("/{id}/env", listEnvVars(envVarStore))
+			r.Post("/{id}/env", createEnvVar(envVarStore))
+			r.Delete("/{id}/env/{key}", deleteEnvVar(envVarStore))
 		})
 
 		// Deployments endpoints
@@ -189,6 +195,9 @@ func main() {
 	log.Println("  GET  /api/v1/apps/{id}/deployments - List deployments")
 	log.Println("  GET  /api/v1/deployments/{id} - Get deployment")
 	log.Println("  GET  /api/v1/deployments/{id}/logs - Get deployment logs")
+	log.Println("  GET  /api/v1/apps/{id}/env - List environment variables")
+	log.Println("  POST /api/v1/apps/{id}/env - Create/update environment variable")
+	log.Println("  DELETE /api/v1/apps/{id}/env/{key} - Delete environment variable")
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
@@ -834,5 +843,101 @@ func listAppsByUser(store *apps.Store) http.HandlerFunc {
 
 		// Return 200 with JSON array (empty array if none)
 		respondJSON(w, http.StatusOK, apps)
+	}
+}
+
+// listEnvVars handles GET /api/v1/apps/{id}/env
+// Lists all environment variables for an app.
+func listEnvVars(store *envvars.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appID, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			log.Printf("[API] ERROR - Invalid app ID: %s", chi.URLParam(r, "id"))
+			respondError(w, http.StatusBadRequest, "Invalid app ID")
+			return
+		}
+
+		log.Printf("[API] GET /api/v1/apps/%d/env - Listing environment variables", appID)
+		envVars, err := store.GetByAppID(appID)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to list environment variables: %v", err)
+			respondError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		log.Printf("[API] Successfully listed %d environment variable(s) for app %d", len(envVars), appID)
+		respondJSON(w, http.StatusOK, envVars)
+	}
+}
+
+// createEnvVar handles POST /api/v1/apps/{id}/env
+// Creates or updates an environment variable for an app.
+func createEnvVar(store *envvars.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appID, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			log.Printf("[API] ERROR - Invalid app ID: %s", chi.URLParam(r, "id"))
+			respondError(w, http.StatusBadRequest, "Invalid app ID")
+			return
+		}
+
+		log.Printf("[API] POST /api/v1/apps/%d/env - Creating/updating environment variable", appID)
+		var req struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("[API] ERROR - Invalid request body: %v", err)
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if req.Key == "" {
+			log.Printf("[API] ERROR - Missing required field: key")
+			respondError(w, http.StatusBadRequest, "key is required")
+			return
+		}
+
+		log.Printf("[API] Request - Key: %s, Value: [REDACTED]", req.Key)
+		envVar, err := store.Create(appID, req.Key, req.Value)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to create environment variable: %v", err)
+			respondError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		log.Printf("[API] Environment variable created/updated successfully - ID: %d, Key: %s", envVar.ID, envVar.Key)
+		respondJSON(w, http.StatusOK, envVar)
+	}
+}
+
+// deleteEnvVar handles DELETE /api/v1/apps/{id}/env/{key}
+// Deletes an environment variable for an app.
+func deleteEnvVar(store *envvars.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		appID, err := strconv.Atoi(chi.URLParam(r, "id"))
+		if err != nil {
+			log.Printf("[API] ERROR - Invalid app ID: %s", chi.URLParam(r, "id"))
+			respondError(w, http.StatusBadRequest, "Invalid app ID")
+			return
+		}
+
+		key := chi.URLParam(r, "key")
+		if key == "" {
+			log.Printf("[API] ERROR - Missing key parameter")
+			respondError(w, http.StatusBadRequest, "key parameter is required")
+			return
+		}
+
+		log.Printf("[API] DELETE /api/v1/apps/%d/env/%s - Deleting environment variable", appID, key)
+		if err := store.Delete(appID, key); err != nil {
+			log.Printf("[API] ERROR - Failed to delete environment variable: %v", err)
+			respondError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		log.Printf("[API] Environment variable deleted successfully - App ID: %d, Key: %s", appID, key)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

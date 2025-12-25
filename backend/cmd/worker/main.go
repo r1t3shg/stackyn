@@ -17,6 +17,7 @@ import (
 	"mvp-be/internal/dockerbuild"
 	"mvp-be/internal/dockerrun"
 	"mvp-be/internal/engine"
+	"mvp-be/internal/envvars"
 	"mvp-be/internal/gitrepo"
 )
 
@@ -65,6 +66,7 @@ func main() {
 	log.Println("Initializing data stores...")
 	appStore := apps.NewStore(database.DB)
 	deploymentStore := deployments.NewStore(database.DB)
+	envVarStore := envvars.NewStore(database.DB)
 	log.Println("Data stores initialized")
 
 	// Initialize Git cloner
@@ -102,6 +104,7 @@ func main() {
 	deploymentEngine := engine.NewEngine(
 		deploymentStore, // Store for deployment database operations
 		appStore,        // Store for app database operations
+		envVarStore,     // Store for environment variables
 		cloner,          // Git repository cloner
 		builder,         // Docker image builder
 		runner,          // Docker container runner

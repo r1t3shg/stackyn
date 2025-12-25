@@ -27,6 +27,7 @@ import (
 	"mvp-be/internal/deployments"
 	"mvp-be/internal/dockerbuild"
 	"mvp-be/internal/dockerrun"
+	"mvp-be/internal/envvars"
 	"mvp-be/internal/gitrepo"
 	"mvp-be/internal/logs"
 )
@@ -34,6 +35,7 @@ import (
 type Engine struct {
 	deploymentStore *deployments.Store
 	appStore        *apps.Store
+	envVarStore     *envvars.Store
 	cloner          *gitrepo.Cloner
 	builder         *dockerbuild.Builder
 	runner          *dockerrun.Runner
@@ -44,6 +46,7 @@ type Engine struct {
 func NewEngine(
 	deploymentStore *deployments.Store,
 	appStore *apps.Store,
+	envVarStore *envvars.Store,
 	cloner *gitrepo.Cloner,
 	builder *dockerbuild.Builder,
 	runner *dockerrun.Runner,
@@ -53,6 +56,7 @@ func NewEngine(
 	return &Engine{
 		deploymentStore: deploymentStore,
 		appStore:        appStore,
+		envVarStore:     envVarStore,
 		cloner:          cloner,
 		builder:         builder,
 		runner:          runner,
@@ -176,12 +180,22 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("failed to update image name: %w", err)
 	}
 
-	// Step 3: Run container with Traefik labels and resource limits
+	// Step 3: Fetch environment variables for this app
+	log.Printf("[ENGINE] Step 5: Fetching environment variables for app %d...", deployment.AppID)
+	envVars, err := e.envVarStore.GetAsMap(deployment.AppID)
+	if err != nil {
+		log.Printf("[ENGINE] WARNING - Failed to fetch environment variables: %v (continuing without env vars)", err)
+		envVars = make(map[string]string) // Use empty map if fetch fails
+	} else {
+		log.Printf("[ENGINE] Found %d environment variable(s) for app %d", len(envVars), deployment.AppID)
+	}
+
+	// Step 4: Run container with Traefik labels and resource limits
 	// Sanitize app name for subdomain (DNS-compliant: only lowercase letters, digits, hyphens)
 	sanitizedSubdomain := sanitizeSubdomain(app.Name)
 	subdomain := fmt.Sprintf("%s-%d", sanitizedSubdomain, deploymentID)
-	log.Printf("[ENGINE] Step 5: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d, Port: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
-	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
+	log.Printf("[ENGINE] Step 6: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d, Port: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
+	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort, envVars)
 	if err != nil {
 		log.Printf("[ENGINE] ERROR - Container run failed: %v", err)
 		// Delete the built image since container failed to start
@@ -203,7 +217,7 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Container started successfully - ID: %s", containerID)
 
-	// Step 6: Verify new container is healthy before stopping old containers
+	// Step 7: Verify new container is healthy before stopping old containers
 	// This ensures zero-downtime deployment - old containers keep running if new one fails
 	appURL := fmt.Sprintf("https://%s.%s", subdomain, e.baseDomain)
 	appURLHTTP := fmt.Sprintf("http://%s.%s", subdomain, e.baseDomain)
@@ -270,7 +284,7 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	
 	log.Printf("[ENGINE] New container health check passed - proceeding to stop old containers")
 
-	// Step 7: Stop any previous running deployments for this app
+	// Step 8: Stop any previous running deployments for this app
 	// Only stop old containers after new one is verified healthy
 	log.Printf("[ENGINE] Step 7: Stopping previous running deployments for app %d...", deployment.AppID)
 	previousDeployments, err := e.deploymentStore.GetRunningByAppID(deployment.AppID)
@@ -325,21 +339,21 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 
 	// Update container info
-	log.Printf("[ENGINE] Step 8: Updating deployment with container info...")
+	log.Printf("[ENGINE] Step 9: Updating deployment with container info...")
 	if err := e.deploymentStore.UpdateContainer(deploymentID, containerID, subdomain); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update container info: %v", err)
 		return fmt.Errorf("failed to update container info: %w", err)
 	}
 
-	// Step 9: Mark as running
-	log.Printf("[ENGINE] Step 9: Updating deployment status to 'running'...")
+	// Step 10: Mark as running
+	log.Printf("[ENGINE] Step 10: Updating deployment status to 'running'...")
 	if err := e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusRunning); err != nil {
 		log.Printf("[ENGINE] ERROR - Failed to update status: %v", err)
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
-	// Step 10: Capture and store runtime logs
-	log.Printf("[ENGINE] Step 10: Capturing initial runtime logs from container %s...", containerID)
+	// Step 11: Capture and store runtime logs
+	log.Printf("[ENGINE] Step 11: Capturing initial runtime logs from container %s...", containerID)
 	runtimeLogReader, runtimeLogErr := e.runner.GetLogs(ctx, containerID, "100")
 	if runtimeLogErr != nil {
 		log.Printf("[ENGINE] WARNING - Failed to fetch runtime logs: %v (continuing anyway)", runtimeLogErr)
@@ -362,7 +376,7 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 
 	// Update app status to "Healthy" and set URL
-	log.Printf("[ENGINE] Step 11: Updating app status to 'Healthy' with URL: %s", appURL)
+	log.Printf("[ENGINE] Step 12: Updating app status to 'Healthy' with URL: %s", appURL)
 	if err := e.appStore.UpdateStatusAndURL(deployment.AppID, "Healthy", appURL); err != nil {
 		log.Printf("[ENGINE] WARNING - Failed to update app status and URL: %v", err)
 	}

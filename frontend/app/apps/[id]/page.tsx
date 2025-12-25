@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { appsApi } from '@/lib/api';
-import type { App, Deployment } from '@/lib/types';
+import type { App, Deployment, EnvVar } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import DeploymentCard from '@/components/DeploymentCard';
 
@@ -15,14 +15,20 @@ export default function AppDetailsPage() {
 
   const [app, setApp] = useState<App | null>(null);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [redeploying, setRedeploying] = useState(false);
+  const [showAddEnvVar, setShowAddEnvVar] = useState(false);
+  const [newEnvKey, setNewEnvKey] = useState('');
+  const [newEnvValue, setNewEnvValue] = useState('');
+  const [addingEnvVar, setAddingEnvVar] = useState(false);
 
   useEffect(() => {
     if (appId) {
       loadApp();
       loadDeployments();
+      loadEnvVars();
     }
   }, [appId]);
 
@@ -45,6 +51,15 @@ export default function AppDetailsPage() {
       setDeployments(data);
     } catch (err) {
       console.error('Error loading deployments:', err);
+    }
+  };
+
+  const loadEnvVars = async () => {
+    try {
+      const data = await appsApi.getEnvVars(appId);
+      setEnvVars(data);
+    } catch (err) {
+      console.error('Error loading environment variables:', err);
     }
   };
 
@@ -78,6 +93,41 @@ export default function AppDetailsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete app');
       console.error('Error deleting app:', err);
+    }
+  };
+
+  const handleAddEnvVar = async () => {
+    if (!newEnvKey.trim()) {
+      alert('Key is required');
+      return;
+    }
+
+    setAddingEnvVar(true);
+    try {
+      await appsApi.createEnvVar(appId, { key: newEnvKey.trim(), value: newEnvValue });
+      setNewEnvKey('');
+      setNewEnvValue('');
+      setShowAddEnvVar(false);
+      await loadEnvVars();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add environment variable');
+      console.error('Error adding environment variable:', err);
+    } finally {
+      setAddingEnvVar(false);
+    }
+  };
+
+  const handleDeleteEnvVar = async (key: string) => {
+    if (!confirm(`Are you sure you want to delete the environment variable "${key}"?`)) {
+      return;
+    }
+
+    try {
+      await appsApi.deleteEnvVar(appId, key);
+      await loadEnvVars();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete environment variable');
+      console.error('Error deleting environment variable:', err);
     }
   };
 
@@ -188,6 +238,86 @@ export default function AppDetailsPage() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-8 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-gray-900">Environment Variables</h2>
+            <button
+              onClick={() => setShowAddEnvVar(!showAddEnvVar)}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+            >
+              {showAddEnvVar ? 'Cancel' : '+ Add Variable'}
+            </button>
+          </div>
+
+          {showAddEnvVar && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Key
+                  </label>
+                  <input
+                    type="text"
+                    value={newEnvKey}
+                    onChange={(e) => setNewEnvKey(e.target.value)}
+                    placeholder="e.g., DATABASE_URL"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Value
+                  </label>
+                  <input
+                    type="text"
+                    value={newEnvValue}
+                    onChange={(e) => setNewEnvValue(e.target.value)}
+                    placeholder="e.g., postgres://..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleAddEnvVar}
+                disabled={addingEnvVar || !newEnvKey.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {addingEnvVar ? 'Adding...' : 'Add Variable'}
+              </button>
+            </div>
+          )}
+
+          {envVars.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>No environment variables configured</p>
+              <p className="text-sm mt-2">Add environment variables that will be injected into your running container</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {envVars.map((envVar) => (
+                <div
+                  key={envVar.id}
+                  className="flex items-center justify-between bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-4">
+                      <span className="font-mono font-semibold text-gray-900">{envVar.key}</span>
+                      <span className="text-gray-400">=</span>
+                      <span className="font-mono text-gray-600">{envVar.value}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteEnvVar(envVar.key)}
+                    className="ml-4 px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
