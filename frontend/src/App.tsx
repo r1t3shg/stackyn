@@ -7,6 +7,7 @@ import NewApp from './pages/NewApp';
 import AppDetails from './pages/AppDetails';
 import DeploymentDetails from './pages/DeploymentDetails';
 import Login from './pages/Login';
+import SignUp from './pages/SignUp';
 import ProtectedRoute from './components/ProtectedRoute';
 import PricingRedirect from './components/PricingRedirect';
 
@@ -34,6 +35,7 @@ function App() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/pricing" element={<PricingRedirect />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<SignUp />} />
       <Route
         path="/apps"
         element={

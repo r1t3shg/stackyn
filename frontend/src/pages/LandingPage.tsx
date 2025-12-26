@@ -191,8 +191,15 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/login"}
-                onClick={handleSignInClick}
+                href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+                onClick={(e) => {
+                  if (!user) {
+                    e.preventDefault();
+                    navigate('/signup');
+                  } else {
+                    handleSignInClick(e);
+                  }
+                }}
                 className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
               >
                 Get Started Free
@@ -500,8 +507,15 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$0</div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/login"}
-                onClick={handleSignInClick}
+                href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+                onClick={(e) => {
+                  if (!user) {
+                    e.preventDefault();
+                    navigate('/signup');
+                  } else {
+                    handleSignInClick(e);
+                  }
+                }}
                 className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
               >
                 Get Started
@@ -563,8 +577,15 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$15 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/login"}
-                onClick={handleSignInClick}
+                href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+                onClick={(e) => {
+                  if (!user) {
+                    e.preventDefault();
+                    navigate('/signup');
+                  } else {
+                    handleSignInClick(e);
+                  }
+                }}
                 className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
               >
                 Start Pro
@@ -623,8 +644,15 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$49 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/login"}
-                onClick={handleSignInClick}
+                href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+                onClick={(e) => {
+                  if (!user) {
+                    e.preventDefault();
+                    navigate('/signup');
+                  } else {
+                    handleSignInClick(e);
+                  }
+                }}
                 className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
               >
                 Start Team
@@ -761,8 +789,15 @@ export default function LandingPage() {
               Start shipping, not configuring servers.
             </h2>
             <a
-              href={user ? "https://console.staging.stackyn.com/" : "/login"}
-              onClick={handleSignInClick}
+              href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+              onClick={(e) => {
+                if (!user) {
+                  e.preventDefault();
+                  navigate('/signup');
+                } else {
+                  handleSignInClick(e);
+                }
+              }}
               className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg mb-4"
             >
               Get Started Free
@@ -829,9 +864,16 @@ export default function LandingPage() {
             Launch your app in minutes. Stop managing infrastructure.
           </h2>
           <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6">
-          <a
-            href={user ? "https://console.staging.stackyn.com/" : "/login"}
-            onClick={handleSignInClick}
+            <a
+            href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+            onClick={(e) => {
+              if (!user) {
+                e.preventDefault();
+                navigate('/signup');
+              } else {
+                handleSignInClick(e);
+              }
+            }}
               className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
             >
               Get Started Free
