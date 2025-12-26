@@ -25,7 +25,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex-shrink-0">
-              <Logo height={28} />
+              <Logo />
             </div>
 
             {/* Desktop Navigation Links */}
@@ -281,7 +281,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
               <div className="mb-4">
-                <Logo height={24} />
+                <Logo height={20} />
               </div>
               <p className="text-sm">
                 Modern Platform-as-a-Service for deploying applications from Git repositories.

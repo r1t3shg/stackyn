@@ -5,7 +5,7 @@ interface LogoProps {
   height?: number;
 }
 
-export default function Logo({ className = '', height = 40 }: LogoProps) {
+export default function Logo({ className = '', height = 24 }: LogoProps) {
   return (
     <Link to="/" className={`flex items-center ${className}`}>
       <img
