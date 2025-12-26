@@ -7,7 +7,7 @@ export default function NewAppPage() {
   const [formData, setFormData] = useState({
     name: '',
     repo_url: '',
-    branch: 'main',
+    branch: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
