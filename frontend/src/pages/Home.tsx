@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { appsApi, healthCheck } from '@/lib/api';
 import type { App } from '@/lib/types';
 import AppCard from '@/components/AppCard';
+import NewAppModal from '@/components/NewAppModal';
 import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -11,6 +12,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [isNewAppModalOpen, setIsNewAppModalOpen] = useState(false);
   const { user, logout } = useAuth();
 
   useEffect(() => {
@@ -61,12 +63,12 @@ export default function Home() {
             )}
           </div>
           <div className="flex gap-3">
-            <Link
-              to="/apps/new"
+            <button
+              onClick={() => setIsNewAppModalOpen(true)}
               className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-4 rounded-lg transition-colors"
             >
               + Create New App
-            </Link>
+            </button>
             <button
               onClick={logout}
               className="bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] font-medium py-2 px-4 rounded-lg transition-colors"
@@ -126,12 +128,12 @@ export default function Home() {
         {!loading && !error && apps && apps.length === 0 && (
           <div className="text-center py-12 bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)]">
             <p className="text-[var(--text-secondary)] mb-4">No applications found</p>
-            <Link
-              to="/apps/new"
+            <button
+              onClick={() => setIsNewAppModalOpen(true)}
               className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-4 rounded-lg transition-colors"
             >
               Create your first app
-            </Link>
+            </button>
           </div>
         )}
 
@@ -143,6 +145,12 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* New App Modal */}
+      <NewAppModal
+        isOpen={isNewAppModalOpen}
+        onClose={() => setIsNewAppModalOpen(false)}
+      />
     </div>
   );
 }
