@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import Logo from '@/components/Logo';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -24,9 +25,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex-shrink-0">
-              <Link to="/" className="text-2xl font-bold text-[var(--text-primary)]">
-                Stackyn
-              </Link>
+              <Logo height={40} />
             </div>
 
             {/* Desktop Navigation Links */}
@@ -281,7 +280,9 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
-              <h3 className="text-[var(--app-bg)] font-bold text-lg mb-4">Stackyn</h3>
+              <div className="mb-4">
+                <Logo height={32} />
+              </div>
               <p className="text-sm">
                 Modern Platform-as-a-Service for deploying applications from Git repositories.
               </p>
