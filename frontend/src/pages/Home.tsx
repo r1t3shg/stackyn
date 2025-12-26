@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { appsApi, healthCheck } from '@/lib/api';
 import type { App } from '@/lib/types';
 import AppCard from '@/components/AppCard';
