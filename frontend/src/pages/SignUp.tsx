@@ -117,7 +117,7 @@ export default function SignUp() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-3">
-            Deploy your app in one click
+            Create account
           </h1>
           <p className="text-lg text-[var(--text-secondary)]">
             Go from code to production without managing servers. Get started in seconds.
