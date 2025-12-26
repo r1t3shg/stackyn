@@ -40,12 +40,12 @@ export default function PrivacyPolicy() {
                 >
                   Features
                 </a>
-                <Link
-                  to="/pricing"
+                <a
+                  href="/#pricing"
                   className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors font-medium"
                 >
                   Pricing
-                </Link>
+                </a>
               </nav>
             </div>
 
