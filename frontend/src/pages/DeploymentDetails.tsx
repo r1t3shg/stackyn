@@ -187,27 +187,14 @@ export default function DeploymentDetailsPage() {
             )}
           </div>
           
-          {logs && (extractString(logs.build_log) || extractString(logs.runtime_log)) ? (
-            <div className="space-y-4">
-              {extractString(logs.build_log) && (
-                <div>
-                  <h3 className="text-sm font-semibold text-[var(--text-muted)] mb-2 uppercase">Build Logs</h3>
-                  <LogsViewer logs={extractString(logs.build_log)} />
-                </div>
-              )}
-              {extractString(logs.runtime_log) && (
-                <div>
-                  <h3 className="text-sm font-semibold text-[var(--text-muted)] mb-2 uppercase">Runtime Logs</h3>
-                  <LogsViewer logs={extractString(logs.runtime_log)} />
-                </div>
-              )}
-            </div>
+          {logs && extractString(logs.runtime_log) ? (
+            <LogsViewer logs={extractString(logs.runtime_log)} />
           ) : (
             <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8 text-center">
               <p className="text-[var(--text-secondary)]">
                 {deployment.status === 'pending' || deployment.status === 'building'
-                  ? 'Logs will appear here as the deployment progresses...'
-                  : 'No logs available yet'}
+                  ? 'Runtime logs will appear here once the deployment is running...'
+                  : 'No runtime logs available yet'}
               </p>
             </div>
           )}
@@ -223,7 +210,7 @@ export default function DeploymentDetailsPage() {
             <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--border-subtle)]">
               <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2">What to do next:</h4>
               <ul className="list-disc list-inside text-sm text-[var(--text-secondary)] space-y-1">
-                <li>Check the build logs above for specific error messages</li>
+                <li>Check the error message above for specific details</li>
                 <li>Verify your Dockerfile is in the repository root</li>
                 <li>Ensure your build commands are correct</li>
                 <li>Check that all dependencies are properly specified</li>
