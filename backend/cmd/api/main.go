@@ -45,6 +45,7 @@ import (
 	"mvp-be/internal/firebase"
 	"mvp-be/internal/gitrepo"
 	"mvp-be/internal/logs"
+	"mvp-be/internal/quota"
 	"mvp-be/internal/users"
 )
 
@@ -93,6 +94,7 @@ func main() {
 	deploymentStore := deployments.NewStore(database.DB)
 	envVarStore := envvars.NewStore(database.DB)
 	userStore := users.NewStore(database.DB)
+	quotaService := quota.NewService(database.DB)
 	log.Println("Data stores initialized")
 
 	// Initialize Firebase Auth service
@@ -167,10 +169,10 @@ func main() {
 
 		// Apps endpoints
 		r.Route("/apps", func(r chi.Router) {
-			r.Post("/", createApp(appStore, deploymentStore, cloner))
+			r.Post("/", createApp(appStore, deploymentStore, cloner, quotaService))
 			r.Get("/{id}", getApp(appStore, deploymentStore, runner))
 			r.Delete("/{id}", deleteApp(appStore, deploymentStore, runner))
-			r.Post("/{id}/redeploy", redeployApp(appStore, deploymentStore, cloner))
+			r.Post("/{id}/redeploy", redeployApp(appStore, deploymentStore, cloner, quotaService))
 			r.Get("/{id}/deployments", listDeployments(deploymentStore))
 			// Environment variables endpoints
 			r.Get("/{id}/env", listEnvVars(envVarStore))
@@ -181,7 +183,7 @@ func main() {
 		// Deployments endpoints
 		r.Route("/deployments", func(r chi.Router) {
 			r.Get("/{id}", getDeployment(deploymentStore))
-			r.Get("/{id}/logs", getDeploymentLogs(deploymentStore, runner))
+			r.Get("/{id}/logs", getDeploymentLogs(deploymentStore, runner, quotaService))
 		})
 	})
 
@@ -237,7 +239,7 @@ func listApps(store *apps.Store) http.HandlerFunc {
 	}
 }
 
-func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner *gitrepo.Cloner) http.HandlerFunc {
+func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner *gitrepo.Cloner, quotaService *quota.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[API] POST /api/v1/apps - Creating new app")
 		var req struct {
@@ -274,24 +276,24 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 			return
 		}
 
-		// Check app limit (3 apps per user)
-		appCount, err := appStore.CountByUserID(r.Context(), userID)
+		// Check quota before creating app
+		quotaCheck, err := quotaService.CheckAppCreation(r.Context(), userID)
 		if err != nil {
-			log.Printf("[API] ERROR - Failed to count user apps: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to check app limit")
+			log.Printf("[API] ERROR - Failed to check quota: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to check quota")
 			return
 		}
-		if appCount >= 3 {
-			log.Printf("[API] ERROR - User %s has reached app limit (3 apps)", userID)
+		if !quotaCheck.Allowed {
+			log.Printf("[API] ERROR - Quota check failed for user %s: %s", userID, quotaCheck.Reason)
 			respondJSON(w, http.StatusForbidden, map[string]interface{}{
-				"error": "App limit reached. You can only have up to 3 apps. Please delete an existing app to create a new one.",
+				"error": quotaCheck.Reason,
 				"app":   nil,
 			})
 			return
 		}
 
 		// Create app first
-		log.Printf("[API] Creating app in database for user: %s (current count: %d/3)", userID, appCount)
+		log.Printf("[API] Creating app in database for user: %s", userID)
 		app, err := appStore.Create(userID, req.Name, req.RepoURL, req.Branch)
 		if err != nil {
 			log.Printf("[API] ERROR - Failed to create app: %v", err)
@@ -497,7 +499,7 @@ func getApp(appStore *apps.Store, deploymentStore *deployments.Store, runner *do
 	}
 }
 
-func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner *gitrepo.Cloner) http.HandlerFunc {
+func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner *gitrepo.Cloner, quotaService *quota.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(chi.URLParam(r, "id"))
 		if err != nil {
@@ -508,6 +510,18 @@ func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, clone
 
 		log.Printf("[API] POST /api/v1/apps/%d/redeploy - Initiating redeployment", id)
 
+		// Get user_id from context
+		userID, ok := auth.GetUserID(r)
+		if !ok {
+			log.Printf("[API] ERROR - User ID not found in context")
+			respondError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+
+		// Check if plan allows manual deploys (all plans allow manual deploys, but we check for manual_deploy_only)
+		// For now, manual deploys are always allowed, but we can add restrictions later if needed
+		// The main restriction is on auto-deploy, which is checked elsewhere
+
 		// Get the app
 		app, err := appStore.GetByID(id)
 		if err != nil {
@@ -516,6 +530,13 @@ func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, clone
 			return
 		}
 		log.Printf("[API] App found - ID: %d, Name: %s", id, app.Name)
+
+		// Verify app belongs to user
+		if app.UserID != userID {
+			log.Printf("[API] ERROR - User %s attempted to redeploy app %d owned by %s", userID, id, app.UserID)
+			respondError(w, http.StatusForbidden, "Forbidden")
+			return
+		}
 
 		// Create new deployment
 		appID, err := strconv.Atoi(app.ID)
@@ -814,12 +835,35 @@ func getDeployment(store *deployments.Store) http.HandlerFunc {
 	}
 }
 
-func getDeploymentLogs(store *deployments.Store, runner *dockerrun.Runner) http.HandlerFunc {
+func getDeploymentLogs(store *deployments.Store, runner *dockerrun.Runner, quotaService *quota.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(chi.URLParam(r, "id"))
 		if err != nil {
 			log.Printf("[API] ERROR - Invalid deployment ID: %s", chi.URLParam(r, "id"))
 			respondError(w, http.StatusBadRequest, "Invalid deployment ID")
+			return
+		}
+
+		// Get user_id from context
+		userID, ok := auth.GetUserID(r)
+		if !ok {
+			log.Printf("[API] ERROR - User ID not found in context")
+			respondError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+
+		// Check if plan supports logs feature
+		logsCheck, err := quotaService.CheckFeature(r.Context(), userID, "logs")
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to check logs feature: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to check feature availability")
+			return
+		}
+		if !logsCheck.Allowed {
+			log.Printf("[API] ERROR - Logs feature not available for user %s: %s", userID, logsCheck.Reason)
+			respondJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error": logsCheck.Reason,
+			})
 			return
 		}
 

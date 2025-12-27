@@ -15,6 +15,7 @@ type User struct {
 	FullName     *string   `json:"full_name,omitempty"`
 	CompanyName  *string   `json:"company_name,omitempty"`
 	EmailVerified bool     `json:"email_verified"`
+	Plan         string    `json:"plan"` // Pricing plan (free, starter, builder, pro)
 	PasswordHash string    `json:"-"` // Never expose password hash in JSON
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -39,9 +40,9 @@ func (s *Store) CreateUser(email, password string) (*User, error) {
 	var user User
 	id := uuid.New().String()
 	err = s.db.QueryRow(
-		"INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) RETURNING id, email, created_at, updated_at",
+		"INSERT INTO users (id, email, password_hash, plan) VALUES ($1, $2, $3, 'free') RETURNING id, email, plan, created_at, updated_at",
 		id, email, string(hashedPassword),
-	).Scan(&user.ID, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.Plan, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -60,9 +61,9 @@ func (s *Store) CreateUserWithDetails(email, password, fullName, companyName str
 	var user User
 	id := uuid.New().String()
 	err = s.db.QueryRow(
-		"INSERT INTO users (id, email, password_hash, full_name, company_name, email_verified) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, full_name, company_name, email_verified, created_at, updated_at",
+		"INSERT INTO users (id, email, password_hash, full_name, company_name, email_verified, plan) VALUES ($1, $2, $3, $4, $5, $6, 'free') RETURNING id, email, full_name, company_name, email_verified, plan, created_at, updated_at",
 		id, email, string(hashedPassword), fullName, companyName, emailVerified,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.Plan, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -74,9 +75,9 @@ func (s *Store) CreateUserWithDetails(email, password, fullName, companyName str
 func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var user User
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, full_name, company_name, email_verified, created_at, updated_at FROM users WHERE email = $1",
+		"SELECT id, email, password_hash, full_name, company_name, email_verified, COALESCE(plan, 'free') as plan, created_at, updated_at FROM users WHERE email = $1",
 		email,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.Plan, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +88,9 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 func (s *Store) GetUserByID(id string) (*User, error) {
 	var user User
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, full_name, company_name, email_verified, created_at, updated_at FROM users WHERE id = $1",
+		"SELECT id, email, password_hash, full_name, company_name, email_verified, COALESCE(plan, 'free') as plan, created_at, updated_at FROM users WHERE id = $1",
 		id,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.CompanyName, &user.EmailVerified, &user.Plan, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -100,5 +101,11 @@ func (s *Store) GetUserByID(id string) (*User, error) {
 func (s *Store) VerifyPassword(user *User, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	return err == nil
+}
+
+// UpdatePlan updates a user's plan
+func (s *Store) UpdatePlan(userID, plan string) error {
+	_, err := s.db.Exec("UPDATE users SET plan = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", plan, userID)
+	return err
 }
 
