@@ -55,7 +55,7 @@ export const adminUsersApi = {
     return handleResponse<User>(response);
   },
 
-  updatePlan: async (id: string, plan: string): Promise<{ message: string; user_id: string; plan: string }> => {
+  updatePlan: async (id: string, plan: string): Promise<{ message: string; user_id: string; plan: string; user?: any; quota?: any }> => {
     const response = await safeFetch(`${API_ENDPOINTS.admin.users}/${id}/plan`, {
       method: 'PATCH',
       body: JSON.stringify({ plan }),

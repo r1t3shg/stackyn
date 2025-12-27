@@ -33,7 +33,8 @@ export default function Users() {
   const handlePlanChange = async (userId: string, newPlan: string) => {
     try {
       await adminUsersApi.updatePlan(userId, newPlan);
-      loadUsers();
+      // Reload users to get updated quota information
+      await loadUsers();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update plan');
     }

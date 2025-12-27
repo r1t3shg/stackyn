@@ -200,11 +200,48 @@ func (s *AdminUserService) UpdateUserPlan(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	// Get updated user with quota info
+	user, err := s.userStore.GetUserByID(userID)
+	if err != nil {
+		log.Printf("[ADMIN] WARNING - Failed to get updated user: %v", err)
+		// Still return success, but without user details
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"message": "Plan updated successfully",
+			"user_id": userID,
+			"plan": req.Plan,
+		})
+		return
+	}
+
+	// Get updated quota info
+	userQuota, err := s.quotaService.GetUserQuota(r.Context(), userID)
+	if err != nil {
+		log.Printf("[ADMIN] WARNING - Failed to get updated quota: %v", err)
+	}
+
+	// Build response with updated user and quota
+	response := map[string]interface{}{
 		"message": "Plan updated successfully",
 		"user_id": userID,
 		"plan": req.Plan,
-	})
+		"user": map[string]interface{}{
+			"id":             user.ID,
+			"email":          user.Email,
+			"full_name":      user.FullName,
+			"company_name":   user.CompanyName,
+			"email_verified": user.EmailVerified,
+			"plan":           user.Plan,
+			"is_admin":       user.IsAdmin,
+			"created_at":     user.CreatedAt,
+			"updated_at":     user.UpdatedAt,
+		},
+	}
+
+	if userQuota != nil {
+		response["quota"] = userQuota
+	}
+
+	respondJSON(w, http.StatusOK, response)
 }
 
 // AdminAppService handles admin app management operations
