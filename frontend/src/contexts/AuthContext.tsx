@@ -71,6 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+    
+    // Try Firebase login first (for new users)
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await userCredential.user.getIdToken();
@@ -79,7 +82,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(userCredential.user);
       
       // Also try to get user from our backend
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
       try {
         const response = await fetch(`${API_BASE_URL}/api/auth/verify-token`, {
           method: 'POST',
@@ -91,8 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (response.ok) {
           const data = await response.json();
-          // Try to get full user details from our backend
-          // For now, just store basic info
           const userData: User = {
             id: userCredential.user.uid,
             email: userCredential.user.email || '',
@@ -106,8 +106,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       localStorage.setItem('auth_token', idToken);
-    } catch (error: any) {
-      throw new Error(error.message || 'Login failed');
+      return; // Success with Firebase
+    } catch (firebaseError: any) {
+      // If Firebase login fails, try legacy backend login
+      // This handles users created before Firebase integration
+      console.log('Firebase login failed, trying legacy login:', firebaseError.code);
+      
+      // Only fallback to legacy login for specific Firebase errors
+      const fallbackErrors = ['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential'];
+      if (!fallbackErrors.includes(firebaseError.code)) {
+        // For other Firebase errors, throw the original error
+        throw new Error(firebaseError.message || 'Login failed');
+      }
+      
+      // Try legacy backend login
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        });
+        
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Login failed' }));
+          throw new Error(error.error || 'Invalid email or password');
+        }
+        
+        const data = await response.json();
+        
+        // Store legacy JWT token
+        setToken(data.token);
+        setUser(data.user);
+        localStorage.setItem('auth_token', data.token);
+        localStorage.setItem('auth_user', JSON.stringify(data.user));
+        
+        // Note: firebaseUser will remain null for legacy users
+        // This is fine - they can still use the app with JWT tokens
+        console.log('Legacy login successful');
+      } catch (legacyError: any) {
+        // If legacy login also fails, throw a clear error
+        throw new Error(legacyError.message || 'Invalid email or password');
+      }
     }
   };
 

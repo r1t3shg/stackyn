@@ -19,6 +19,11 @@ type contextKey string
 
 const userIDKey contextKey = "user_id"
 
+// GetUserIDKey returns the context key for user_id (for use in middleware)
+func GetUserIDKey() contextKey {
+	return userIDKey
+}
+
 // GetUserID extracts user_id from request context
 func GetUserID(r *http.Request) (string, bool) {
 	if userID, ok := r.Context().Value(userIDKey).(string); ok {

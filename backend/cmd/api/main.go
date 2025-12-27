@@ -163,7 +163,7 @@ func main() {
 
 	// Protected API routes (require authentication)
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(auth.AuthMiddleware) // All routes under /api/v1 require authentication
+		r.Use(createAuthMiddleware(firebaseService, userStore)) // All routes under /api/v1 require authentication
 
 		// Apps endpoints
 		r.Route("/apps", func(r chi.Router) {
@@ -187,7 +187,7 @@ func main() {
 
 	// Authenticated endpoint for listing apps by user (GET /api/apps)
 	r.Route("/api/apps", func(r chi.Router) {
-		r.Use(auth.AuthMiddleware)
+		r.Use(createAuthMiddleware(firebaseService, userStore))
 		r.Get("/", listAppsByUser(appStore))
 	})
 
@@ -906,6 +906,76 @@ func respondJSON(w http.ResponseWriter, status int, payload interface{}) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+// createAuthMiddleware creates an authentication middleware that supports both JWT (legacy) and Firebase tokens
+func createAuthMiddleware(firebaseService *firebase.Service, userStore *users.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Get the Authorization header
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, "Authorization header required", http.StatusUnauthorized)
+				return
+			}
+
+			// Check if it starts with "Bearer "
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, "Invalid authorization header format", http.StatusUnauthorized)
+				return
+			}
+
+			tokenString := parts[1]
+			var userID string
+
+			// Try to verify as JWT token first (legacy)
+			claims, err := auth.VerifyToken(tokenString)
+			if err == nil {
+				// Legacy JWT token - use user_id from claims
+				userID = claims.UserID
+				log.Printf("[AUTH] Verified legacy JWT token for user: %s", userID)
+			} else {
+				// Try to verify as Firebase token
+				ctx := r.Context()
+				var uid, email string
+				var firebaseErr error
+
+				// Try using Admin SDK first, fallback to REST API verification
+				if firebaseService != nil {
+					uid, email, firebaseErr = firebaseService.VerifyIDToken(ctx, tokenString)
+				} else {
+					// Use REST API verification (no Admin SDK required)
+					cfg := config.Load()
+					uid, email, firebaseErr = firebase.VerifyIDTokenREST(ctx, tokenString, cfg.FirebaseProjectID)
+				}
+
+				if firebaseErr != nil {
+					log.Printf("[AUTH] Token verification failed (both JWT and Firebase): JWT error: %v, Firebase error: %v", err, firebaseErr)
+					http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+					return
+				}
+
+				// Firebase token verified - get user_id from database by email
+				user, dbErr := userStore.GetUserByEmail(email)
+				if dbErr != nil {
+					log.Printf("[AUTH] Firebase token verified but user not found in database: %s, error: %v", email, dbErr)
+					// If user doesn't exist in database, use Firebase UID as fallback
+					// This handles cases where user was created in Firebase but not yet in our DB
+					userID = uid
+				} else {
+					userID = user.ID
+				}
+				log.Printf("[AUTH] Verified Firebase token for user: %s (email: %s)", userID, email)
+			}
+
+			// Set user_id in context
+			ctx := context.WithValue(r.Context(), auth.GetUserIDKey(), userID)
+			r = r.WithContext(ctx)
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // signup handles POST /api/auth/signup
