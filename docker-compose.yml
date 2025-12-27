@@ -110,6 +110,34 @@ services:
     depends_on:
       - backend
 
+  # CMS - Internal Admin Panel
+  # Serves the admin CMS for managing users, apps, and quotas
+  # Built with Vite and served using 'serve' static file server
+  # Accessible at https://staging.stackyn.com/cms
+  cms:
+    build:
+      context: ./cms
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=https://api.staging.stackyn.com
+    container_name: stackyn-cms
+    restart: unless-stopped
+    networks:
+      - stackyn-network
+    labels:
+      - "traefik.enable=true"
+      # HTTPS router for /cms path (with SSL)
+      - "traefik.http.routers.cms-https.rule=Host(`staging.stackyn.com`) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-https.entrypoints=websecure"
+      - "traefik.http.routers.cms-https.service=cms"
+      - "traefik.http.routers.cms-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.cms-https.middlewares=cms-stripprefix"
+      # Strip /cms prefix before forwarding to service
+      - "traefik.http.middlewares.cms-stripprefix.stripprefix.prefixes=/cms"
+      - "traefik.http.services.cms.loadbalancer.server.port=3001"
+    depends_on:
+      - backend
+
   # Backend - Go API Server
   # Provides REST API for app and deployment management
   # Requires access to Docker socket for container operations

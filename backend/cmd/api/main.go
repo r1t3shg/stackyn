@@ -35,6 +35,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"mvp-be/internal/admin"
 	"mvp-be/internal/apps"
 	"mvp-be/internal/auth"
 	"mvp-be/internal/config"
@@ -191,6 +192,32 @@ func main() {
 	r.Route("/api/apps", func(r chi.Router) {
 		r.Use(createAuthMiddleware(firebaseService, userStore))
 		r.Get("/", listAppsByUser(appStore))
+	})
+
+	// Admin API routes (require authentication + admin role)
+	r.Route("/admin", func(r chi.Router) {
+		// Apply auth middleware first, then admin middleware
+		r.Use(createAuthMiddleware(firebaseService, userStore))
+		r.Use(admin.AdminMiddleware(userStore))
+
+		// Initialize admin services
+		adminUserService := admin.NewAdminUserService(userStore, quotaService)
+		adminAppService := admin.NewAdminAppService(appStore, deploymentStore, runner)
+
+		// Users management endpoints
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/", adminUserService.ListUsers)
+			r.Get("/{id}", adminUserService.GetUser)
+			r.Patch("/{id}/plan", adminUserService.UpdateUserPlan)
+		})
+
+		// Apps management endpoints
+		r.Route("/apps", func(r chi.Router) {
+			r.Get("/", adminAppService.ListApps)
+			r.Post("/{id}/stop", adminAppService.StopApp)
+			r.Post("/{id}/start", adminAppService.StartApp)
+			r.Post("/{id}/redeploy", adminAppService.RedeployApp)
+		})
 	})
 
 	// Health check
