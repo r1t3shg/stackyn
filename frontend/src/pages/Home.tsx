@@ -175,14 +175,14 @@ export default function Home() {
                 placeholder="Search apps by name, repository, or URL..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+                className="w-full pl-10 pr-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
               />
             </div>
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+            className="px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
           >
             <option value="all">All Status</option>
             <option value="running">Running</option>
@@ -197,7 +197,7 @@ export default function Home() {
               setSortField(field as SortField);
               setSortDirection(direction as SortDirection);
             }}
-            className="px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+            className="px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
           >
             <option value="created_at_desc">Newest First</option>
             <option value="created_at_asc">Oldest First</option>

@@ -134,7 +134,7 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
                 placeholder="my-awesome-app"
                 disabled={loading}
               />
@@ -150,7 +150,7 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
                 required
                 value={formData.repo_url}
                 onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
-                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
                 placeholder="https://github.com/username/repo.git"
                 disabled={loading}
               />
@@ -169,7 +169,7 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
                 required
                 value={formData.branch}
                 onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+                className="w-full px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)]"
                 placeholder="main"
                 disabled={loading}
               />

@@ -138,7 +138,7 @@ export default function SignUp() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`w-full px-4 py-3 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
+                className={`w-full px-4 py-3 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
                   emailError ? 'border-[var(--error)]' : 'border-[var(--border-subtle)]'
                 }`}
                 placeholder="you@example.com"
@@ -162,7 +162,7 @@ export default function SignUp() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full px-4 py-3 pr-12 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
+                  className={`w-full px-4 py-3 pr-12 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
                     passwordError ? 'border-[var(--error)]' : 'border-[var(--border-subtle)]'
                   }`}
                   placeholder="At least 8 characters"
@@ -204,7 +204,7 @@ export default function SignUp() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={`w-full px-4 py-3 pr-12 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
+                  className={`w-full px-4 py-3 pr-12 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--focus-border)] focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors ${
                     confirmPasswordError ? 'border-[var(--error)]' : 'border-[var(--border-subtle)]'
                   }`}
                   placeholder="Confirm your password"

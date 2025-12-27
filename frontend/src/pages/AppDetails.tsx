@@ -683,7 +683,7 @@ export default function AppDetailsPage() {
                           value={newEnvKey}
                           onChange={(e) => setNewEnvKey(e.target.value)}
                           placeholder="e.g., DATABASE_URL"
-                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--focus-border)] text-[var(--text-primary)]"
+                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--focus-border)] text-[var(--text-primary)]"
                         />
                       </div>
                       <div>
@@ -693,7 +693,7 @@ export default function AppDetailsPage() {
                           value={newEnvValue}
                           onChange={(e) => setNewEnvValue(e.target.value)}
                           placeholder="e.g., postgres://..."
-                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--focus-border)] text-[var(--text-primary)]"
+                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--focus-border)] text-[var(--text-primary)]"
                         />
                       </div>
                     </div>

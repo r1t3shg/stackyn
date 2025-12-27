@@ -105,4 +105,15 @@ body {
   background: var(--border-strong);
 }
 
+/* Text selection styling */
+::selection {
+  background-color: var(--primary);
+  color: var(--app-bg);
+}
+
+::-moz-selection {
+  background-color: var(--primary);
+  color: var(--app-bg);
+}
+
 
