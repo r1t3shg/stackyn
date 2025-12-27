@@ -122,11 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
       // Send email verification
+      // Note: Firebase will use the default action URL configured in Firebase Console
+      // Make sure your domain is authorized in Firebase Console > Authentication > Settings > Authorized domains
       try {
-        await sendEmailVerification(userCredential.user, {
-          url: window.location.origin + '/signup?verified=true',
-          handleCodeInApp: false,
-        });
+        await sendEmailVerification(userCredential.user);
         console.log('Email verification sent successfully');
       } catch (verifyError: any) {
         console.error('Failed to send email verification:', verifyError);
@@ -147,10 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     try {
-      await sendEmailVerification(firebaseUser, {
-        url: window.location.origin + '/signup?verified=true',
-        handleCodeInApp: false,
-      });
+      // Firebase will use the default action URL configured in Firebase Console
+      await sendEmailVerification(firebaseUser);
     } catch (error: any) {
       throw new Error(error.message || 'Failed to resend verification email');
     }
