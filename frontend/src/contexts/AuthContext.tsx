@@ -5,8 +5,7 @@ import {
   signOut,
   sendEmailVerification,
   onAuthStateChanged,
-  User as FirebaseUser,
-  EmailAuthProvider
+  User as FirebaseUser
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 
@@ -111,9 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signup = async (email: string, password: string) => {
+  const signup = async (email: string, password: string): Promise<void> => {
     // Legacy signup - redirect to Firebase signup
-    return signupFirebase(email, password);
+    await signupFirebase(email, password);
   };
 
   const signupFirebase = async (email: string, password: string): Promise<FirebaseUser> => {
