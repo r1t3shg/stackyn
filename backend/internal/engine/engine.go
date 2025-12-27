@@ -191,9 +191,15 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 
 	// Step 4: Run container with Traefik labels and resource limits
-	// Sanitize app name for subdomain (DNS-compliant: only lowercase letters, digits, hyphens)
-	sanitizedSubdomain := sanitizeSubdomain(app.Name)
-	subdomain := fmt.Sprintf("%s-%d", sanitizedSubdomain, deploymentID)
+	// Generate unique 6-character alphabetic subdomain
+	subdomain, err := e.deploymentStore.GenerateUniqueSubdomain()
+	if err != nil {
+		log.Printf("[ENGINE] ERROR - Failed to generate unique subdomain: %v", err)
+		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Failed to generate unique subdomain: %v", err))
+		e.deploymentStore.UpdateStatus(deploymentID, deployments.StatusFailed)
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("failed to generate unique subdomain: %w", err)
+	}
 	log.Printf("[ENGINE] Step 6: Running container - Subdomain: %s, Base Domain: %s, AppID: %d, DeploymentID: %d, Port: %d", subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort)
 	containerID, err := e.runner.Run(ctx, builtImage, subdomain, e.baseDomain, deployment.AppID, deploymentID, detectedPort, envVars)
 	if err != nil {

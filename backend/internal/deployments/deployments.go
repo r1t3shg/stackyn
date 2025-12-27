@@ -5,6 +5,7 @@ package deployments
 
 import (
 	"database/sql"
+	"math/rand"
 	"time"
 )
 
@@ -52,7 +53,7 @@ type Deployment struct {
 	ContainerID sql.NullString `json:"container_id,omitempty"`
 
 	// Subdomain is the subdomain assigned to this deployment
-	// Format: {app-name}-{deployment-id}
+	// Format: 6-character unique alphabetic key (e.g., "abcxyz")
 	// The app will be accessible at {subdomain}.{baseDomain}
 	Subdomain sql.NullString `json:"subdomain,omitempty"`
 
@@ -374,4 +375,53 @@ func (s *Store) DequeueNextPending() (*Deployment, error) {
 		return nil, err
 	}
 	return &d, nil
+}
+
+// GenerateUniqueSubdomain generates a unique 6-character alphabetic subdomain.
+// It uses only lowercase letters (a-z) to ensure DNS compatibility.
+// The function will retry up to 10 times if a collision is detected.
+//
+// Returns:
+//   - string: A unique 6-character alphabetic subdomain
+//   - error: Database error if uniqueness check fails after retries
+func (s *Store) GenerateUniqueSubdomain() (string, error) {
+	const maxRetries = 10
+	const keyLength = 6
+	
+	// Seed random number generator
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	
+	// Letters only (a-z) for DNS compatibility
+	letters := "abcdefghijklmnopqrstuvwxyz"
+	
+	for i := 0; i < maxRetries; i++ {
+		// Generate random 6-character key
+		key := make([]byte, keyLength)
+		for j := range key {
+			key[j] = letters[rng.Intn(len(letters))]
+		}
+		subdomain := string(key)
+		
+		// Check if subdomain already exists
+		exists, err := s.subdomainExists(subdomain)
+		if err != nil {
+			return "", err
+		}
+		
+		if !exists {
+			return subdomain, nil
+		}
+	}
+	
+	return "", sql.ErrNoRows // Return error if we couldn't generate unique key after retries
+}
+
+// subdomainExists checks if a subdomain already exists in the database.
+func (s *Store) subdomainExists(subdomain string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM deployments WHERE subdomain = $1)",
+		subdomain,
+	).Scan(&exists)
+	return exists, err
 }
