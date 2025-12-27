@@ -159,25 +159,6 @@ export default function SignUp() {
     }
   };
 
-  // Handle resend verification email
-  const handleResendVerification = async () => {
-    if (resendCooldown > 0) return;
-
-    setError(null);
-    setLoading(true);
-    try {
-      await resendEmailVerification();
-      setResendCooldown(60); // 60 second cooldown
-      setError(null);
-      // Show success message
-      alert('Verification email sent! Please check your inbox.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend verification email');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Step 3: Handle account setup completion
   const handleDetailsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
