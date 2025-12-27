@@ -21,9 +21,7 @@ export default function AppDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showAddEnvVar, setShowAddEnvVar] = useState(false);
-  const [newEnvKey, setNewEnvKey] = useState('');
-  const [newEnvValue, setNewEnvValue] = useState('');
+  const [newEnvVars, setNewEnvVars] = useState<Array<{ key: string; value: string }>>([]);
   const [addingEnvVar, setAddingEnvVar] = useState(false);
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
@@ -131,21 +129,40 @@ export default function AppDetailsPage() {
     }
   };
 
-  const handleAddEnvVar = async () => {
-    if (!newEnvKey.trim()) {
-      alert('Key is required');
+  const addNewEnvVarField = () => {
+    setNewEnvVars([...newEnvVars, { key: '', value: '' }]);
+  };
+
+  const removeNewEnvVarField = (index: number) => {
+    setNewEnvVars(newEnvVars.filter((_, i) => i !== index));
+  };
+
+  const updateNewEnvVar = (index: number, field: 'key' | 'value', value: string) => {
+    const updated = [...newEnvVars];
+    updated[index] = { ...updated[index], [field]: value };
+    setNewEnvVars(updated);
+  };
+
+  const handleAddEnvVars = async () => {
+    const validEnvVars = newEnvVars.filter(env => env.key.trim() !== '');
+    if (validEnvVars.length === 0) {
+      alert('Please add at least one environment variable with a key');
       return;
     }
+    
     setAddingEnvVar(true);
+    setEnvVarsError(null);
     try {
-      await appsApi.createEnvVar(appId, { key: newEnvKey.trim(), value: newEnvValue });
-      setNewEnvKey('');
-      setNewEnvValue('');
-      setShowAddEnvVar(false);
+      const promises = validEnvVars.map(env => 
+        appsApi.createEnvVar(appId, { key: env.key.trim(), value: env.value })
+      );
+      await Promise.all(promises);
+      setNewEnvVars([]);
       await loadEnvVars();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add environment variable');
-      console.error('Error adding environment variable:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add environment variables';
+      setEnvVarsError(errorMessage);
+      console.error('Error adding environment variables:', err);
     } finally {
       setAddingEnvVar(false);
     }
@@ -634,87 +651,117 @@ export default function AppDetailsPage() {
                     <h2 className="text-xl font-semibold text-[var(--text-primary)]">Environment Variables</h2>
                     <p className="text-sm text-[var(--text-muted)] mt-1">Configure environment variables for your app</p>
                   </div>
-                  <button
-                    onClick={() => setShowAddEnvVar(!showAddEnvVar)}
-                    className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors"
-                  >
-                    {showAddEnvVar ? 'Cancel' : '+ Add Variable'}
-                  </button>
                 </div>
 
                 {envVarsError && (
-                  <div className="bg-[var(--warning)]/10 border border-[var(--warning)] rounded-lg p-4 mb-4">
-                    <p className="text-[var(--warning)] text-sm">{envVarsError}</p>
+                  <div className="bg-[var(--error)]/10 border border-[var(--error)] rounded-lg p-4 mb-4">
+                    <p className="text-[var(--error)] text-sm">{envVarsError}</p>
                   </div>
                 )}
 
-                {showAddEnvVar && (
-                  <div className="bg-[var(--elevated)] rounded-lg p-4 mb-4 border border-[var(--border-subtle)]">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Key</label>
-                        <input
-                          type="text"
-                          value={newEnvKey}
-                          onChange={(e) => setNewEnvKey(e.target.value)}
-                          placeholder="e.g., DATABASE_URL"
-                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Value</label>
-                        <input
-                          type="text"
-                          value={newEnvValue}
-                          onChange={(e) => setNewEnvValue(e.target.value)}
-                          placeholder="e.g., postgres://..."
-                          className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)]"
-                        />
-                      </div>
-                    </div>
+                {/* Add New Environment Variables */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                      Add New Variables
+                    </label>
                     <button
-                      onClick={handleAddEnvVar}
-                      disabled={addingEnvVar || !newEnvKey.trim()}
-                      className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      type="button"
+                      onClick={addNewEnvVarField}
+                      className="text-sm px-3 py-1 bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--primary)] border border-[var(--border-subtle)] rounded-lg transition-colors"
                     >
-                      {addingEnvVar ? 'Adding...' : 'Add Variable'}
+                      + Add Variable
                     </button>
                   </div>
-                )}
-
-                {loadingEnvVars ? (
-                  <div className="text-center py-8 text-[var(--text-muted)]">
-                    <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--primary)] mb-2"></div>
-                    <p>Loading environment variables...</p>
-                  </div>
-                ) : envVars.length === 0 ? (
-                  <div className="text-center py-8 text-[var(--text-muted)]">
-                    <p>No environment variables configured</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {envVars.map((envVar) => (
-                      <div
-                        key={envVar.id}
-                        className="flex items-center justify-between bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]"
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-4">
-                            <span className="font-mono font-semibold text-[var(--text-primary)]">{envVar.key}</span>
-                            <span className="text-[var(--text-muted)]">=</span>
-                            <span className="font-mono text-[var(--text-secondary)]">{envVar.value}</span>
+                  
+                  {newEnvVars.length === 0 ? (
+                    <div className="text-center py-4 text-[var(--text-muted)] bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg">
+                      <p className="text-sm">Click "+ Add Variable" to add environment variables</p>
+                    </div>
+                  ) : (
+                    <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)] space-y-3">
+                      {newEnvVars.map((envVar, index) => (
+                        <div key={index} className="flex gap-2 items-start">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={envVar.key}
+                              onChange={(e) => updateNewEnvVar(index, 'key', e.target.value)}
+                              placeholder="KEY"
+                              className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] font-mono text-sm"
+                            />
                           </div>
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={envVar.value}
+                              onChange={(e) => updateNewEnvVar(index, 'value', e.target.value)}
+                              placeholder="value"
+                              className="w-full px-3 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] font-mono text-sm"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeNewEnvVarField(index)}
+                            className="px-3 py-2 bg-[var(--error)]/10 hover:bg-[var(--error)]/20 text-[var(--error)] rounded-lg transition-colors"
+                            title="Remove variable"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleDeleteEnvVar(envVar.key)}
-                          className="ml-4 px-3 py-1 text-sm bg-[var(--error)] hover:bg-[var(--error)]/80 text-white rounded transition-colors"
+                      ))}
+                      <button
+                        type="button"
+                        onClick={handleAddEnvVars}
+                        disabled={addingEnvVar || newEnvVars.filter(env => env.key.trim() !== '').length === 0}
+                        className="w-full px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {addingEnvVar ? 'Adding Variables...' : `Add ${newEnvVars.filter(env => env.key.trim() !== '').length} Variable(s)`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Existing Environment Variables */}
+                <div className="border-t border-[var(--border-subtle)] pt-4">
+                  <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Existing Variables</h3>
+
+                  {loadingEnvVars ? (
+                    <div className="text-center py-8 text-[var(--text-muted)]">
+                      <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--primary)] mb-2"></div>
+                      <p>Loading environment variables...</p>
+                    </div>
+                  ) : envVars.length === 0 ? (
+                    <div className="text-center py-4 text-[var(--text-muted)] bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg">
+                      <p className="text-sm">No environment variables configured</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {envVars.map((envVar) => (
+                        <div
+                          key={envVar.id}
+                          className="flex items-center justify-between bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]"
                         >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-4">
+                              <span className="font-mono font-semibold text-[var(--text-primary)]">{envVar.key}</span>
+                              <span className="text-[var(--text-muted)]">=</span>
+                              <span className="font-mono text-[var(--text-secondary)]">{envVar.value}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteEnvVar(envVar.key)}
+                            className="ml-4 px-3 py-1 text-sm bg-[var(--error)] hover:bg-[var(--error)]/80 text-white rounded transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

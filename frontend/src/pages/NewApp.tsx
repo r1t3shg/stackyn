@@ -2,6 +2,11 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { appsApi } from '@/lib/api';
 
+interface EnvVar {
+  key: string;
+  value: string;
+}
+
 export default function NewAppPage() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -9,6 +14,7 @@ export default function NewAppPage() {
     repo_url: '',
     branch: '',
   });
+  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +28,19 @@ export default function NewAppPage() {
       if (response.error) {
         setError(response.error);
       } else {
+        // Create environment variables after app is created
+        if (envVars.length > 0) {
+          const envVarPromises = envVars
+            .filter(env => env.key.trim() !== '')
+            .map(env => appsApi.createEnvVar(response.app.id, { key: env.key.trim(), value: env.value }));
+          
+          try {
+            await Promise.all(envVarPromises);
+          } catch (envErr) {
+            console.error('Error creating environment variables:', envErr);
+            // Continue even if env vars fail - app was created successfully
+          }
+        }
         navigate(`/apps/${response.app.id}`);
       }
     } catch (err) {
@@ -30,6 +49,20 @@ export default function NewAppPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const addEnvVar = () => {
+    setEnvVars([...envVars, { key: '', value: '' }]);
+  };
+
+  const removeEnvVar = (index: number) => {
+    setEnvVars(envVars.filter((_, i) => i !== index));
+  };
+
+  const updateEnvVar = (index: number, field: 'key' | 'value', value: string) => {
+    const updated = [...envVars];
+    updated[index] = { ...updated[index], [field]: value };
+    setEnvVars(updated);
   };
 
   return (
@@ -104,6 +137,66 @@ export default function NewAppPage() {
                 className="w-full px-4 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:border-[var(--focus-border)] text-[var(--text-primary)]"
                 placeholder="main"
               />
+            </div>
+
+            {/* Environment Variables Section */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                  Environment Variables
+                </label>
+                <button
+                  type="button"
+                  onClick={addEnvVar}
+                  className="text-sm px-3 py-1 bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--primary)] border border-[var(--border-subtle)] rounded-lg transition-colors"
+                >
+                  + Add Variable
+                </button>
+              </div>
+              <p className="text-sm text-[var(--text-muted)] mb-3">
+                Add environment variables that will be injected into your app container
+              </p>
+              
+              {envVars.length === 0 ? (
+                <div className="text-center py-4 text-[var(--text-muted)] bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg">
+                  <p className="text-sm">No environment variables added</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {envVars.map((envVar, index) => (
+                    <div key={index} className="flex gap-2 items-start">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={envVar.key}
+                          onChange={(e) => updateEnvVar(index, 'key', e.target.value)}
+                          placeholder="KEY"
+                          className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:border-[var(--focus-border)] text-[var(--text-primary)] font-mono text-sm"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={envVar.value}
+                          onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
+                          placeholder="value"
+                          className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:border-[var(--focus-border)] text-[var(--text-primary)] font-mono text-sm"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeEnvVar(index)}
+                        className="px-3 py-2 bg-[var(--error)]/10 hover:bg-[var(--error)]/20 text-[var(--error)] rounded-lg transition-colors"
+                        title="Remove variable"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end space-x-4">

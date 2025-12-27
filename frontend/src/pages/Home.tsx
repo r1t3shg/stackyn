@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appsApi, userApi } from '@/lib/api';
 import type { App, UserProfile } from '@/lib/types';
-import NewAppModal from '@/components/NewAppModal';
 import StatusBadge from '@/components/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -16,7 +15,6 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isNewAppModalOpen, setIsNewAppModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -257,7 +255,7 @@ export default function Home() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setIsNewAppModalOpen(true)}
+              onClick={() => navigate('/apps/new')}
               className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -366,7 +364,7 @@ export default function Home() {
             </p>
             {(!searchQuery && statusFilter === 'all') && (
               <button
-                onClick={() => setIsNewAppModalOpen(true)}
+                onClick={() => navigate('/apps/new')}
                 className="inline-flex items-center gap-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -499,16 +497,6 @@ export default function Home() {
           </div>
         )}
       </div>
-
-      {/* New App Modal */}
-      <NewAppModal
-        isOpen={isNewAppModalOpen}
-        onClose={() => setIsNewAppModalOpen(false)}
-        onAppCreated={async () => {
-          setIsNewAppModalOpen(false);
-          await loadApps();
-        }}
-      />
     </div>
   );
 }
