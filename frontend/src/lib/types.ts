@@ -93,4 +93,37 @@ export interface CreateEnvVarRequest {
   value: string;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name?: string;
+  company_name?: string;
+  email_verified: boolean;
+  plan: string;
+  created_at: string;
+  updated_at: string;
+  quota?: {
+    plan_name: string;
+    plan: {
+      name: string;
+      display_name: string;
+      price: number;
+      max_ram_mb: number;
+      max_disk_mb: number;
+      max_apps: number;
+      always_on: boolean;
+      auto_deploy: boolean;
+      health_checks: boolean;
+      logs: boolean;
+      zero_downtime: boolean;
+      workers: boolean;
+      priority_builds: boolean;
+      manual_deploy_only: boolean;
+    };
+    app_count: number;
+    total_ram_mb: number;
+    total_disk_mb: number;
+  };
+}
+
 

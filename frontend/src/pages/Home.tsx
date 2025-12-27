@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { appsApi } from '@/lib/api';
-import type { App } from '@/lib/types';
+import { appsApi, userApi } from '@/lib/api';
+import type { App, UserProfile } from '@/lib/types';
 import NewAppModal from '@/components/NewAppModal';
 import StatusBadge from '@/components/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,7 +12,9 @@ type StatusFilter = 'all' | 'running' | 'deploying' | 'stopped' | 'error';
 
 export default function Home() {
   const [apps, setApps] = useState<App[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isNewAppModalOpen, setIsNewAppModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -24,6 +26,7 @@ export default function Home() {
 
   useEffect(() => {
     loadApps();
+    loadUserProfile();
   }, []);
 
   const loadApps = async () => {
@@ -39,6 +42,19 @@ export default function Home() {
       setApps([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserProfile = async () => {
+    try {
+      setProfileLoading(true);
+      const profile = await userApi.getProfile();
+      setUserProfile(profile);
+    } catch (err) {
+      console.error('Error loading user profile:', err);
+      // Don't show error for profile - it's not critical
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -128,9 +144,87 @@ export default function Home() {
     }
   };
 
+  const getPlanDisplayName = (plan: string) => {
+    const planNames: Record<string, string> = {
+      free: 'Free',
+      starter: 'Starter',
+      builder: 'Builder',
+      pro: 'Pro',
+    };
+    return planNames[plan.toLowerCase()] || plan;
+  };
+
   return (
     <div className="min-h-screen bg-[var(--app-bg)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* User Profile CTA Section */}
+        {userProfile && !profileLoading && (
+          <div className="mb-8 bg-gradient-to-r from-[var(--primary)]/10 to-[var(--primary)]/5 border border-[var(--primary)]/20 rounded-xl p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-full bg-[var(--primary)]/20 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-[var(--text-primary)]">
+                      {userProfile.full_name || userProfile.email}
+                    </h2>
+                    {userProfile.company_name && (
+                      <p className="text-sm text-[var(--text-secondary)]">{userProfile.company_name}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">Plan:</span>
+                    <span className="font-semibold text-[var(--primary)]">
+                      {getPlanDisplayName(userProfile.plan)}
+                    </span>
+                  </div>
+                  {userProfile.quota && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[var(--text-secondary)]">Apps:</span>
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {userProfile.quota.app_count} / {userProfile.quota.plan.max_apps}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[var(--text-secondary)]">RAM:</span>
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {userProfile.quota.total_ram_mb} MB / {userProfile.quota.plan.max_ram_mb} MB
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[var(--text-secondary)]">Disk:</span>
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {userProfile.quota.total_disk_mb} MB / {userProfile.quota.plan.max_disk_mb} MB
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                {userProfile.plan === 'free' && (
+                  <button
+                    onClick={() => window.location.href = '/pricing'}
+                    className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Upgrade Plan
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -375,6 +469,11 @@ export default function Home() {
         {!loading && !error && filteredAndSortedApps.length > 0 && (
           <div className="mt-4 text-sm text-[var(--text-muted)]">
             Showing {filteredAndSortedApps.length} of {apps.length} app{apps.length !== 1 ? 's' : ''}
+            {userProfile?.quota && (
+              <span className="ml-4">
+                ({userProfile.quota.app_count} published)
+              </span>
+            )}
           </div>
         )}
       </div>

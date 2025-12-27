@@ -194,6 +194,12 @@ func main() {
 		r.Get("/", listAppsByUser(appStore))
 	})
 
+	// User profile endpoint (GET /api/user/me)
+	r.Route("/api/user", func(r chi.Router) {
+		r.Use(createAuthMiddleware(firebaseService, userStore))
+		r.Get("/me", getUserProfile(userStore, quotaService))
+	})
+
 	// Admin API routes (require authentication + admin role)
 	r.Route("/admin", func(r chi.Router) {
 		// Apply auth middleware first, then admin middleware
@@ -1430,6 +1436,59 @@ func listAppsByUser(store *apps.Store) http.HandlerFunc {
 
 		// Return 200 with JSON array (empty array if none)
 		respondJSON(w, http.StatusOK, apps)
+	}
+}
+
+// getUserProfile handles GET /api/user/me
+// Returns the current authenticated user's profile with plan and quota information
+func getUserProfile(userStore *users.Store, quotaService *quota.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract user_id from request context (set by auth middleware)
+		userID, ok := auth.GetUserID(r)
+		if !ok {
+			respondError(w, http.StatusUnauthorized, "user_id not found in request context")
+			return
+		}
+
+		// Get user details
+		user, err := userStore.GetUserByID(userID)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to get user: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to get user")
+			return
+		}
+
+		// Get quota information
+		userQuota, err := quotaService.GetUserQuota(r.Context(), userID)
+		if err != nil {
+			log.Printf("[API] WARNING - Failed to get quota: %v", err)
+			// Continue without quota info
+		}
+
+		// Build response
+		response := map[string]interface{}{
+			"id":             user.ID,
+			"email":          user.Email,
+			"full_name":      user.FullName,
+			"company_name":   user.CompanyName,
+			"email_verified": user.EmailVerified,
+			"plan":           user.Plan,
+			"created_at":     user.CreatedAt,
+			"updated_at":     user.UpdatedAt,
+		}
+
+		// Add quota information if available
+		if userQuota != nil {
+			response["quota"] = map[string]interface{}{
+				"plan_name":     userQuota.PlanName,
+				"plan":          userQuota.Plan,
+				"app_count":     userQuota.AppCount,
+				"total_ram_mb":  userQuota.TotalRAMMB,
+				"total_disk_mb": userQuota.TotalDiskMB,
+			}
+		}
+
+		respondJSON(w, http.StatusOK, response)
 	}
 }
 
