@@ -1,30 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { authApi } from '@/lib/api';
 import Logo from '@/components/Logo';
 
-type SignupStep = 'email' | 'otp' | 'details';
+type SignupStep = 'credentials' | 'verify' | 'details';
 
 export default function SignUp() {
-  const [step, setStep] = useState<SignupStep>('email');
+  const [step, setStep] = useState<SignupStep>('credentials');
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [companyName, setCompanyName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
-  const [otpError, setOtpError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
-  const { user, isLoading } = useAuth();
+  const { user, firebaseUser, signupFirebase, signupComplete, isLoading } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already logged in
@@ -34,13 +29,16 @@ export default function SignUp() {
     }
   }, [user, isLoading, navigate]);
 
-  // OTP resend cooldown timer
+  // Check if Firebase user is verified and move to details step
   useEffect(() => {
-    if (otpResendCooldown > 0) {
-      const timer = setTimeout(() => setOtpResendCooldown(otpResendCooldown - 1), 1000);
-      return () => clearTimeout(timer);
+    if (firebaseUser) {
+      if (firebaseUser.emailVerified) {
+        setStep('details');
+      } else {
+        setStep('verify');
+      }
     }
-  }, [otpResendCooldown]);
+  }, [firebaseUser]);
 
   // Real-time email validation
   useEffect(() => {
@@ -73,8 +71,8 @@ export default function SignUp() {
     }
   }, [confirmPassword, password]);
 
-  // Step 1: Handle email submission
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  // Step 1: Handle Firebase account creation
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -83,72 +81,8 @@ export default function SignUp() {
       return;
     }
 
-    setLoading(true);
-    try {
-      await authApi.signupInitiate(email);
-      setOtpSent(true);
-      setStep('otp');
-      setOtpResendCooldown(60); // 60 second cooldown
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle OTP resend
-  const handleResendOTP = async () => {
-    if (otpResendCooldown > 0) return;
-
-    setError(null);
-    setLoading(true);
-    try {
-      await authApi.signupInitiate(email);
-      setOtpResendCooldown(60);
-      setOtpError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Step 2: Handle OTP verification
-  const handleOTPSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setOtpError(null);
-
-    if (!otp || otp.length !== 6) {
-      setOtpError('Please enter a valid 6-digit OTP');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await authApi.signupVerifyOTP(email, otp);
-      setStep('details');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to verify OTP';
-      setOtpError(errorMessage);
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Step 3: Handle account setup completion
-  const handleDetailsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!fullName || !password || !confirmPassword) {
-      setError('Please fill in all required fields');
-      return;
-    }
-
-    if (passwordError || confirmPasswordError) {
-      setError('Please fix the validation errors');
+    if (!password || passwordError) {
+      setError('Please enter a valid password');
       return;
     }
 
@@ -159,14 +93,66 @@ export default function SignUp() {
 
     setLoading(true);
     try {
-      const response = await authApi.signupComplete(email, fullName, companyName, password);
-      // Store token and user info
-      localStorage.setItem('auth_token', response.token);
-      localStorage.setItem('auth_user', JSON.stringify(response.user));
+      await signupFirebase(email, password);
+      // Firebase will send verification email automatically
+      setStep('verify');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to create account';
+      if (errorMessage.includes('email-already-in-use')) {
+        setError('This email is already registered. Please sign in instead.');
+      } else if (errorMessage.includes('weak-password')) {
+        setError('Password is too weak. Please use a stronger password.');
+      } else {
+        setError(errorMessage);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2: Handle email verification check
+  const handleCheckVerification = async () => {
+    if (!firebaseUser) return;
+
+    setLoading(true);
+    try {
+      // Reload user to check if email is verified
+      await firebaseUser.reload();
+      if (firebaseUser.emailVerified) {
+        setStep('details');
+      } else {
+        setError('Email not verified yet. Please check your inbox and click the verification link.');
+      }
+    } catch (err) {
+      setError('Failed to check verification status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 3: Handle account setup completion
+  const handleDetailsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!fullName) {
+      setError('Please enter your full name');
+      return;
+    }
+
+    if (!firebaseUser) {
+      setError('Authentication error. Please try again.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const idToken = await firebaseUser.getIdToken();
+      await signupComplete(idToken, fullName, companyName);
       // Redirect to apps page
       navigate('/apps');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create account');
+      setError(err instanceof Error ? err.message : 'Failed to complete signup');
     } finally {
       setLoading(false);
     }
@@ -195,13 +181,13 @@ export default function SignUp() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-3">
-            {step === 'email' && 'Create account'}
-            {step === 'otp' && 'Verify your email'}
+            {step === 'credentials' && 'Create account'}
+            {step === 'verify' && 'Verify your email'}
             {step === 'details' && 'Complete your account'}
           </h1>
           <p className="text-lg text-[var(--text-secondary)]">
-            {step === 'email' && 'Go from code to production without managing servers. Get started in seconds.'}
-            {step === 'otp' && `We sent a verification code to ${email}`}
+            {step === 'credentials' && 'Go from code to production without managing servers. Get started in seconds.'}
+            {step === 'verify' && `We sent a verification email to ${email}. Please check your inbox and click the verification link.`}
             {step === 'details' && 'Just a few more details to get you started'}
           </p>
         </div>
@@ -209,12 +195,12 @@ export default function SignUp() {
         {/* Progress Indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center gap-2">
-            <div className={`flex-1 h-1 rounded-full ${step === 'email' ? 'bg-[var(--primary)]' : 'bg-[var(--primary)]'}`}></div>
-            <div className={`flex-1 h-1 rounded-full ${step === 'otp' ? 'bg-[var(--primary)]' : step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
+            <div className={`flex-1 h-1 rounded-full ${step === 'credentials' ? 'bg-[var(--primary)]' : 'bg-[var(--primary)]'}`}></div>
+            <div className={`flex-1 h-1 rounded-full ${step === 'verify' ? 'bg-[var(--primary)]' : step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
             <div className={`flex-1 h-1 rounded-full ${step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
           </div>
           <div className="flex justify-between mt-2 text-xs text-[var(--text-muted)]">
-            <span>Email</span>
+            <span>Account</span>
             <span>Verify</span>
             <span>Details</span>
           </div>
@@ -228,9 +214,9 @@ export default function SignUp() {
             </div>
           )}
 
-          {/* Step 1: Email Entry */}
-          {step === 'email' && (
-            <form className="space-y-6" onSubmit={handleEmailSubmit}>
+          {/* Step 1: Email & Password */}
+          {step === 'credentials' && (
+            <form className="space-y-6" onSubmit={handleCredentialsSubmit}>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
                   Work email address
@@ -253,123 +239,9 @@ export default function SignUp() {
                 )}
               </div>
 
-              <button
-                type="submit"
-                disabled={loading || !!emailError || !email}
-                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {loading ? 'Sending...' : 'Continue'}
-              </button>
-            </form>
-          )}
-
-          {/* Step 2: OTP Verification */}
-          {step === 'otp' && (
-            <form className="space-y-6" onSubmit={handleOTPSubmit}>
-              <div>
-                <label htmlFor="otp" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                  Enter verification code
-                </label>
-                <input
-                  id="otp"
-                  name="otp"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
-                  required
-                  value={otp}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                    setOtp(value);
-                  }}
-                  className={`w-full px-4 py-3 bg-[var(--elevated)] border rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors text-center text-2xl tracking-widest font-mono ${
-                    otpError ? 'border-[var(--error)]' : 'border-[var(--border-subtle)]'
-                  }`}
-                  placeholder="000000"
-                  autoFocus
-                />
-                {otpError && (
-                  <p className="mt-1 text-sm text-[var(--error)]">{otpError}</p>
-                )}
-                {otpSent && !otpError && (
-                  <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                    Check your email for the 6-digit code. It expires in 5 minutes.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep('email')}
-                  className="flex-1 py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || otp.length !== 6}
-                  className="flex-1 py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? 'Verifying...' : 'Verify'}
-                </button>
-              </div>
-
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={handleResendOTP}
-                  disabled={otpResendCooldown > 0 || loading}
-                  className="text-sm text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed transition-colors"
-                >
-                  {otpResendCooldown > 0
-                    ? `Resend code in ${otpResendCooldown}s`
-                    : "Didn't receive code? Resend"}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Step 3: Account Details */}
-          {step === 'details' && (
-            <form className="space-y-6" onSubmit={handleDetailsSubmit}>
-              <div>
-                <label htmlFor="fullName" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                  Full name <span className="text-[var(--error)]">*</span>
-                </label>
-                <input
-                  id="fullName"
-                  name="fullName"
-                  type="text"
-                  autoComplete="name"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
-                  placeholder="John Doe"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="companyName" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                  Company / Project name
-                </label>
-                <input
-                  id="companyName"
-                  name="companyName"
-                  type="text"
-                  autoComplete="organization"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
-                  placeholder="Acme Inc."
-                />
-              </div>
-
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                  Password <span className="text-[var(--error)]">*</span>
+                  Password
                 </label>
                 <div className="relative">
                   <input
@@ -410,7 +282,7 @@ export default function SignUp() {
 
               <div>
                 <label htmlFor="confirmPassword" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                  Repeat password <span className="text-[var(--error)]">*</span>
+                  Repeat password
                 </label>
                 <div className="relative">
                   <input
@@ -449,22 +321,94 @@ export default function SignUp() {
                 )}
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep('otp')}
-                  className="flex-1 py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || !!passwordError || !!confirmPasswordError || !fullName || !password || !confirmPassword}
-                  className="flex-1 py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? 'Creating account...' : 'Go to console'}
-                </button>
+              <button
+                type="submit"
+                disabled={loading || !!emailError || !!passwordError || !!confirmPasswordError || !email || !password || !confirmPassword}
+                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Creating account...' : 'Continue'}
+              </button>
+            </form>
+          )}
+
+          {/* Step 2: Email Verification */}
+          {step === 'verify' && (
+            <div className="space-y-6">
+              <div className="bg-[var(--primary-muted)]/20 rounded-lg border border-[var(--primary-muted)] p-6 text-center">
+                <svg className="w-12 h-12 text-[var(--primary)] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
+                  Check your email
+                </h3>
+                <p className="text-sm text-[var(--text-secondary)] mb-4">
+                  We've sent a verification link to <strong>{email}</strong>. Please click the link in the email to verify your account.
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Didn't receive the email? Check your spam folder or try again.
+                </p>
               </div>
+
+              <button
+                onClick={handleCheckVerification}
+                disabled={loading}
+                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Checking...' : 'I\'ve verified my email'}
+              </button>
+
+              <button
+                onClick={() => setStep('credentials')}
+                className="w-full py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
+              >
+                Back
+              </button>
+            </div>
+          )}
+
+          {/* Step 3: Account Details */}
+          {step === 'details' && (
+            <form className="space-y-6" onSubmit={handleDetailsSubmit}>
+              <div>
+                <label htmlFor="fullName" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                  Full name <span className="text-[var(--error)]">*</span>
+                </label>
+                <input
+                  id="fullName"
+                  name="fullName"
+                  type="text"
+                  autoComplete="name"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                  placeholder="John Doe"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="companyName" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                  Company / Project name
+                </label>
+                <input
+                  id="companyName"
+                  name="companyName"
+                  type="text"
+                  autoComplete="organization"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                  placeholder="Acme Inc."
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !fullName}
+                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Completing signup...' : 'Go to console'}
+              </button>
             </form>
           )}
         </div>

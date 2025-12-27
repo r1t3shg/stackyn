@@ -41,11 +41,10 @@ import (
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
 	"mvp-be/internal/dockerrun"
-	"mvp-be/internal/email"
 	"mvp-be/internal/envvars"
+	"mvp-be/internal/firebase"
 	"mvp-be/internal/gitrepo"
 	"mvp-be/internal/logs"
-	"mvp-be/internal/otp"
 	"mvp-be/internal/users"
 )
 
@@ -94,17 +93,16 @@ func main() {
 	deploymentStore := deployments.NewStore(database.DB)
 	envVarStore := envvars.NewStore(database.DB)
 	userStore := users.NewStore(database.DB)
-	otpStore := otp.NewStore(database.DB)
 	log.Println("Data stores initialized")
 
-	// Initialize email service
-	log.Println("Initializing email service...")
-	emailService, err := email.NewService()
+	// Initialize Firebase Auth service
+	log.Println("Initializing Firebase Auth service...")
+	firebaseService, err := firebase.NewService()
 	if err != nil {
-		log.Printf("WARNING - Failed to initialize email service: %v (OTP emails will not be sent)", err)
-		emailService = nil
+		log.Printf("WARNING - Failed to initialize Firebase Auth: %v (authentication will not work)", err)
+		firebaseService = nil
 	} else {
-		log.Println("Email service initialized")
+		log.Println("Firebase Auth service initialized")
 	}
 
 	// Initialize git cloner for Dockerfile validation
@@ -157,10 +155,10 @@ func main() {
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/signup", signup(userStore)) // Legacy endpoint - keep for backward compatibility
 		r.Post("/login", login(userStore))
-		// New signup flow endpoints
-		r.Post("/signup/initiate", signupInitiate(otpStore, emailService))
-		r.Post("/signup/verify-otp", signupVerifyOTP(otpStore))
-		r.Post("/signup/complete", signupComplete(userStore))
+		// Firebase Auth signup flow endpoints
+		r.Post("/signup/firebase", signupFirebase(firebaseService, userStore))
+		r.Post("/signup/complete", signupCompleteFirebase(firebaseService, userStore))
+		r.Post("/verify-token", verifyFirebaseToken(firebaseService))
 	})
 
 	// Protected API routes (require authentication)
@@ -205,9 +203,9 @@ func main() {
 	log.Println("API endpoints available:")
 	log.Println("  GET  /health - Health check")
 	log.Println("  POST /api/auth/signup - Sign up new user (legacy)")
-	log.Println("  POST /api/auth/signup/initiate - Initiate signup (send OTP)")
-	log.Println("  POST /api/auth/signup/verify-otp - Verify OTP")
-	log.Println("  POST /api/auth/signup/complete - Complete signup")
+	log.Println("  POST /api/auth/signup/firebase - Create Firebase user")
+	log.Println("  POST /api/auth/signup/complete - Complete signup with details")
+	log.Println("  POST /api/auth/verify-token - Verify Firebase token")
 	log.Println("  POST /api/auth/login - Login user")
 	log.Println("  GET  /api/apps - List apps for authenticated user (protected)")
 	log.Println("  POST /api/v1/apps - Create new app (protected)")
@@ -1012,12 +1010,19 @@ func login(store *users.Store) http.HandlerFunc {
 	}
 }
 
-// signupInitiate handles POST /api/auth/signup/initiate
-// Step 1: User enters email, system generates and sends OTP
-func signupInitiate(otpStore *otp.Store, emailService *email.Service) http.HandlerFunc {
+// signupFirebase handles POST /api/auth/signup/firebase
+// Step 1: User creates Firebase account with email/password
+// Firebase handles email verification automatically
+func signupFirebase(firebaseService *firebase.Service, userStore *users.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if firebaseService == nil {
+			respondError(w, http.StatusServiceUnavailable, "Firebase Auth not configured")
+			return
+		}
+
 		var req struct {
-			Email string `json:"email"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1025,8 +1030,8 @@ func signupInitiate(otpStore *otp.Store, emailService *email.Service) http.Handl
 			return
 		}
 
-		if req.Email == "" {
-			respondError(w, http.StatusBadRequest, "email is required")
+		if req.Email == "" || req.Password == "" {
+			respondError(w, http.StatusBadRequest, "email and password are required")
 			return
 		}
 
@@ -1036,109 +1041,114 @@ func signupInitiate(otpStore *otp.Store, emailService *email.Service) http.Handl
 			return
 		}
 
-		// Generate and store OTP
-		otpCode, err := otpStore.CreateOTP(req.Email)
-		if err != nil {
-			log.Printf("[API] ERROR - Failed to create OTP: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to generate OTP")
-			return
-		}
-
-		// Send OTP via email if email service is available
-		if emailService != nil {
-			if err := emailService.SendOTPEmail(req.Email, otpCode); err != nil {
-				log.Printf("[API] ERROR - Failed to send OTP email: %v", err)
-				// In development, log the OTP so developers can use it
-				log.Printf("[API] OTP for %s: %s (email sending failed)", req.Email, otpCode)
-				// Don't fail the request, just log the error
-				// In production, you might want to fail here
-			}
-		} else {
-			// In development, log the OTP so developers can use it
-			log.Printf("[API] OTP for %s: %s (email service not configured)", req.Email, otpCode)
-		}
-
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"message": "OTP sent to email",
-			"email":   req.Email,
-		})
-	}
-}
-
-// signupVerifyOTP handles POST /api/auth/signup/verify-otp
-// Step 2: User enters OTP, system verifies it
-func signupVerifyOTP(otpStore *otp.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email string `json:"email"`
-			OTP   string `json:"otp"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondError(w, http.StatusBadRequest, "Invalid request body")
-			return
-		}
-
-		if req.Email == "" || req.OTP == "" {
-			respondError(w, http.StatusBadRequest, "email and otp are required")
-			return
-		}
-
-		// Verify OTP
-		valid, err := otpStore.VerifyOTP(req.Email, req.OTP)
-		if err != nil {
-			log.Printf("[API] ERROR - Failed to verify OTP: %v", err)
-			respondError(w, http.StatusInternalServerError, "Failed to verify OTP")
-			return
-		}
-
-		if !valid {
-			respondError(w, http.StatusUnauthorized, "Invalid or expired OTP")
-			return
-		}
-
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"message": "OTP verified successfully",
-			"email":   req.Email,
-		})
-	}
-}
-
-// signupComplete handles POST /api/auth/signup/complete
-// Step 3: User provides account details, system creates user account
-func signupComplete(userStore *users.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email       string `json:"email"`
-			FullName    string `json:"full_name"`
-			CompanyName string `json:"company_name"`
-			Password    string `json:"password"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondError(w, http.StatusBadRequest, "Invalid request body")
-			return
-		}
-
-		if req.Email == "" || req.Password == "" || req.FullName == "" {
-			respondError(w, http.StatusBadRequest, "email, password, and full_name are required")
-			return
-		}
-
-		// Check if user already exists
+		// Check if user already exists in our database
 		_, err := userStore.GetUserByEmail(req.Email)
 		if err == nil {
 			respondError(w, http.StatusConflict, "Email already registered")
 			return
 		}
 
-		// Create new user with all details
+		// Create Firebase user
+		ctx := r.Context()
+		firebaseUser, err := firebaseService.CreateUser(ctx, req.Email, req.Password)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to create Firebase user: %v", err)
+			// Check if it's a duplicate email error
+			if strings.Contains(err.Error(), "email already exists") {
+				respondError(w, http.StatusConflict, "Email already registered")
+				return
+			}
+			respondError(w, http.StatusInternalServerError, "Failed to create user")
+			return
+		}
+
+		log.Printf("[API] Firebase user created: %s (UID: %s)", req.Email, firebaseUser.UID)
+
+		respondJSON(w, http.StatusCreated, map[string]interface{}{
+			"message": "User created successfully. Please verify your email.",
+			"uid":     firebaseUser.UID,
+			"email":   firebaseUser.Email,
+		})
+	}
+}
+
+// signupCompleteFirebase handles POST /api/auth/signup/complete
+// Step 2: User provides account details after email verification
+// Requires Firebase ID token to verify the user
+func signupCompleteFirebase(firebaseService *firebase.Service, userStore *users.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if firebaseService == nil {
+			respondError(w, http.StatusServiceUnavailable, "Firebase Auth not configured")
+			return
+		}
+
+		var req struct {
+			IDToken    string `json:"id_token"` // Firebase ID token
+			FullName   string `json:"full_name"`
+			CompanyName string `json:"company_name"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if req.IDToken == "" || req.FullName == "" {
+			respondError(w, http.StatusBadRequest, "id_token and full_name are required")
+			return
+		}
+
+		// Verify Firebase ID token
+		ctx := r.Context()
+		uid, email, err := firebaseService.VerifyIDToken(ctx, req.IDToken)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to verify Firebase token: %v", err)
+			respondError(w, http.StatusUnauthorized, "Invalid or expired token")
+			return
+		}
+
+		// Get Firebase user to check email verification status
+		firebaseUser, err := firebaseService.GetUserByEmail(ctx, email)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to get Firebase user: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to get user")
+			return
+		}
+
+		// Check if email is verified
+		if !firebaseUser.EmailVerified {
+			respondError(w, http.StatusBadRequest, "Email not verified. Please verify your email first.")
+			return
+		}
+
+		// Check if user already exists in our database
+		existingUser, err := userStore.GetUserByEmail(email)
+		if err == nil {
+			// User exists, update their details
+			// For now, we'll just return success
+			log.Printf("[API] User already exists: %s", email)
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"message": "User already exists",
+				"user": map[string]interface{}{
+					"id":             existingUser.ID,
+					"email":          existingUser.Email,
+					"full_name":      existingUser.FullName,
+					"company_name":   existingUser.CompanyName,
+					"email_verified": existingUser.EmailVerified,
+				},
+			})
+			return
+		}
+
+		// Create user in our database
+		// Use Firebase UID as the user ID, or generate a new UUID
+		// We'll store Firebase UID separately or use it as the primary ID
 		user, err := userStore.CreateUserWithDetails(
-			req.Email,
-			req.Password,
+			email,
+			"", // No password needed - Firebase handles auth
 			req.FullName,
 			req.CompanyName,
-			true, // email_verified = true (OTP was verified in previous step)
+			true, // email_verified = true (verified by Firebase)
 		)
 		if err != nil {
 			log.Printf("[API] ERROR - Failed to create user: %v", err)
@@ -1146,7 +1156,7 @@ func signupComplete(userStore *users.Store) http.HandlerFunc {
 			return
 		}
 
-		// Generate JWT token
+		// Generate our JWT token for API access
 		token, err := auth.GenerateToken(user.ID, user.Email)
 		if err != nil {
 			log.Printf("[API] ERROR - Failed to generate token: %v", err)
@@ -1163,6 +1173,55 @@ func signupComplete(userStore *users.Store) http.HandlerFunc {
 				"email_verified": user.EmailVerified,
 			},
 			"token": token,
+			"firebase_uid": uid,
+		})
+	}
+}
+
+// verifyFirebaseToken handles POST /api/auth/verify-token
+// Verifies a Firebase ID token and returns user info
+func verifyFirebaseToken(firebaseService *firebase.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if firebaseService == nil {
+			respondError(w, http.StatusServiceUnavailable, "Firebase Auth not configured")
+			return
+		}
+
+		var req struct {
+			IDToken string `json:"id_token"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+
+		if req.IDToken == "" {
+			respondError(w, http.StatusBadRequest, "id_token is required")
+			return
+		}
+
+		// Verify Firebase ID token
+		ctx := r.Context()
+		uid, email, err := firebaseService.VerifyIDToken(ctx, req.IDToken)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to verify Firebase token: %v", err)
+			respondError(w, http.StatusUnauthorized, "Invalid or expired token")
+			return
+		}
+
+		// Get Firebase user details
+		firebaseUser, err := firebaseService.GetUserByEmail(ctx, email)
+		if err != nil {
+			log.Printf("[API] ERROR - Failed to get Firebase user: %v", err)
+			respondError(w, http.StatusInternalServerError, "Failed to get user")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"uid":            uid,
+			"email":          email,
+			"email_verified": firebaseUser.EmailVerified,
 		})
 	}
 }
