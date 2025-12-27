@@ -6,7 +6,7 @@ import StatusBadge from '@/components/StatusBadge';
 import LogsViewer from '@/components/LogsViewer';
 import { extractString } from '@/lib/types';
 
-type Tab = 'overview' | 'deployments' | 'logs' | 'metrics' | 'settings' | 'domains';
+type Tab = 'overview' | 'deployments' | 'logs' | 'metrics' | 'settings';
 
 export default function AppDetailsPage() {
   const params = useParams<{ id: string }>();
@@ -116,27 +116,6 @@ export default function AppDetailsPage() {
     }
   };
 
-  const handleRestart = async () => {
-    // For now, restart is the same as redeploy
-    if (!confirm('Are you sure you want to restart this app?')) {
-      return;
-    }
-    setActionLoading('restart');
-    try {
-      await appsApi.redeploy(appId);
-      await loadApp();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to restart app');
-      console.error('Error restarting app:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleStop = async () => {
-    alert('Stop functionality is not yet implemented. This will stop the running container.');
-  };
-
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this app? This action cannot be undone and will remove all deployments and data.')) {
       return;
@@ -233,10 +212,6 @@ export default function AppDetailsPage() {
     }
   };
 
-  const getEnvironment = (): string => {
-    return 'production'; // Can be enhanced later
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--app-bg)] flex items-center justify-center">
@@ -279,9 +254,6 @@ export default function AppDetailsPage() {
               <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-3">{app.name}</h1>
               <div className="flex items-center gap-4 flex-wrap">
                 <StatusBadge status={app.status || 'unknown'} />
-                <span className="px-3 py-1 text-sm font-medium rounded bg-[var(--primary-muted)] text-[var(--primary)]">
-                  {getEnvironment()}
-                </span>
                 {app.url && (
                   <a
                     href={app.url}
@@ -308,25 +280,6 @@ export default function AppDetailsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 {actionLoading === 'redeploy' ? 'Redeploying...' : 'Redeploy'}
-              </button>
-              <button
-                onClick={handleRestart}
-                disabled={actionLoading !== null}
-                className="px-4 py-2 bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                title="Restart app"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
-              </button>
-              <button
-                onClick={handleStop}
-                disabled={actionLoading !== null}
-                className="px-4 py-2 bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Stop app"
-              >
-                Stop
               </button>
               <button
                 onClick={handleDelete}
@@ -372,7 +325,7 @@ export default function AppDetailsPage() {
               </div>
             </div>
             <div>
-              <div className="text-xs text-[var(--text-muted)] mb-1">Commit</div>
+              <div className="text-xs text-[var(--text-muted)] mb-1">Deployment</div>
               <div className="text-sm text-[var(--text-secondary)] font-mono">
                 {activeDeployment ? `#${activeDeployment.id}` : '—'}
               </div>
@@ -384,7 +337,7 @@ export default function AppDetailsPage() {
         <div className="mb-6">
           <div className="border-b border-[var(--border-subtle)]">
             <nav className="flex space-x-8 overflow-x-auto">
-              {(['overview', 'deployments', 'logs', 'metrics', 'settings', 'domains'] as Tab[]).map((tab) => (
+              {(['overview', 'deployments', 'logs', 'metrics', 'settings'] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -791,160 +744,6 @@ export default function AppDetailsPage() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              {/* Build & Start Commands */}
-              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Build & Start Commands</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Build Command</label>
-                    <input
-                      type="text"
-                      defaultValue="docker build -t app ."
-                      disabled
-                      className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)] font-mono text-sm"
-                    />
-                    <p className="text-xs text-[var(--text-muted)] mt-1">Custom build commands coming soon</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Start Command</label>
-                    <input
-                      type="text"
-                      defaultValue="docker run app"
-                      disabled
-                      className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)] font-mono text-sm"
-                    />
-                    <p className="text-xs text-[var(--text-muted)] mt-1">Custom start commands coming soon</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Resource Limits */}
-              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Resource Limits</h2>
-                {app.deployment?.resource_limits ? (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Memory (MB)</label>
-                      <input
-                        type="number"
-                        defaultValue={app.deployment.resource_limits.memory_mb}
-                        disabled
-                        className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">CPU (vCPU)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        defaultValue={app.deployment.resource_limits.cpu}
-                        disabled
-                        className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Disk (GB)</label>
-                      <input
-                        type="number"
-                        defaultValue={app.deployment.resource_limits.disk_gb}
-                        disabled
-                        className="w-full px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-[var(--text-muted)]">Resource limits will be set during deployment</p>
-                )}
-                <div className="mt-4 bg-[var(--primary-muted)]/20 rounded-lg border border-[var(--primary-muted)] p-4">
-                  <div className="flex items-start gap-3">
-                    <svg className="w-5 h-5 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                      <div className="font-medium text-[var(--text-primary)] mb-1">How to scale resources</div>
-                      <div className="text-sm text-[var(--text-secondary)]">
-                        Resource limits can be adjusted by upgrading your plan. Higher plans offer more RAM, CPU, and disk space for your applications.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Auto-deploy Rules */}
-              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Auto-deploy Rules</h2>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      defaultChecked
-                      disabled
-                      className="rounded"
-                    />
-                    <div>
-                      <div className="text-[var(--text-primary)]">Auto-deploy on push to {app.branch}</div>
-                      <div className="text-sm text-[var(--text-muted)]">Automatically deploy when code is pushed to the {app.branch} branch</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Domains Tab */}
-          {activeTab === 'domains' && (
-            <div className="space-y-6">
-              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Custom Domains</h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Add Custom Domain</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="example.com"
-                        disabled
-                        className="flex-1 px-3 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-muted)]"
-                      />
-                      <button
-                        disabled
-                        className="px-4 py-2 bg-[var(--surface)] border border-[var(--border-subtle)] text-[var(--text-muted)] rounded-lg cursor-not-allowed"
-                      >
-                        Add Domain
-                      </button>
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-2">Custom domain configuration coming soon</p>
-                  </div>
-                  {app.url && (
-                    <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium text-[var(--text-primary)]">{app.url}</div>
-                          <div className="text-sm text-[var(--text-muted)] mt-1">Default domain</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-1 text-xs bg-[var(--success)]/20 text-[var(--success)] rounded">HTTPS</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-[var(--primary-muted)]/20 rounded-lg border border-[var(--primary-muted)] p-4">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <div className="font-medium text-[var(--text-primary)] mb-1">HTTPS & SSL Certificates</div>
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      All domains are automatically secured with SSL certificates. HTTPS is enabled by default for all apps.
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}
