@@ -402,9 +402,12 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	
 	var installCommand string
 	if useNpmCi {
-		installCommand = "npm ci --only=production"
+		// Use --ignore-scripts to skip lifecycle scripts (prepare, preinstall, etc.)
+		// which may require dev dependencies like husky, pnpm, etc.
+		installCommand = "npm ci --only=production --ignore-scripts"
 	} else {
-		installCommand = "npm install --only=production"
+		// Use --ignore-scripts to skip lifecycle scripts during install
+		installCommand = "npm install --only=production --ignore-scripts"
 	}
 	
 	log.Printf("[GIT] Generated Node.js Dockerfile with install command: %s (package-lock.json exists: %v)", installCommand, useNpmCi)
