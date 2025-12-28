@@ -374,8 +374,18 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	// Try to detect start command from package.json
 	// Simple parsing - look for "start" script
 	startCommand := "npm start"
+	needsBuild := false
+	hasBuildScript := strings.Contains(string(packageJSON), `"build"`)
+	
 	if strings.Contains(string(packageJSON), `"start"`) {
-		// Check if there's a custom start script
+		// Check if start command references a build directory (e.g., "node ./build/main.js")
+		// This indicates the app needs to be built first
+		if hasBuildScript || 
+		   strings.Contains(string(packageJSON), `"./build/`) ||
+		   strings.Contains(string(packageJSON), `"dist/`) ||
+		   strings.Contains(string(packageJSON), `"out/`) {
+			needsBuild = true
+		}
 		startCommand = "npm start"
 	} else {
 		// Try to detect entry point
@@ -401,13 +411,26 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	useNpmCi := hasPackageLock == nil
 	
 	var installCommand string
-	if useNpmCi {
-		// Use --ignore-scripts to skip lifecycle scripts (prepare, preinstall, etc.)
-		// which may require dev dependencies like husky, pnpm, etc.
-		installCommand = "npm ci --only=production --ignore-scripts"
+	var buildCommand string
+	
+	if needsBuild || hasBuildScript {
+		// App needs build step - install all dependencies (including dev) and build
+		if useNpmCi {
+			installCommand = "npm ci --ignore-scripts"
+		} else {
+			installCommand = "npm install --ignore-scripts"
+		}
+		buildCommand = "npm run build"
+		log.Printf("[GIT] Detected build requirement - will install all dependencies and run build")
 	} else {
-		// Use --ignore-scripts to skip lifecycle scripts during install
-		installCommand = "npm install --only=production --ignore-scripts"
+		// No build needed - only install production dependencies
+		if useNpmCi {
+			installCommand = "npm ci --only=production --ignore-scripts"
+		} else {
+			installCommand = "npm install --only=production --ignore-scripts"
+		}
+		buildCommand = ""
+		log.Printf("[GIT] No build step required - installing production dependencies only")
 	}
 	
 	log.Printf("[GIT] Generated Node.js Dockerfile with install command: %s (package-lock.json exists: %v)", installCommand, useNpmCi)
@@ -426,7 +449,17 @@ COPY package*.json ./
 RUN ` + installCommand + `
 
 # Copy source code
-COPY . .
+COPY . .`
+
+	// Add build step if needed
+	if buildCommand != "" {
+		dockerfile += `
+
+# Build the application
+RUN ` + buildCommand
+	}
+
+	dockerfile += `
 
 # Set PORT environment variable (app must read process.env.PORT)
 ENV PORT=3000
