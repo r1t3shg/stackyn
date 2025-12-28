@@ -61,7 +61,19 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 FROM alpine:3.20
 
 # Install git (needed for cloning repositories)
-RUN apk add --no-cache git
+# Install curl and tar (needed for downloading pack CLI)
+RUN apk add --no-cache git curl tar
+
+# Install pack CLI for Cloud Native Buildpacks (CNB)
+# Pack CLI is required for CNB-based container image builds
+# Download the latest pack CLI binary for Linux (Alpine uses musl, but pack works fine)
+RUN PACK_VERSION="v0.39.1" && \
+    curl -LO https://github.com/buildpacks/pack/releases/download/${PACK_VERSION}/pack-${PACK_VERSION}-linux.tgz && \
+    tar -xzf pack-${PACK_VERSION}-linux.tgz && \
+    chmod +x pack && \
+    mv pack /usr/local/bin/pack && \
+    rm pack-${PACK_VERSION}-linux.tgz && \
+    pack version
 
 # Create non-root user for security
 RUN adduser -D -g '' appuser
