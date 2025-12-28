@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -129,5 +130,31 @@ func createTarContext(path string) (io.ReadCloser, error) {
 	// you'd want to ensure it completes or handle errors properly.
 	// For now, we return the stdout stream which will be consumed by Docker.
 	return stdout, nil
+}
+
+// ImageExists checks if a Docker image exists by inspecting it.
+// This is used to verify that an image was successfully created after a build.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//   - imageName: The name of the image to check (e.g., "mvp-myapp:123")
+//
+// Returns:
+//   - bool: True if the image exists, false otherwise
+//   - error: Error if inspection fails (other than "not found")
+func (b *Builder) ImageExists(ctx context.Context, imageName string) (bool, error) {
+	_, _, err := b.client.ImageInspectWithRaw(ctx, imageName)
+	if err != nil {
+		// Check if error is "image not found" type
+		// Docker API returns errors containing "No such image" when image doesn't exist
+		errStr := err.Error()
+		if strings.Contains(errStr, "No such image") || 
+		   strings.Contains(errStr, "image not known") ||
+		   strings.Contains(errStr, "not found") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 

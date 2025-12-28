@@ -5,26 +5,39 @@ package logs
 import (
 	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"strings"
 )
 
-// ParseBuildLog reads a stream of build logs and converts it to a single string.
-// This is used to capture Docker build output and store it in the database.
+// BuildLogResult represents the result of parsing a Docker build log
+type BuildLogResult struct {
+	Log      string // Full build log as string
+	HasError bool   // Whether the build log contains errors
+	ErrorMsg string // Error message if build failed
+}
+
+// ParseBuildLog reads a stream of build logs, converts it to a string, and detects build failures.
+// Docker build logs are in JSON format where each line is a JSON object with fields like:
+//   - "stream": stdout/stderr output
+//   - "error": error message if build failed
+//   - "errorDetail": detailed error information
 // The reader is automatically closed when the function returns.
 //
 // Parameters:
 //   - reader: An io.ReadCloser containing the build log stream (typically from Docker build output)
 //
 // Returns:
-//   - string: All log lines joined with newlines, or empty string on error
+//   - *BuildLogResult: Parsed build log with error detection, or nil on read error
 //   - error: Error if reading or scanning fails
-func ParseBuildLog(reader io.ReadCloser) (string, error) {
+func ParseBuildLog(reader io.ReadCloser) (*BuildLogResult, error) {
 	// Ensure the reader is closed when we're done
 	defer reader.Close()
 
 	// Store all log lines in a slice
 	var logLines []string
+	var hasError bool
+	var errorMsg string
 	
 	// Use a scanner to read line by line (more efficient than reading all at once)
 	scanner := bufio.NewScanner(reader)
@@ -33,15 +46,50 @@ func ParseBuildLog(reader io.ReadCloser) (string, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		logLines = append(logLines, line)
+		
+		// Docker build logs are JSON - parse each line to check for errors
+		var logEntry map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &logEntry); err == nil {
+			// Check for error field
+			if errorVal, ok := logEntry["error"].(string); ok && errorVal != "" {
+				hasError = true
+				errorMsg = errorVal
+			}
+			// Check for errorDetail.message as fallback
+			if !hasError {
+				if errorDetail, ok := logEntry["errorDetail"].(map[string]interface{}); ok {
+					if msg, ok := errorDetail["message"].(string); ok && msg != "" {
+						hasError = true
+						errorMsg = msg
+					}
+				}
+			}
+		}
 	}
 
 	// Check for scanning errors (not EOF, which is normal)
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Join all lines with newline characters to create the full log
-	return strings.Join(logLines, "\n"), nil
+	fullLog := strings.Join(logLines, "\n")
+	
+	return &BuildLogResult{
+		Log:      fullLog,
+		HasError: hasError,
+		ErrorMsg: errorMsg,
+	}, nil
+}
+
+// ParseBuildLogLegacy is a legacy function that returns just the log string for backward compatibility.
+// It calls ParseBuildLog and returns only the log content.
+func ParseBuildLogLegacy(reader io.ReadCloser) (string, error) {
+	result, err := ParseBuildLog(reader)
+	if err != nil {
+		return "", err
+	}
+	return result.Log, nil
 }
 
 // ParseRuntimeLog reads a stream of runtime logs (Docker container logs) and converts it to a single string.

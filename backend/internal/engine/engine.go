@@ -172,18 +172,51 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Docker image built successfully: %s", builtImage)
 
-	// Parse and store build log
-	log.Printf("[ENGINE] Parsing and storing build logs...")
-	buildLog, err := logs.ParseBuildLog(buildLogReader)
+	// Parse and store build log, and check for build errors
+	log.Printf("[ENGINE] Parsing build logs and checking for errors...")
+	buildLogResult, err := logs.ParseBuildLog(buildLogReader)
 	if err != nil {
-		log.Printf("[ENGINE] WARNING - Failed to parse build log: %v", err)
-	} else {
-		if err := e.deploymentStore.UpdateBuildLog(deploymentID, buildLog); err != nil {
-			log.Printf("[ENGINE] WARNING - Failed to update build log: %v", err)
-		} else {
-			log.Printf("[ENGINE] Build log stored successfully")
-		}
+		log.Printf("[ENGINE] ERROR - Failed to parse build log: %v", err)
+		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Failed to parse build log: %v", err))
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("failed to parse build log: %w", err)
 	}
+	
+	// Check if build failed based on log content
+	if buildLogResult.HasError {
+		log.Printf("[ENGINE] ERROR - Docker build failed: %s", buildLogResult.ErrorMsg)
+		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Docker build failed: %s", buildLogResult.ErrorMsg))
+		e.deploymentStore.UpdateBuildLog(deploymentID, buildLogResult.Log)
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("docker build failed: %s", buildLogResult.ErrorMsg)
+	}
+	
+	// Store build log
+	if err := e.deploymentStore.UpdateBuildLog(deploymentID, buildLogResult.Log); err != nil {
+		log.Printf("[ENGINE] WARNING - Failed to update build log: %v", err)
+	} else {
+		log.Printf("[ENGINE] Build log stored successfully")
+	}
+	
+	// Verify that the image actually exists before proceeding
+	log.Printf("[ENGINE] Verifying that image %s exists...", builtImage)
+	ctxVerify, cancelVerify := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelVerify()
+	
+	exists, err := e.builder.ImageExists(ctxVerify, builtImage)
+	if err != nil {
+		log.Printf("[ENGINE] ERROR - Failed to verify image %s: %v", builtImage, err)
+		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Docker build completed but failed to verify image %s: %v", builtImage, err))
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("failed to verify image %s: %w", builtImage, err)
+	}
+	if !exists {
+		log.Printf("[ENGINE] ERROR - Image %s does not exist after build", builtImage)
+		e.deploymentStore.UpdateError(deploymentID, fmt.Sprintf("Docker build completed but image %s was not created. This may indicate the build failed silently. Check build logs for details.", builtImage))
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("image %s does not exist after build", builtImage)
+	}
+	log.Printf("[ENGINE] Image %s verified successfully", builtImage)
 
 	// Update image name
 	log.Printf("[ENGINE] Updating deployment with image name: %s", builtImage)
