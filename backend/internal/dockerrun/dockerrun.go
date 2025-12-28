@@ -51,7 +51,7 @@ func NewRunner(dockerHost string) (*Runner, error) {
 //   - CPU: 0.25 vCPU (250000000 nano CPUs)
 //   - Process limit: 128 PIDs
 //   - Logging: JSON file driver with 10MB max size, 3 file rotation
-//   - Restart policy: unless-stopped
+//   - Restart policy: on-failure (max 5 retries) - prevents infinite restart loops
 //
 // Disk Limit Strategy:
 //   - MVP: Uses Docker's default volume management without explicit size limits
@@ -120,10 +120,12 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	// NOTE: Resource limits have been temporarily removed
 	hostConfig := &container.HostConfig{
 		AutoRemove: false,
-		// Restart policy: unless-stopped
-		// Container will automatically restart on failure, unless manually stopped
+		// Restart policy: on-failure with max retries
+		// Container will restart up to 5 times on failure, then stop
+		// This prevents infinite restart loops for apps that crash immediately
 		RestartPolicy: container.RestartPolicy{
-			Name: "unless-stopped",
+			Name:              "on-failure",
+			MaximumRetryCount: 5,
 		},
 		// Resource limits removed for testing - containers can use unlimited resources
 		// TODO: Re-enable resource limits after testing
