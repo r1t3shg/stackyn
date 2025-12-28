@@ -190,19 +190,54 @@ func CheckDockerfile(repoPath string) error {
 
 // CheckDockerCompose checks if a docker-compose.yml file exists in the repository root.
 // If found, it returns an error indicating that multi-container apps are not supported.
+// This function checks for common Docker Compose file names (case-sensitive and case-insensitive).
 func CheckDockerCompose(repoPath string) error {
+	// Check for exact case matches first (most common)
 	dockerComposePaths := []string{
-		filepath.Join(repoPath, "docker-compose.yml"),
-		filepath.Join(repoPath, "docker-compose.yaml"),
-		filepath.Join(repoPath, "compose.yml"),
-		filepath.Join(repoPath, "compose.yaml"),
+		"docker-compose.yml",
+		"docker-compose.yaml",
+		"compose.yml",
+		"compose.yaml",
 	}
 
-	for _, composePath := range dockerComposePaths {
-		if _, err := os.Stat(composePath); err == nil {
-			log.Printf("[GIT] ERROR - Docker Compose file detected at: %s", composePath)
-			return fmt.Errorf("docker compose file found at %s", filepath.Base(composePath))
+	log.Printf("[GIT] Checking for Docker Compose files in: %s", repoPath)
+	
+	// Check for exact case matches
+	for _, composeFile := range dockerComposePaths {
+		composePath := filepath.Join(repoPath, composeFile)
+		fileInfo, err := os.Stat(composePath)
+		if err == nil {
+			// File exists and is not a directory
+			if !fileInfo.IsDir() {
+				log.Printf("[GIT] ERROR - Docker Compose file detected at: %s (size: %d bytes)", composePath, fileInfo.Size())
+				return fmt.Errorf("docker compose file found: %s", composeFile)
+			}
+		} else if !os.IsNotExist(err) {
+			// Some other error occurred (permissions, etc.)
+			log.Printf("[GIT] WARNING - Error checking for Docker Compose file at %s: %v", composePath, err)
 		}
+	}
+
+	// Also check directory contents for case-insensitive matches (for case-insensitive file systems)
+	// This is a fallback to catch files like "Docker-Compose.yml" or "DOCKER-COMPOSE.YML"
+	entries, err := os.ReadDir(repoPath)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			fileName := strings.ToLower(entry.Name())
+			for _, composeFile := range dockerComposePaths {
+				if fileName == strings.ToLower(composeFile) && fileName != entry.Name() {
+					// Case-insensitive match found (different case)
+					composePath := filepath.Join(repoPath, entry.Name())
+					log.Printf("[GIT] ERROR - Docker Compose file detected (case-insensitive match) at: %s", composePath)
+					return fmt.Errorf("docker compose file found: %s", entry.Name())
+				}
+			}
+		}
+	} else {
+		log.Printf("[GIT] WARNING - Could not read directory %s to check for Docker Compose files: %v", repoPath, err)
 	}
 
 	log.Printf("[GIT] No Docker Compose files found - single container app confirmed")
