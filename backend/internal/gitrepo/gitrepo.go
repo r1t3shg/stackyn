@@ -173,21 +173,6 @@ func (c *Cloner) Clone(repoURL string, deploymentID int, branch string) (string,
 	return repoDir, nil
 }
 
-// CheckDockerfile checks if a Dockerfile exists in the repository directory
-func CheckDockerfile(repoPath string) error {
-	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
-	log.Printf("[GIT] Checking for Dockerfile at: %s", dockerfilePath)
-
-	// Check if Dockerfile exists
-	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-		log.Printf("[GIT] ERROR - Dockerfile not found at: %s", dockerfilePath)
-		return fmt.Errorf("dockerfile not found in repository root directory")
-	}
-
-	log.Printf("[GIT] Dockerfile found successfully")
-	return nil
-}
-
 // AppType represents the detected application type
 type AppType string
 
@@ -722,22 +707,18 @@ CMD ./app
 }
 
 // EnsureDockerfile ensures a Dockerfile exists in the repository.
-// It always generates a Dockerfile based on the detected app type, ignoring any user-provided Dockerfile.
-// This ensures all apps use Stackyn's opinionated, secure Dockerfile generation.
-// Future enhancement: support an advanced option to explicitly use a custom Dockerfile.
+// If a user-provided Dockerfile exists, it is used as-is.
+// If no Dockerfile exists, one is automatically generated based on the detected app type.
 func EnsureDockerfile(repoPath string) error {
 	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
 
-	// Check if Dockerfile exists - if so, back it up (user-provided Dockerfiles are ignored by default)
+	// Check if Dockerfile exists - if so, use it
 	if _, err := os.Stat(dockerfilePath); err == nil {
-		backupPath := filepath.Join(repoPath, "Dockerfile.user")
-		log.Printf("[GIT] User-provided Dockerfile found, backing up to Dockerfile.user (will be ignored)")
-		if err := os.Rename(dockerfilePath, backupPath); err != nil {
-			log.Printf("[GIT] WARNING - Failed to backup user Dockerfile: %v (continuing anyway)", err)
-		}
+		log.Printf("[GIT] User-provided Dockerfile found, using it as-is")
+		return nil
 	}
 
-	log.Printf("[GIT] Detecting app type and generating Dockerfile...")
+	log.Printf("[GIT] Dockerfile not found, detecting app type and generating Dockerfile...")
 
 	// Detect app type
 	appType, err := DetectAppType(repoPath)

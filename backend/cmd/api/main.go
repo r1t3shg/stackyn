@@ -3,7 +3,7 @@
 // from Git repositories. This API server handles:
 //   - App management (create, list, get, delete)
 //   - Deployment operations (create, list, get logs)
-//   - Repository validation (Dockerfile checking)
+//   - Repository validation (Dockerfile detection or app type detection for auto-generation)
 //
 // The API follows RESTful conventions and uses Chi router for HTTP routing.
 // It connects to PostgreSQL for data persistence and Docker for container management.
@@ -28,6 +28,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -374,7 +375,7 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 			log.Printf("[API] WARNING - Failed to update app status to Pending: %v", err)
 		}
 
-		// Validate repository has Dockerfile after creating app and deployment
+		// Validate repository - check if Dockerfile exists or app type can be detected
 		// Use a temporary deployment ID for validation
 		log.Printf("[API] Validating repository - Cloning %s (branch: %s)", req.RepoURL, req.Branch)
 		tempDeploymentID := int(time.Now().Unix())
@@ -397,25 +398,33 @@ func createApp(appStore *apps.Store, deploymentStore *deployments.Store, cloner 
 		}
 		log.Printf("[API] Repository cloned successfully to: %s", repoPath)
 
-		// Check if Dockerfile exists
-		log.Printf("[API] Checking for Dockerfile in repository...")
-		if err := gitrepo.CheckDockerfile(repoPath); err != nil {
-			log.Printf("[API] ERROR - Dockerfile not found: %v", err)
-			// Clean up cloned repository
-			os.RemoveAll(repoPath)
-			// Update deployment with error
-			errorMsg := "Dockerfile is not available in the repository root directory. Please ensure your repository contains a Dockerfile."
-			deploymentStore.UpdateError(deployment.ID, errorMsg)
-			// Update app status to "Failed"
-			appStore.UpdateStatus(appID, "Failed")
-			// Refresh deployment to get updated status
-			deployment, _ = deploymentStore.GetByID(deployment.ID)
-			respondJSON(w, http.StatusBadRequest, map[string]interface{}{
-				"error":      errorMsg,
-				"app":        app,
-				"deployment": deployment,
-			})
-			return
+		// Check if Dockerfile exists, or validate that app type can be detected (for auto-generation)
+		dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+		if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+			// No Dockerfile - validate that we can detect app type for auto-generation
+			log.Printf("[API] No Dockerfile found, validating app type can be detected...")
+			appType, err := gitrepo.DetectAppType(repoPath)
+			if err != nil || appType == gitrepo.AppTypeUnknown {
+				log.Printf("[API] ERROR - Could not detect app type: %v", err)
+				// Clean up cloned repository
+				os.RemoveAll(repoPath)
+				// Update deployment with error
+				errorMsg := "No Dockerfile found and could not detect application type. Please either: 1) Add a Dockerfile to your repository, or 2) Ensure your repository contains one of: package.json (Node.js), requirements.txt/pyproject.toml (Python), pom.xml/build.gradle (Java), or go.mod (Go)"
+				deploymentStore.UpdateError(deployment.ID, errorMsg)
+				// Update app status to "Failed"
+				appStore.UpdateStatus(appID, "Failed")
+				// Refresh deployment to get updated status
+				deployment, _ = deploymentStore.GetByID(deployment.ID)
+				respondJSON(w, http.StatusBadRequest, map[string]interface{}{
+					"error":      errorMsg,
+					"app":        app,
+					"deployment": deployment,
+				})
+				return
+			}
+			log.Printf("[API] App type detected for auto-generation: %s", appType)
+		} else {
+			log.Printf("[API] Dockerfile found in repository, will use it")
 		}
 
 		// Clean up validation repository
@@ -599,7 +608,7 @@ func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, clone
 			log.Printf("[API] WARNING - Failed to update app status to Pending: %v", err)
 		}
 
-		// Validate repository has Dockerfile
+		// Validate repository - check if Dockerfile exists or app type can be detected
 		// Use a temporary deployment ID for validation
 		tempDeploymentID := int(time.Now().Unix())
 		
@@ -629,25 +638,33 @@ func redeployApp(appStore *apps.Store, deploymentStore *deployments.Store, clone
 		}
 		log.Printf("[API] Repository cloned successfully")
 
-		// Check if Dockerfile exists
-		log.Printf("[API] Checking for Dockerfile...")
-		if err := gitrepo.CheckDockerfile(repoPath); err != nil {
-			log.Printf("[API] ERROR - Dockerfile not found: %v", err)
-			// Clean up cloned repository
-			os.RemoveAll(repoPath)
-			// Update deployment with error
-			errorMsg := "Dockerfile is not available in the repository root directory. Please ensure your repository contains a Dockerfile."
-			deploymentStore.UpdateError(deployment.ID, errorMsg)
-			// Update app status to "Failed"
-			appStore.UpdateStatus(appID, "Failed")
-			// Refresh deployment to get updated status
-			deployment, _ = deploymentStore.GetByID(deployment.ID)
-			respondJSON(w, http.StatusBadRequest, map[string]interface{}{
-				"error":      errorMsg,
-				"app":        app,
-				"deployment": deployment,
-			})
-			return
+		// Check if Dockerfile exists, or validate that app type can be detected (for auto-generation)
+		dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+		if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+			// No Dockerfile - validate that we can detect app type for auto-generation
+			log.Printf("[API] No Dockerfile found, validating app type can be detected...")
+			appType, err := gitrepo.DetectAppType(repoPath)
+			if err != nil || appType == gitrepo.AppTypeUnknown {
+				log.Printf("[API] ERROR - Could not detect app type: %v", err)
+				// Clean up cloned repository
+				os.RemoveAll(repoPath)
+				// Update deployment with error
+				errorMsg := "No Dockerfile found and could not detect application type. Please either: 1) Add a Dockerfile to your repository, or 2) Ensure your repository contains one of: package.json (Node.js), requirements.txt/pyproject.toml (Python), pom.xml/build.gradle (Java), or go.mod (Go)"
+				deploymentStore.UpdateError(deployment.ID, errorMsg)
+				// Update app status to "Failed"
+				appStore.UpdateStatus(appID, "Failed")
+				// Refresh deployment to get updated status
+				deployment, _ = deploymentStore.GetByID(deployment.ID)
+				respondJSON(w, http.StatusBadRequest, map[string]interface{}{
+					"error":      errorMsg,
+					"app":        app,
+					"deployment": deployment,
+				})
+				return
+			}
+			log.Printf("[API] App type detected for auto-generation: %s", appType)
+		} else {
+			log.Printf("[API] Dockerfile found in repository, will use it")
 		}
 
 		// Clean up validation repository
