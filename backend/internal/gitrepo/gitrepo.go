@@ -188,6 +188,27 @@ func CheckDockerfile(repoPath string) error {
 	return nil
 }
 
+// CheckDockerCompose checks if a docker-compose.yml file exists in the repository root.
+// If found, it returns an error indicating that multi-container apps are not supported.
+func CheckDockerCompose(repoPath string) error {
+	dockerComposePaths := []string{
+		filepath.Join(repoPath, "docker-compose.yml"),
+		filepath.Join(repoPath, "docker-compose.yaml"),
+		filepath.Join(repoPath, "compose.yml"),
+		filepath.Join(repoPath, "compose.yaml"),
+	}
+
+	for _, composePath := range dockerComposePaths {
+		if _, err := os.Stat(composePath); err == nil {
+			log.Printf("[GIT] ERROR - Docker Compose file detected at: %s", composePath)
+			return fmt.Errorf("docker compose file found at %s", filepath.Base(composePath))
+		}
+	}
+
+	log.Printf("[GIT] No Docker Compose files found - single container app confirmed")
+	return nil
+}
+
 // EnsurePackageLock handles the case where package.json exists but package-lock.json doesn't.
 // This fixes the common issue where Dockerfiles use `npm ci` but the lock file is missing.
 // It tries two approaches:

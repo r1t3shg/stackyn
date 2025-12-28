@@ -121,6 +121,17 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("dockerfile check failed: %w", err)
 	}
 
+	// Check if this is a multi-container app (docker-compose.yml) - not supported
+	log.Printf("[ENGINE] Step 3.05: Checking for Docker Compose files (multi-container apps not supported)...")
+	if err := gitrepo.CheckDockerCompose(repoPath); err != nil {
+		log.Printf("[ENGINE] ERROR - Multi-container app detected: %v", err)
+		errorMsg := "Multi-container applications are not supported. Stackyn supports only single-container applications. Your repository contains a docker-compose.yml (or similar) file, which indicates a multi-container setup. What you can do: • Remove the docker-compose.yml file and deploy as a single container app • Extract the main application service and deploy it as a standalone container with a Dockerfile • Consider using a different deployment platform if you require multi-container orchestration"
+		e.deploymentStore.UpdateError(deploymentID, errorMsg)
+		// Update app status to "Failed"
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("multi-container app not supported: %w", err)
+	}
+
 	// Check if this is a worker app (not supported)
 	log.Printf("[ENGINE] Step 3.1: Checking if app is a worker/background process...")
 	if gitrepo.IsWorkerApp(repoPath) {
