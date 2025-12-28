@@ -61,21 +61,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 FROM alpine:3.20
 
 # Install git (needed for cloning repositories)
-# Install curl and tar (needed for downloading pack CLI)
-RUN apk add --no-cache git curl tar
-
-# Install pack CLI for Cloud Native Buildpacks (CNB)
-# Pack CLI is required for CNB-based container image builds
-# Download the latest pack CLI binary for Linux (Alpine uses musl, but pack works fine)
-# NOTE: If you encounter "client version 1.42 is too old" errors with Docker Engine v29+,
-# update to the latest pack CLI version or configure Docker daemon to accept older API versions
-RUN PACK_VERSION="v0.39.1" && \
-    curl -LO https://github.com/buildpacks/pack/releases/download/${PACK_VERSION}/pack-${PACK_VERSION}-linux.tgz && \
-    tar -xzf pack-${PACK_VERSION}-linux.tgz && \
-    chmod +x pack && \
-    mv pack /usr/local/bin/pack && \
-    rm pack-${PACK_VERSION}-linux.tgz && \
-    pack version
+RUN apk add --no-cache git
 
 # Create non-root user for security
 RUN adduser -D -g '' appuser

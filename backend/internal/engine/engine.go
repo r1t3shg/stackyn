@@ -38,7 +38,7 @@ type Engine struct {
 	appStore        *apps.Store
 	envVarStore     *envvars.Store
 	cloner          *gitrepo.Cloner
-	builder         build.Builder // Builder interface - supports both Dockerfile and CNB builds
+	builder         build.Builder // Dockerfile-based builder with automatic Dockerfile generation
 	runner          *dockerrun.Runner
 	baseDomain      string
 	db              *sql.DB // Database connection for advisory locks
@@ -51,14 +51,13 @@ type Engine struct {
 //   - appStore: Store for app database operations
 //   - envVarStore: Store for environment variables
 //   - cloner: Git repository cloner
-//   - builder: Image builder (can be dockerbuild.Builder or buildpacks.BuildpacksBuilder)
+//   - builder: Docker image builder (uses Dockerfile-based builds with auto-generation)
 //   - runner: Docker container runner
 //   - baseDomain: Base domain for subdomain routing
 //   - database: Database connection for advisory locks
 //
-// The builder can be either:
-//   - dockerbuild.Builder: Uses Dockerfile-based builds (requires Dockerfile or auto-generation)
-//   - buildpacks.BuildpacksBuilder: Uses Cloud Native Buildpacks (no Dockerfile needed)
+// The builder uses Dockerfile-based builds with automatic Dockerfile generation.
+// Dockerfiles are automatically generated for Node.js, Python, Java, and Go applications.
 func NewEngine(
 	deploymentStore *deployments.Store,
 	appStore *apps.Store,
@@ -126,16 +125,17 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Repository cloned successfully to: %s", repoPath)
 
-	// Step 3: Build container image using Cloud Native Buildpacks (CNB)
-	// When using CNB, Dockerfile generation is skipped. CNB automatically:
-	//   - Detects the app type (Node.js, Python, Java, Go, etc.)
-	//   - Installs dependencies and build tools
-	//   - Compiles and builds the application
-	//   - Creates an optimized production-ready container image
-	//
-	// No Dockerfile is needed - CNB handles everything automatically!
-	log.Printf("[ENGINE] Step 3: Using Cloud Native Buildpacks for container image build")
-	log.Printf("[ENGINE] CNB will automatically detect app type, install dependencies, and build the image")
+	// Step 3: Ensure Dockerfile exists (generate if needed)
+	// Dockerfile generation automatically detects app type and creates optimized Dockerfiles
+	// Supports: Node.js, Python, Java, Go
+	log.Printf("[ENGINE] Step 3: Ensuring Dockerfile exists (generating if missing)...")
+	if err := gitrepo.EnsureDockerfile(repoPath); err != nil {
+		log.Printf("[ENGINE] ERROR - Dockerfile generation failed: %v", err)
+		errorMsg := fmt.Sprintf("Dockerfile generation failed: %v. Please ensure your repository contains one of: package.json (Node.js), requirements.txt/pyproject.toml (Python), pom.xml/build.gradle (Java), or go.mod (Go)", err)
+		e.deploymentStore.UpdateError(deploymentID, errorMsg)
+		e.appStore.UpdateStatus(deployment.AppID, "Failed")
+		return fmt.Errorf("dockerfile generation failed: %w", err)
+	}
 
 	// Check if this is a multi-container app (docker-compose.yml) - not supported
 	log.Printf("[ENGINE] Step 3.05: Checking for Docker Compose files (multi-container apps not supported)...")
@@ -159,35 +159,27 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 		return fmt.Errorf("worker app deployment not supported: %w", fmt.Errorf(errorMsg))
 	}
 
-	// CNB (Cloud Native Buildpacks) automatically handles:
-	//   - Dependency installation (npm, pip, maven, go mod, etc.)
-	//   - Build compilation (TypeScript, Java, etc.)
-	//   - Port detection (CNB apps typically use PORT environment variable, default 8080)
-	//
-	// No need to:
-	//   - Generate Dockerfiles
-	//   - Ensure package-lock.json exists
-	//   - Detect ports from Dockerfiles
-	//
-	// CNB buildpacks handle all of this automatically!
-	
-	// Default port for CNB-built applications
-	// Most CNB buildpacks use PORT environment variable (default 8080)
-	// The app will read PORT from environment and listen on that port
-	detectedPort := 8080
-	log.Printf("[ENGINE] Using default CNB port %d for Traefik routing (app reads PORT env var)", detectedPort)
+	// Step 3.5: Detect application port from Dockerfile
+	// Generated Dockerfiles include PORT environment variables and EXPOSE directives
+	log.Printf("[ENGINE] Step 3.5: Detecting application port from Dockerfile...")
+	detectedPort := gitrepo.DetectPortFromDockerfile(repoPath)
+	if detectedPort == 0 {
+		detectedPort = 3000 // Default fallback port
+		log.Printf("[ENGINE] No port detected in Dockerfile, using default port %d", detectedPort)
+	} else {
+		log.Printf("[ENGINE] Detected port %d from Dockerfile", detectedPort)
+	}
 
-	// Step 4: Build container image using Cloud Native Buildpacks
-	// CNB automatically:
-	//   1. Detects the application type (Node.js, Python, Java, Go, etc.)
-	//   2. Installs dependencies and build tools
-	//   3. Compiles and builds the application
-	//   4. Creates an optimized production-ready container image
+	// Step 4: Build container image using Dockerfile
+	// The generated Dockerfile includes all necessary build steps:
+	//   - Dependency installation (npm, pip, maven, go mod, etc.)
+	//   - Build compilation (TypeScript, Java, etc.) if needed
+	//   - PORT environment variable configuration
 	//
 	// Sanitize app name for Docker image name (only lowercase letters, digits, hyphens, underscores, periods)
 	sanitizedName := sanitizeImageName(app.Name)
 	imageName := fmt.Sprintf("mvp-%s:%d", sanitizedName, deploymentID)
-	log.Printf("[ENGINE] Step 4: Building container image using CNB: %s (from app name: %s)", imageName, app.Name)
+	log.Printf("[ENGINE] Step 4: Building container image using Dockerfile: %s (from app name: %s)", imageName, app.Name)
 	builtImage, buildLogReader, err := e.builder.Build(ctx, repoPath, imageName)
 	if err != nil {
 		log.Printf("[ENGINE] ERROR - Docker build failed: %v", err)

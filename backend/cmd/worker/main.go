@@ -11,8 +11,8 @@ import (
 	"syscall"
 
 	"mvp-be/internal/apps"
-	"mvp-be/internal/buildpacks"
 	"mvp-be/internal/config"
+	"mvp-be/internal/dockerbuild"
 	"mvp-be/internal/db"
 	"mvp-be/internal/deployments"
 	"mvp-be/internal/dockerrun"
@@ -81,19 +81,15 @@ func main() {
 	cloner := gitrepo.NewCloner(workDir)
 	log.Println("Git cloner initialized")
 
-	// Initialize Cloud Native Buildpacks (CNB) builder
-	// CNB automatically detects app types, installs dependencies, and builds images
-	// No Dockerfile required - CNB handles everything automatically
-	log.Println("Initializing Cloud Native Buildpacks builder...")
-	builder, err := buildpacks.NewBuildpacksBuilder(
-		buildpacks.GetDefaultBuilder(), // Use Paketo Buildpacks base builder
-		cfg.DockerHost,
-		"", // Use pack CLI from PATH
-	)
+	// Initialize Dockerfile-based builder
+	// This builder uses automatic Dockerfile generation for Node.js, Python, Java, and Go apps
+	// Dockerfiles are generated automatically based on detected app type
+	log.Println("Initializing Docker builder...")
+	builder, err := dockerbuild.NewBuilder(cfg.DockerHost)
 	if err != nil {
-		log.Fatalf("Failed to create Buildpacks builder: %v", err)
+		log.Fatalf("Failed to create Docker builder: %v", err)
 	}
-	log.Println("Buildpacks builder initialized")
+	log.Println("Docker builder initialized")
 
 	// Initialize Docker runner
 	// This connects to the Docker daemon to run containers
