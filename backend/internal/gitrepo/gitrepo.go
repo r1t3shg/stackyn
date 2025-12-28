@@ -386,27 +386,41 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 		hasBuildScript = strings.Contains(string(packageJSON), `"build"`)
 	}
 	
+	// Check for build tooling files that indicate compilation is needed
+	hasTypeScript := false
+	tsconfigPath := filepath.Join(repoPath, "tsconfig.json")
+	if _, err := os.Stat(tsconfigPath); err == nil {
+		hasTypeScript = true
+		log.Printf("[GIT] Found tsconfig.json - TypeScript compilation may be needed")
+	}
+	
 	// Try to detect start command from package.json
 	startCommand := "npm start"
 	needsBuild := false
+	startReferencesBuildDir := false
 	
 	if strings.Contains(string(packageJSON), `"start"`) {
 		startCommand = "npm start"
 		
-		// Check if we need a build step:
+		// Check if start command references build directories
+		if strings.Contains(string(packageJSON), `"./build/`) ||
+		   strings.Contains(string(packageJSON), `"dist/`) ||
+		   strings.Contains(string(packageJSON), `"out/`) {
+			startReferencesBuildDir = true
+		}
+		
+		// Determine if we need a build step:
 		// 1. If there's a build script, use it
-		// 2. If start command references build directories, we need a build (but only if build script exists)
+		// 2. If start references build dir AND we have TypeScript, try to build
 		if hasBuildScript {
 			needsBuild = true
 			log.Printf("[GIT] Found 'build' script in package.json - build step will be included")
-		} else {
-			// Check if start references build directories but no build script exists
-			// In this case, we assume the build directory is committed to git
-			if strings.Contains(string(packageJSON), `"./build/`) ||
-			   strings.Contains(string(packageJSON), `"dist/`) ||
-			   strings.Contains(string(packageJSON), `"out/`) {
-				log.Printf("[GIT] Start command references build directory but no 'build' script found - assuming pre-built")
-			}
+		} else if startReferencesBuildDir && hasTypeScript {
+			// Start references build dir and we have TypeScript - try to build with tsc
+			needsBuild = true
+			log.Printf("[GIT] Start command references build directory and TypeScript detected - will attempt to build with tsc")
+		} else if startReferencesBuildDir {
+			log.Printf("[GIT] Start command references build directory but no build script or TypeScript found - assuming pre-built")
 		}
 	} else {
 		// Try to detect entry point
@@ -434,30 +448,36 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	var installCommand string
 	var buildCommand string
 	
-	// Only run build if there's actually a build script in package.json
-	if hasBuildScript {
-		// App has build script - install all dependencies (including dev) and build
+	if needsBuild {
+		// App needs build step - install all dependencies (including dev) and build
 		if useNpmCi {
 			installCommand = "npm ci --ignore-scripts"
 		} else {
 			installCommand = "npm install --ignore-scripts"
 		}
-		buildCommand = "npm run build"
-		log.Printf("[GIT] Found 'build' script - will install all dependencies and run build")
+		
+		// Determine build command based on what we detected
+		if hasBuildScript {
+			buildCommand = "npm run build"
+			log.Printf("[GIT] Will install all dependencies and run 'npm run build'")
+		} else if hasTypeScript {
+			// Try TypeScript compilation directly
+			buildCommand = "npx tsc"
+			log.Printf("[GIT] Will install all dependencies and run 'npx tsc' to compile TypeScript")
+		} else {
+			// Fallback: try npm run build anyway (might work with postinstall scripts)
+			buildCommand = "npm run build || true"
+			log.Printf("[GIT] Will install all dependencies and attempt build (may fail if no build script)")
+		}
 	} else {
-		// No build script - only install production dependencies
-		// If the app references build directories, they should be committed to git
+		// No build needed - only install production dependencies
 		if useNpmCi {
 			installCommand = "npm ci --only=production --ignore-scripts"
 		} else {
 			installCommand = "npm install --only=production --ignore-scripts"
 		}
 		buildCommand = ""
-		if needsBuild {
-			log.Printf("[GIT] Start command references build directory but no 'build' script found - assuming pre-built")
-		} else {
-			log.Printf("[GIT] No build step required - installing production dependencies only")
-		}
+		log.Printf("[GIT] No build step required - installing production dependencies only")
 	}
 	
 	log.Printf("[GIT] Generated Node.js Dockerfile with install command: %s (package-lock.json exists: %v)", installCommand, useNpmCi)
