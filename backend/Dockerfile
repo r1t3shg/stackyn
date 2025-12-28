@@ -27,7 +27,7 @@
 ########################################
 # Stage 1: Build the Go binaries
 ########################################
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install git (needed for some Go modules)
 RUN apk add --no-cache git
