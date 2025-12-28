@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -186,9 +187,20 @@ func (b *BuildpacksBuilder) Build(ctx context.Context, repoPath string, imageNam
 		"--trust-builder",                  // Trust the builder (required for CNB security)
 	)
 
-	// Set environment variables
+	// Set environment variables for pack command
+	// exec.Command doesn't inherit parent environment by default, so we set what we need
+	
 	// DOCKER_HOST tells pack where to find the Docker daemon
 	cmd.Env = append(cmd.Env, fmt.Sprintf("DOCKER_HOST=%s", b.dockerHost))
+	
+	// HOME is required by pack CLI to store configuration files
+	// Use /tmp as a safe default for Docker containers
+	// Pack CLI will create its config directory under $HOME/.pack
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		homeDir = "/tmp"
+	}
+	cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", homeDir))
 
 	// Get stdout and stderr pipes to capture build logs
 	// Pack outputs build logs to stdout, so we capture both streams
