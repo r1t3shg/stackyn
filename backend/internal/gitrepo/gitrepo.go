@@ -188,6 +188,576 @@ func CheckDockerfile(repoPath string) error {
 	return nil
 }
 
+// AppType represents the detected application type
+type AppType string
+
+const (
+	AppTypeNodeJS  AppType = "nodejs"
+	AppTypePython  AppType = "python"
+	AppTypeJava    AppType = "java"
+	AppTypeGo      AppType = "go"
+	AppTypeUnknown AppType = "unknown"
+)
+
+// DetectAppType detects the application type based on standard files in the repository.
+// Detection order: Node.js (package.json) > Python (requirements.txt/pyproject.toml) > Java (pom.xml/build.gradle) > Go (go.mod)
+func DetectAppType(repoPath string) (AppType, error) {
+	// Check for Node.js
+	packageJSONPath := filepath.Join(repoPath, "package.json")
+	if _, err := os.Stat(packageJSONPath); err == nil {
+		log.Printf("[GIT] Detected Node.js app (package.json found)")
+		return AppTypeNodeJS, nil
+	}
+
+	// Check for Python
+	requirementsPath := filepath.Join(repoPath, "requirements.txt")
+	pyprojectPath := filepath.Join(repoPath, "pyproject.toml")
+	if _, err := os.Stat(requirementsPath); err == nil {
+		log.Printf("[GIT] Detected Python app (requirements.txt found)")
+		return AppTypePython, nil
+	}
+	if _, err := os.Stat(pyprojectPath); err == nil {
+		log.Printf("[GIT] Detected Python app (pyproject.toml found)")
+		return AppTypePython, nil
+	}
+
+	// Check for Java
+	pomPath := filepath.Join(repoPath, "pom.xml")
+	buildGradlePath := filepath.Join(repoPath, "build.gradle")
+	if _, err := os.Stat(pomPath); err == nil {
+		log.Printf("[GIT] Detected Java app (pom.xml found)")
+		return AppTypeJava, nil
+	}
+	if _, err := os.Stat(buildGradlePath); err == nil {
+		log.Printf("[GIT] Detected Java app (build.gradle found)")
+		return AppTypeJava, nil
+	}
+
+	// Check for Go
+	goModPath := filepath.Join(repoPath, "go.mod")
+	if _, err := os.Stat(goModPath); err == nil {
+		log.Printf("[GIT] Detected Go app (go.mod found)")
+		return AppTypeGo, nil
+	}
+
+	log.Printf("[GIT] ERROR - Could not detect app type. No standard files found (package.json, requirements.txt, pyproject.toml, pom.xml, build.gradle, go.mod)")
+	return AppTypeUnknown, fmt.Errorf("could not detect application type: no standard files found")
+}
+
+// GenerateDockerfile generates a Dockerfile for the specified app type.
+// The generated Dockerfile is compatible with Traefik routing and Stackyn's runtime resource limits.
+func GenerateDockerfile(repoPath string, appType AppType) error {
+	var dockerfileContent string
+	var err error
+
+	switch appType {
+	case AppTypeNodeJS:
+		dockerfileContent, err = generateNodeJSDockerfile(repoPath)
+	case AppTypePython:
+		dockerfileContent, err = generatePythonDockerfile(repoPath)
+	case AppTypeJava:
+		dockerfileContent, err = generateJavaDockerfile(repoPath)
+	case AppTypeGo:
+		dockerfileContent, err = generateGoDockerfile(repoPath)
+	default:
+		return fmt.Errorf("cannot generate Dockerfile for unknown app type: %s", appType)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to generate Dockerfile: %w", err)
+	}
+
+	// Write Dockerfile
+	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte(dockerfileContent), 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerfile: %w", err)
+	}
+
+	// Validate the generated Dockerfile
+	if err := ValidateGeneratedDockerfile(repoPath, appType); err != nil {
+		return fmt.Errorf("generated Dockerfile validation failed: %w", err)
+	}
+
+	log.Printf("[GIT] Generated and validated Dockerfile for %s app", appType)
+	return nil
+}
+
+// ValidateGeneratedDockerfile validates that the generated Dockerfile is correct
+// and ensures apps listen on the PORT environment variable
+func ValidateGeneratedDockerfile(repoPath string, appType AppType) error {
+	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+	
+	file, err := os.Open(dockerfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to open Dockerfile for validation: %w", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, strings.TrimSpace(scanner.Text()))
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read Dockerfile: %w", err)
+	}
+
+	// Check for CMD or ENTRYPOINT
+	hasCMD := false
+	hasENTRYPOINT := false
+	var cmdLine string
+	
+	for _, line := range lines {
+		lowerLine := strings.ToLower(line)
+		if strings.HasPrefix(lowerLine, "cmd") {
+			hasCMD = true
+			cmdLine = line
+		}
+		if strings.HasPrefix(lowerLine, "entrypoint") {
+			hasENTRYPOINT = true
+			cmdLine = line
+		}
+	}
+
+	if !hasCMD && !hasENTRYPOINT {
+		return fmt.Errorf("generated Dockerfile is missing CMD or ENTRYPOINT directive - no start command found")
+	}
+
+	// Validate PORT usage based on app type
+	cmdLower := strings.ToLower(cmdLine)
+	
+	switch appType {
+	case AppTypeJava:
+		// Java apps must use -Dserver.port=${PORT} or -Dserver.port=$PORT
+		// Check both original case and lowercase (since cmdLower is lowercase)
+		if !strings.Contains(cmdLower, "server.port") || 
+		   (!strings.Contains(cmdLine, "${PORT}") && !strings.Contains(cmdLine, "$PORT")) {
+			return fmt.Errorf("Java app must use -Dserver.port=${PORT} in CMD to listen on the PORT environment variable. Generated CMD: %s", cmdLine)
+		}
+	case AppTypePython:
+		// Python apps using uvicorn/gunicorn should use --port or -b with PORT
+		// Generic python apps must read PORT from environment (cannot validate at Dockerfile level)
+		if strings.Contains(cmdLower, "uvicorn") {
+			// If using uvicorn, it must have --port with PORT variable
+			if !strings.Contains(cmdLower, "--port") || (!strings.Contains(cmdLine, "${PORT}") && !strings.Contains(cmdLine, "$PORT")) {
+				return fmt.Errorf("FastAPI app using uvicorn must use --port ${PORT} in CMD. Generated CMD: %s", cmdLine)
+			}
+		} else if strings.Contains(cmdLower, "gunicorn") {
+			// If using gunicorn, it must have -b with PORT variable
+			if !strings.Contains(cmdLower, "-b") || (!strings.Contains(cmdLine, "${PORT}") && !strings.Contains(cmdLine, "$PORT")) {
+				return fmt.Errorf("Flask app using gunicorn must use -b 0.0.0.0:${PORT} in CMD. Generated CMD: %s", cmdLine)
+			}
+		}
+		// For generic Python apps, we can't validate at Dockerfile level - app code must read PORT
+	case AppTypeNodeJS, AppTypeGo:
+		// Node.js and Go apps must read PORT from environment variables in code
+		// We can't validate this at Dockerfile level, but we ensure PORT is set as ENV
+		// Check that ENV PORT is set
+		hasEnvPort := false
+		for _, line := range lines {
+			if strings.HasPrefix(strings.ToLower(line), "env") && strings.Contains(strings.ToLower(line), "port") {
+				hasEnvPort = true
+				break
+			}
+		}
+		if !hasEnvPort {
+			return fmt.Errorf("generated Dockerfile must set ENV PORT - Node.js and Go apps must read PORT from environment")
+		}
+	}
+
+	return nil
+}
+
+// generateNodeJSDockerfile generates a Dockerfile for Node.js applications
+// The app must read process.env.PORT to listen on the correct port
+func generateNodeJSDockerfile(repoPath string) (string, error) {
+	// Check for package.json to determine start command
+	packageJSONPath := filepath.Join(repoPath, "package.json")
+	packageJSON, err := os.ReadFile(packageJSONPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read package.json: %w", err)
+	}
+
+	// Try to detect start command from package.json
+	// Simple parsing - look for "start" script
+	startCommand := "npm start"
+	if strings.Contains(string(packageJSON), `"start"`) {
+		// Check if there's a custom start script
+		startCommand = "npm start"
+	} else {
+		// Try to detect entry point
+		startCommand = "node index.js"
+		// Check for common entry points
+		commonEntryPoints := []string{"server.js", "app.js", "index.js", "main.js"}
+		for _, entryPoint := range commonEntryPoints {
+			if _, err := os.Stat(filepath.Join(repoPath, entryPoint)); err == nil {
+				startCommand = fmt.Sprintf("node %s", entryPoint)
+				break
+			}
+		}
+	}
+
+	// Validate that we found a start command
+	if startCommand == "" {
+		return "", fmt.Errorf("no valid start command found in package.json or common entry points")
+	}
+
+	// Generate Dockerfile
+	// Note: EXPOSE must be a literal number (Docker limitation), but PORT env var is used by the app
+	dockerfile := `# Generated Dockerfile for Node.js application
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production || npm install --only=production
+
+# Copy source code
+COPY . .
+
+# Set PORT environment variable (app must read process.env.PORT)
+ENV PORT=3000
+
+# Expose port (using default, actual port comes from $PORT env var)
+EXPOSE 3000
+
+# Start the application (app must listen on process.env.PORT)
+CMD ` + startCommand + `
+`
+
+	return dockerfile, nil
+}
+
+// generatePythonDockerfile generates a Dockerfile for Python applications
+func generatePythonDockerfile(repoPath string) (string, error) {
+	// Check for requirements.txt or pyproject.toml
+	requirementsPath := filepath.Join(repoPath, "requirements.txt")
+	pyprojectPath := filepath.Join(repoPath, "pyproject.toml")
+
+	// Detect Python framework and entry point
+	var startCommand string
+	var needsGunicorn bool
+	var needsUvicorn bool
+	foundEntryPoint := false
+	
+	commonEntryPoints := []string{"app.py", "main.py", "server.py", "application.py", "wsgi.py"}
+	for _, entryPoint := range commonEntryPoints {
+		entryPath := filepath.Join(repoPath, entryPoint)
+		if _, err := os.Stat(entryPath); err == nil {
+			// Check if it's FastAPI or Flask
+			content, err := os.ReadFile(entryPath)
+			if err == nil {
+				contentStr := strings.ToLower(string(content))
+				if strings.Contains(contentStr, "fastapi") || strings.Contains(contentStr, "from fastapi") || strings.Contains(contentStr, "import fastapi") {
+					// FastAPI app - use uvicorn
+					appName := strings.TrimSuffix(entryPoint, ".py")
+					startCommand = fmt.Sprintf("uvicorn %s:app --host 0.0.0.0 --port ${PORT}", appName)
+					needsUvicorn = true
+					foundEntryPoint = true
+					break
+				} else if strings.Contains(contentStr, "flask") || strings.Contains(contentStr, "from flask") || strings.Contains(contentStr, "import flask") {
+					// Flask app - use gunicorn
+					appName := strings.TrimSuffix(entryPoint, ".py")
+					startCommand = fmt.Sprintf("gunicorn -w 4 -b 0.0.0.0:${PORT} %s:app", appName)
+					needsGunicorn = true
+					foundEntryPoint = true
+					break
+				}
+			}
+		}
+	}
+	
+	// If no framework detected, try to find any Python file and assume it reads PORT env var
+	if !foundEntryPoint {
+		for _, entryPoint := range commonEntryPoints {
+			entryPath := filepath.Join(repoPath, entryPoint)
+			if _, err := os.Stat(entryPath); err == nil {
+				// Generic Python app - must read PORT from environment
+				startCommand = fmt.Sprintf("python %s", entryPoint)
+				foundEntryPoint = true
+				break
+			}
+		}
+	}
+	
+	// Validate that we found a start command
+	if !foundEntryPoint || startCommand == "" {
+		return "", fmt.Errorf("no valid Python entry point found (checked: app.py, main.py, server.py, application.py, wsgi.py). App must have one of these files or explicitly use PORT environment variable")
+	}
+
+	// Generate Dockerfile
+	dockerfile := `# Generated Dockerfile for Python application
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+`
+	
+	if _, err := os.Stat(requirementsPath); err == nil {
+		dockerfile += `COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+`
+		// Check if gunicorn/uvicorn are in requirements, if not add them for Flask/FastAPI
+		if needsGunicorn {
+			dockerfile += `# Ensure gunicorn is installed for Flask
+RUN pip install --no-cache-dir gunicorn || true
+`
+		}
+		if needsUvicorn {
+			dockerfile += `# Ensure uvicorn is installed for FastAPI
+RUN pip install --no-cache-dir uvicorn || true
+`
+		}
+	} else if _, err := os.Stat(pyprojectPath); err == nil {
+		dockerfile += `COPY pyproject.toml ./
+RUN pip install --no-cache-dir .
+`
+		if needsGunicorn {
+			dockerfile += `# Ensure gunicorn is installed for Flask
+RUN pip install --no-cache-dir gunicorn || true
+`
+		}
+		if needsUvicorn {
+			dockerfile += `# Ensure uvicorn is installed for FastAPI
+RUN pip install --no-cache-dir uvicorn || true
+`
+		}
+	} else {
+		// No requirements file - install gunicorn/uvicorn if needed
+		dockerfile += `# No requirements.txt or pyproject.toml found
+`
+		if needsGunicorn {
+			dockerfile += `RUN pip install --no-cache-dir gunicorn
+`
+		} else if needsUvicorn {
+			dockerfile += `RUN pip install --no-cache-dir uvicorn
+`
+		}
+	}
+
+	dockerfile += `
+# Copy source code
+COPY . .
+
+# Set PORT environment variable (app must use $PORT)
+ENV PORT=8000
+
+# Expose port (using default, actual port comes from $PORT env var)
+EXPOSE 8000
+
+# Start the application (must listen on $PORT)
+CMD ` + startCommand + `
+`
+
+	return dockerfile, nil
+}
+
+// generateJavaDockerfile generates a Dockerfile for Java applications
+func generateJavaDockerfile(repoPath string) (string, error) {
+	// Check for Maven or Gradle
+	pomPath := filepath.Join(repoPath, "pom.xml")
+	buildGradlePath := filepath.Join(repoPath, "build.gradle")
+
+	// Generate Dockerfile based on build tool
+	dockerfile := `# Generated Dockerfile for Java application
+FROM maven:3.9-eclipse-temurin-17-alpine AS builder
+`
+
+	if _, err := os.Stat(buildGradlePath); err == nil {
+		// Gradle build
+		dockerfile = `# Generated Dockerfile for Java application (Gradle)
+FROM gradle:8-jdk17-alpine AS builder
+`
+	}
+
+	dockerfile += `
+WORKDIR /app
+
+# Copy build files
+`
+
+	if _, err := os.Stat(pomPath); err == nil {
+		dockerfile += `COPY pom.xml ./
+COPY .mvn .mvn
+COPY mvnw ./
+RUN mvn dependency:go-offline || true
+`
+	} else if _, err := os.Stat(buildGradlePath); err == nil {
+		dockerfile += `COPY build.gradle* settings.gradle* ./
+COPY gradlew ./
+RUN ./gradlew dependencies || true
+`
+	}
+
+	dockerfile += `
+# Copy source code
+COPY . .
+
+# Build application
+`
+
+	if _, err := os.Stat(pomPath); err == nil {
+		dockerfile += `RUN mvn clean package -DskipTests
+`
+	} else if _, err := os.Stat(buildGradlePath); err == nil {
+		dockerfile += `RUN ./gradlew build -x test
+`
+	}
+
+	dockerfile += `
+# Runtime stage
+FROM eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# Copy built JAR from builder
+`
+
+	if _, err := os.Stat(pomPath); err == nil {
+		dockerfile += `COPY --from=builder /app/target/*.jar app.jar
+`
+	} else if _, err := os.Stat(buildGradlePath); err == nil {
+		dockerfile += `COPY --from=builder /app/build/libs/*.jar app.jar
+`
+	}
+
+	dockerfile += `
+# Set PORT environment variable (default: 8080, can be overridden)
+ENV PORT=8080
+
+# Expose port (using default, actual port comes from $PORT env var)
+EXPOSE 8080
+
+# Start the application (must listen on $PORT via -Dserver.port)
+CMD java -jar -Dserver.port=${PORT} app.jar
+`
+
+	return dockerfile, nil
+}
+
+// generateGoDockerfile generates a Dockerfile for Go applications
+// The app must read os.Getenv("PORT") to listen on the correct port
+func generateGoDockerfile(repoPath string) (string, error) {
+	// Try to detect main.go or cmd directory structure
+	mainPath := filepath.Join(repoPath, "main.go")
+	cmdPath := filepath.Join(repoPath, "cmd")
+	goModPath := filepath.Join(repoPath, "go.mod")
+
+	// Validate go.mod exists
+	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("go.mod not found - Go applications require go.mod file")
+	}
+
+	var buildCommand string
+	if _, err := os.Stat(mainPath); err == nil {
+		buildCommand = "go build -o app ."
+	} else if _, err := os.Stat(cmdPath); err == nil {
+		// Try to find main.go in cmd subdirectories - use first found cmd subdirectory
+		entries, err := os.ReadDir(cmdPath)
+		if err == nil {
+			foundCmd := false
+			for _, entry := range entries {
+				if entry.IsDir() {
+					cmdMainPath := filepath.Join(cmdPath, entry.Name(), "main.go")
+					if _, err := os.Stat(cmdMainPath); err == nil {
+						buildCommand = fmt.Sprintf("go build -o app ./cmd/%s", entry.Name())
+						foundCmd = true
+						break
+					}
+				}
+			}
+			if !foundCmd {
+				buildCommand = "go build -o app ./cmd/..."
+			}
+		} else {
+			buildCommand = "go build -o app ./cmd/..."
+		}
+	} else {
+		// Try to build from root
+		buildCommand = "go build -o app ."
+	}
+
+	// Generate Dockerfile
+	dockerfile := `# Generated Dockerfile for Go application
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build application
+RUN ` + buildCommand + `
+
+# Runtime stage
+FROM alpine:3.20
+
+WORKDIR /app
+
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
+
+# Copy binary from builder
+COPY --from=builder /app/app .
+
+# Set PORT environment variable (app must read os.Getenv("PORT"))
+ENV PORT=8080
+
+# Expose port (using default, actual port comes from $PORT env var)
+EXPOSE 8080
+
+# Start the application (app must listen on os.Getenv("PORT"))
+CMD ./app
+`
+
+	return dockerfile, nil
+}
+
+// EnsureDockerfile ensures a Dockerfile exists in the repository.
+// It always generates a Dockerfile based on the detected app type, ignoring any user-provided Dockerfile.
+// This ensures all apps use Stackyn's opinionated, secure Dockerfile generation.
+// Future enhancement: support an advanced option to explicitly use a custom Dockerfile.
+func EnsureDockerfile(repoPath string) error {
+	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
+
+	// Check if Dockerfile exists - if so, back it up (user-provided Dockerfiles are ignored by default)
+	if _, err := os.Stat(dockerfilePath); err == nil {
+		backupPath := filepath.Join(repoPath, "Dockerfile.user")
+		log.Printf("[GIT] User-provided Dockerfile found, backing up to Dockerfile.user (will be ignored)")
+		if err := os.Rename(dockerfilePath, backupPath); err != nil {
+			log.Printf("[GIT] WARNING - Failed to backup user Dockerfile: %v (continuing anyway)", err)
+		}
+	}
+
+	log.Printf("[GIT] Detecting app type and generating Dockerfile...")
+
+	// Detect app type
+	appType, err := DetectAppType(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to detect app type: %w", err)
+	}
+
+	if appType == AppTypeUnknown {
+		return fmt.Errorf("could not detect application type. Please ensure your repository contains one of: package.json (Node.js), requirements.txt/pyproject.toml (Python), pom.xml/build.gradle (Java), or go.mod (Go)")
+	}
+
+	// Generate Dockerfile
+	if err := GenerateDockerfile(repoPath, appType); err != nil {
+		return fmt.Errorf("failed to generate Dockerfile: %w", err)
+	}
+
+	log.Printf("[GIT] Dockerfile generated successfully for %s app", appType)
+	return nil
+}
+
 // CheckDockerCompose checks if a docker-compose.yml file exists in the repository root.
 // If found, it returns an error indicating that multi-container apps are not supported.
 // This function checks for common Docker Compose file names (case-sensitive and case-insensitive).

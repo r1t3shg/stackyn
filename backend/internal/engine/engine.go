@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,15 +111,15 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	}
 	log.Printf("[ENGINE] Repository cloned successfully to: %s", repoPath)
 
-	// Check if Dockerfile exists before attempting to build
-	log.Printf("[ENGINE] Step 3: Checking for Dockerfile...")
-	if err := gitrepo.CheckDockerfile(repoPath); err != nil {
-		log.Printf("[ENGINE] ERROR - Dockerfile check failed: %v", err)
-		errorMsg := "Dockerfile is not available in the repository root directory. Please ensure your repository contains a Dockerfile."
+	// Ensure Dockerfile exists (generate if missing)
+	log.Printf("[ENGINE] Step 3: Ensuring Dockerfile exists (generating if missing)...")
+	if err := gitrepo.EnsureDockerfile(repoPath); err != nil {
+		log.Printf("[ENGINE] ERROR - Dockerfile generation failed: %v", err)
+		errorMsg := fmt.Sprintf("Failed to generate Dockerfile: %v. Please ensure your repository contains one of: package.json (Node.js), requirements.txt/pyproject.toml (Python), pom.xml/build.gradle (Java), or go.mod (Go)", err)
 		e.deploymentStore.UpdateError(deploymentID, errorMsg)
 		// Update app status to "Failed"
 		e.appStore.UpdateStatus(deployment.AppID, "Failed")
-		return fmt.Errorf("dockerfile check failed: %w", err)
+		return fmt.Errorf("dockerfile generation failed: %w", err)
 	}
 
 	// Check if this is a multi-container app (docker-compose.yml) - not supported
@@ -200,6 +201,11 @@ func (e *Engine) ProcessDeployment(ctx context.Context, deploymentID int) error 
 	} else {
 		log.Printf("[ENGINE] Found %d environment variable(s) for app %d", len(envVars), deployment.AppID)
 	}
+	
+	// Always set PORT environment variable to the detected port
+	// This ensures the app listens on the port that Traefik routes to
+	envVars["PORT"] = strconv.Itoa(detectedPort)
+	log.Printf("[ENGINE] Setting PORT environment variable to %d", detectedPort)
 
 	// Step 4: Run container with Traefik labels and resource limits
 	// Generate unique 6-character alphabetic subdomain
