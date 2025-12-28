@@ -864,18 +864,39 @@ func fixDockerfileNpmCi(repoPath, dockerfilePath string) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Check if line contains `npm ci` (case-insensitive, handles variations)
+		originalLine := line
 		lowerLine := strings.ToLower(line)
+		
+		// Check if line contains `npm ci` (case-insensitive, handles variations)
 		if strings.Contains(lowerLine, "npm ci") || strings.Contains(lowerLine, "npmci") {
-			// Replace npm ci with npm install
-			// Preserve the original formatting and any flags
-			originalLine := line
-			line = strings.ReplaceAll(line, "npm ci", "npm install")
-			line = strings.ReplaceAll(line, "npmci", "npm install")
-			line = strings.ReplaceAll(line, "npm  ci", "npm install")
-			// Also handle case variations
-			line = strings.ReplaceAll(line, "NPM CI", "npm install")
-			line = strings.ReplaceAll(line, "Npm Ci", "npm install")
+			// If the line has a fallback pattern like "npm ci ... || npm install ..."
+			// replace the entire pattern with just "npm install ..."
+			if strings.Contains(lowerLine, "||") && strings.Contains(lowerLine, "npm install") {
+				// Extract everything before "|| npm install" and replace npm ci with npm install
+				// This handles: "RUN npm ci --flags || npm install --flags"
+				// Result: "RUN npm install --flags"
+				
+				// Use regex to find and replace: npm ci (case-insensitive) with npm install
+				// but only up to the || separator
+				regex := regexp.MustCompile(`(?i)npm\s+ci`)
+				parts := strings.SplitN(line, "||", 2)
+				if len(parts) == 2 {
+					// Replace npm ci in the first part, then remove the fallback
+					firstPart := regex.ReplaceAllString(parts[0], "npm install")
+					line = strings.TrimSpace(firstPart)
+				} else {
+					// No || separator, just replace npm ci with npm install
+					line = regex.ReplaceAllString(line, "npm install")
+				}
+			} else {
+				// Simple replacement: npm ci -> npm install (preserve case variations)
+				// Use regex for case-insensitive replacement
+				regex := regexp.MustCompile(`(?i)npm\s+ci`)
+				line = regex.ReplaceAllString(line, "npm install")
+				// Also handle "npmci" as one word
+				line = strings.ReplaceAll(line, "npmci", "npm install")
+				line = strings.ReplaceAll(line, "NPMCI", "npm install")
+			}
 			
 			if line != originalLine {
 				log.Printf("[GIT] Modified Dockerfile line: %s -> %s", originalLine, line)
