@@ -46,6 +46,8 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+
+	"github.com/docker/docker/client"
 )
 
 // BuildpacksBuilder handles building container images using Cloud Native Buildpacks.
@@ -68,6 +70,10 @@ type BuildpacksBuilder struct {
 
 	// dockerHost is the Docker daemon address (used to set DOCKER_HOST env var for pack)
 	dockerHost string
+
+	// client is the Docker API client used to verify image existence
+	// This allows us to check if images exist without requiring docker CLI in PATH
+	client *client.Client
 }
 
 // NewBuildpacksBuilder creates a new BuildpacksBuilder instance.
@@ -114,11 +120,22 @@ func NewBuildpacksBuilder(builder, dockerHost, packCLIPath string) (*BuildpacksB
 		log.Printf("[BUILDPACKS] Pack CLI version: %s", strings.TrimSpace(string(versionOutput)))
 	}
 
+	// Create Docker API client for image existence checks
+	// This allows us to verify images without requiring docker CLI in PATH
+	dockerClient, err := client.NewClientWithOpts(
+		client.WithHost(dockerHost),
+		client.WithAPIVersionNegotiation(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	}
+
 	log.Printf("[BUILDPACKS] Buildpacks builder initialized successfully with builder: %s", builder)
 	return &BuildpacksBuilder{
 		builder:     builder,
 		packCLIPath: packPath,
 		dockerHost:  dockerHost,
+		client:      dockerClient,
 	}, nil
 }
 
@@ -228,22 +245,31 @@ func (r *buildLogReader) Read(p []byte) (n int, err error) {
 
 // Close implements io.Closer interface.
 // It waits for the pack command to finish and closes all pipes.
+// IMPORTANT: This method returns an error if the pack build failed.
+// The caller (ParseBuildLog) should check the error returned from Close()
+// to detect build failures. Pack CLI outputs plain text (not JSON), so we
+// detect failures by checking the exit code.
 func (r *buildLogReader) Close() error {
 	// Wait for the command to finish
 	// This ensures the build completes before we return
-	if err := r.cmd.Wait(); err != nil {
-		log.Printf("[BUILDPACKS] Pack build command exited with error: %v", err)
-		// Return the error so callers know the build failed
-		// But still close the pipes
-		closeErr := r.closePipes()
+	waitErr := r.cmd.Wait()
+	
+	// Close pipes first (always close, even on error)
+	closeErr := r.closePipes()
+	
+	// If command failed, return that error (pack build failed)
+	if waitErr != nil {
+		log.Printf("[BUILDPACKS] Pack build command exited with error: %v", waitErr)
 		if closeErr != nil {
-			return fmt.Errorf("build failed: %w (also failed to close pipes: %v)", err, closeErr)
+			return fmt.Errorf("build failed: %w (also failed to close pipes: %v)", waitErr, closeErr)
 		}
-		return fmt.Errorf("build failed: %w", err)
+		// Return error so caller knows build failed
+		// The error will be wrapped, but ParseBuildLog will detect it
+		return waitErr
 	}
 
 	log.Printf("[BUILDPACKS] Pack build completed successfully")
-	return r.closePipes()
+	return closeErr
 }
 
 // closePipes closes all pipes and returns the first error encountered.
@@ -261,8 +287,8 @@ func (r *buildLogReader) closePipes() error {
 	return firstErr
 }
 
-// ImageExists checks if a Docker image exists by querying Docker directly.
-// This uses the same approach as the Docker builder since pack builds Docker images.
+// ImageExists checks if a Docker image exists by inspecting it using the Docker API client.
+// This uses the same approach as dockerbuild.Builder to avoid requiring docker CLI in PATH.
 //
 // Parameters:
 //   - ctx: Context for cancellation and timeout
@@ -272,21 +298,15 @@ func (r *buildLogReader) closePipes() error {
 //   - bool: True if image exists, false otherwise
 //   - error: Error if Docker inspection fails (not if image doesn't exist)
 func (b *BuildpacksBuilder) ImageExists(ctx context.Context, imageName string) (bool, error) {
-	// Use docker CLI to check if image exists
-	// This is simpler than using Docker API client since we already use pack CLI
-	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", imageName)
-
-	// Set DOCKER_HOST environment variable
-	cmd.Env = append(cmd.Env, fmt.Sprintf("DOCKER_HOST=%s", b.dockerHost))
-
-	if err := cmd.Run(); err != nil {
-		// Exit code 1 means image doesn't exist (docker inspect returns non-zero)
-		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+	_, _, err := b.client.ImageInspectWithRaw(ctx, imageName)
+	if err != nil {
+		// Check if error is "image not found" type
+		// Use client.IsErrNotFound to properly detect when image doesn't exist
+		if client.IsErrNotFound(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("failed to check image existence: %w", err)
+		return false, fmt.Errorf("failed to inspect image %s: %w", imageName, err)
 	}
-
 	return true, nil
 }
 

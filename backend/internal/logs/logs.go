@@ -32,9 +32,6 @@ type BuildLogResult struct {
 //   - *BuildLogResult: Parsed build log with error detection, or nil on read error
 //   - error: Error if reading or scanning fails
 func ParseBuildLog(reader io.ReadCloser) (*BuildLogResult, error) {
-	// Ensure the reader is closed when we're done
-	defer reader.Close()
-
 	// Store all log lines in a slice
 	var logLines []string
 	var hasError bool
@@ -49,6 +46,8 @@ func ParseBuildLog(reader io.ReadCloser) (*BuildLogResult, error) {
 		logLines = append(logLines, line)
 		
 		// Docker build logs are JSON - parse each line to check for errors
+		// Note: Pack CLI outputs plain text, not JSON, but we try JSON parsing first
+		// for Docker build logs compatibility
 		var logEntry map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &logEntry); err == nil {
 			// Check for error field
@@ -65,16 +64,51 @@ func ParseBuildLog(reader io.ReadCloser) (*BuildLogResult, error) {
 					}
 				}
 			}
+		} else {
+			// Plain text output (pack CLI) - look for common error indicators
+			lowerLine := strings.ToLower(line)
+			if strings.Contains(lowerLine, "error:") || 
+			   strings.Contains(lowerLine, "failed") || 
+			   strings.Contains(lowerLine, "failed to") {
+				if !hasError { // Only set first error found
+					hasError = true
+					errorMsg = line
+				}
+			}
 		}
 	}
 
 	// Check for scanning errors (not EOF, which is normal)
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
+	scanErr := scanner.Err()
 
-	// Join all lines with newline characters to create the full log
+	// Join all log lines with newline characters to create the full log
 	fullLog := strings.Join(logLines, "\n")
+	
+	// Close the reader - this is important for pack CLI builds
+	// Close() will wait for the command to finish and return an error if build failed
+	closeErr := reader.Close()
+	
+	// If Close() returned an error, the build likely failed
+	// Pack CLI returns errors when build fails, which Close() captures
+	if closeErr != nil {
+		// Build failed - mark as error and use the close error as the error message
+		hasError = true
+		// Extract meaningful error message
+		if errorMsg == "" {
+			errorMsg = closeErr.Error()
+			// Clean up error message - remove "build failed: " prefix if present
+			errorMsg = strings.TrimPrefix(errorMsg, "build failed: ")
+		}
+	}
+	
+	// If there was a scan error, return it (reading failed)
+	if scanErr != nil {
+		return &BuildLogResult{
+			Log:      fullLog,
+			HasError: hasError,
+			ErrorMsg: errorMsg,
+		}, scanErr
+	}
 	
 	// Log a summary of what we found (for debugging)
 	if hasError {
