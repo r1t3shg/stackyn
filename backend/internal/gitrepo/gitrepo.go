@@ -387,6 +387,18 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 		return "", fmt.Errorf("no valid start command found in package.json or common entry points")
 	}
 
+	// Check if package-lock.json exists to determine which npm command to use
+	packageLockPath := filepath.Join(repoPath, "package-lock.json")
+	_, hasPackageLock := os.Stat(packageLockPath)
+	useNpmCi := hasPackageLock == nil
+	
+	var installCommand string
+	if useNpmCi {
+		installCommand = "npm ci --only=production"
+	} else {
+		installCommand = "npm install --only=production"
+	}
+
 	// Generate Dockerfile
 	// Note: EXPOSE must be a literal number (Docker limitation), but PORT env var is used by the app
 	dockerfile := `# Generated Dockerfile for Node.js application
@@ -398,7 +410,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production || npm install --only=production
+RUN ` + installCommand + `
 
 # Copy source code
 COPY . .
