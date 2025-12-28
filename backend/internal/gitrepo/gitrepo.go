@@ -10,6 +10,7 @@ package gitrepo
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -371,22 +372,42 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 		return "", fmt.Errorf("failed to read package.json: %w", err)
 	}
 
+	// Parse package.json to check for scripts
+	var packageData struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	hasBuildScript := false
+	if err := json.Unmarshal(packageJSON, &packageData); err == nil {
+		if packageData.Scripts != nil {
+			_, hasBuildScript = packageData.Scripts["build"]
+		}
+	} else {
+		// Fallback to string search if JSON parsing fails
+		hasBuildScript = strings.Contains(string(packageJSON), `"build"`)
+	}
+	
 	// Try to detect start command from package.json
-	// Simple parsing - look for "start" script
 	startCommand := "npm start"
 	needsBuild := false
-	hasBuildScript := strings.Contains(string(packageJSON), `"build"`)
 	
 	if strings.Contains(string(packageJSON), `"start"`) {
-		// Check if start command references a build directory (e.g., "node ./build/main.js")
-		// This indicates the app needs to be built first
-		if hasBuildScript || 
-		   strings.Contains(string(packageJSON), `"./build/`) ||
-		   strings.Contains(string(packageJSON), `"dist/`) ||
-		   strings.Contains(string(packageJSON), `"out/`) {
-			needsBuild = true
-		}
 		startCommand = "npm start"
+		
+		// Check if we need a build step:
+		// 1. If there's a build script, use it
+		// 2. If start command references build directories, we need a build (but only if build script exists)
+		if hasBuildScript {
+			needsBuild = true
+			log.Printf("[GIT] Found 'build' script in package.json - build step will be included")
+		} else {
+			// Check if start references build directories but no build script exists
+			// In this case, we assume the build directory is committed to git
+			if strings.Contains(string(packageJSON), `"./build/`) ||
+			   strings.Contains(string(packageJSON), `"dist/`) ||
+			   strings.Contains(string(packageJSON), `"out/`) {
+				log.Printf("[GIT] Start command references build directory but no 'build' script found - assuming pre-built")
+			}
+		}
 	} else {
 		// Try to detect entry point
 		startCommand = "node index.js"
@@ -413,24 +434,30 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	var installCommand string
 	var buildCommand string
 	
-	if needsBuild || hasBuildScript {
-		// App needs build step - install all dependencies (including dev) and build
+	// Only run build if there's actually a build script in package.json
+	if hasBuildScript {
+		// App has build script - install all dependencies (including dev) and build
 		if useNpmCi {
 			installCommand = "npm ci --ignore-scripts"
 		} else {
 			installCommand = "npm install --ignore-scripts"
 		}
 		buildCommand = "npm run build"
-		log.Printf("[GIT] Detected build requirement - will install all dependencies and run build")
+		log.Printf("[GIT] Found 'build' script - will install all dependencies and run build")
 	} else {
-		// No build needed - only install production dependencies
+		// No build script - only install production dependencies
+		// If the app references build directories, they should be committed to git
 		if useNpmCi {
 			installCommand = "npm ci --only=production --ignore-scripts"
 		} else {
 			installCommand = "npm install --only=production --ignore-scripts"
 		}
 		buildCommand = ""
-		log.Printf("[GIT] No build step required - installing production dependencies only")
+		if needsBuild {
+			log.Printf("[GIT] Start command references build directory but no 'build' script found - assuming pre-built")
+		} else {
+			log.Printf("[GIT] No build step required - installing production dependencies only")
+		}
 	}
 	
 	log.Printf("[GIT] Generated Node.js Dockerfile with install command: %s (package-lock.json exists: %v)", installCommand, useNpmCi)
