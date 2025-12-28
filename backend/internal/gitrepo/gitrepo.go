@@ -258,6 +258,14 @@ func GenerateDockerfile(repoPath string, appType AppType) error {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 
+	// Log the generated Dockerfile content for debugging (first 20 lines)
+	lines := strings.Split(dockerfileContent, "\n")
+	previewLines := lines
+	if len(previewLines) > 20 {
+		previewLines = previewLines[:20]
+	}
+	log.Printf("[GIT] Generated Dockerfile preview (first %d lines):\n%s", len(previewLines), strings.Join(previewLines, "\n"))
+
 	// Validate the generated Dockerfile
 	if err := ValidateGeneratedDockerfile(repoPath, appType); err != nil {
 		return fmt.Errorf("generated Dockerfile validation failed: %w", err)
@@ -398,6 +406,8 @@ func generateNodeJSDockerfile(repoPath string) (string, error) {
 	} else {
 		installCommand = "npm install --only=production"
 	}
+	
+	log.Printf("[GIT] Generated Node.js Dockerfile with install command: %s (package-lock.json exists: %v)", installCommand, useNpmCi)
 
 	// Generate Dockerfile
 	// Note: EXPOSE must be a literal number (Docker limitation), but PORT env var is used by the app

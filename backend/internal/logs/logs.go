@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"log"
 	"strings"
 )
 
@@ -74,6 +75,19 @@ func ParseBuildLog(reader io.ReadCloser) (*BuildLogResult, error) {
 
 	// Join all lines with newline characters to create the full log
 	fullLog := strings.Join(logLines, "\n")
+	
+	// Log a summary of what we found (for debugging)
+	if hasError {
+		log.Printf("[LOGS] Build log contains errors - Error message: %s", errorMsg)
+		// Log last 10 lines of build log for debugging
+		lastLines := logLines
+		if len(lastLines) > 10 {
+			lastLines = lastLines[len(lastLines)-10:]
+		}
+		log.Printf("[LOGS] Last %d lines of build log:\n%s", len(lastLines), strings.Join(lastLines, "\n"))
+	} else {
+		log.Printf("[LOGS] Build log parsed successfully - no errors detected")
+	}
 	
 	return &BuildLogResult{
 		Log:      fullLog,
