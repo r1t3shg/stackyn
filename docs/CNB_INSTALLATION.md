@@ -113,6 +113,32 @@ pack version
 - Ensure Docker has internet access to pull builder images
 - Builder image `paketobuildpacks/builder:base` is large (~1GB) - ensure sufficient disk space
 - Check Docker registry access if behind a firewall
+
+### Issue: "client version 1.42 is too old. Minimum supported API version is 1.44"
+
+**Problem:** Docker Engine v29.0.0+ requires API version 1.44+, but pack CLI v0.39.1 uses Docker client API 1.42.
+
+**Solutions:**
+
+1. **Update pack CLI to latest version** (Recommended):
+   - Update `PACK_VERSION` in `backend/Dockerfile` to the latest pack CLI release
+   - Check latest version at: https://github.com/buildpacks/pack/releases
+   - Rebuild Docker images: `docker compose build worker`
+
+2. **Configure Docker daemon to accept older API versions** (Temporary workaround):
+   - Edit Docker daemon configuration (usually `/etc/docker/daemon.json`):
+     ```json
+     {
+       "min-api-version": "1.24"
+     }
+     ```
+   - Or set environment variable: `DOCKER_MIN_API_VERSION=1.24`
+   - Restart Docker daemon: `sudo systemctl restart docker`
+   - **Note:** This is a temporary workaround and not recommended for production
+
+3. **Downgrade Docker Engine** (Not recommended):
+   - Use Docker Engine v28.x which supports older API versions
+   - Not recommended due to security and feature limitations
 - Builder images are cached locally after first pull
 
 ## Builder Image
