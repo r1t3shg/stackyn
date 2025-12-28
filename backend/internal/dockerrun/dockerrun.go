@@ -116,24 +116,8 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		Env:        envSlice,
 	}
 
-	// Resource limits constants
-	// Memory limit: 256 MB (256 * 1024 * 1024 bytes)
-	// This is a hard limit - container cannot exceed this memory usage
-	memoryLimitBytes := int64(256 * 1024 * 1024)
-	// Memory swap: 256 MB (same as memory limit to disable swap)
-	// Setting swap equal to memory effectively disables swap usage
-	memorySwapBytes := int64(256 * 1024 * 1024)
-	// CPU limit: 0.25 vCPU
-	// Using CPU quota and period: quota = 25000, period = 100000
-	// This gives us 0.25 vCPU (25000/100000 = 0.25)
-	cpuQuota := int64(25000)  // 25% of CPU
-	cpuPeriod := int64(100000) // Standard period
-	// Process limit: 128 PIDs
-	// Prevents fork bombs and excessive process creation
-	pidsLimit := int64(128)
-	pidsLimitPtr := &pidsLimit
-
-	// Create host config with resource limits
+	// Create host config without resource limits (for testing)
+	// NOTE: Resource limits have been temporarily removed
 	hostConfig := &container.HostConfig{
 		AutoRemove: false,
 		// Restart policy: unless-stopped
@@ -141,22 +125,9 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 		RestartPolicy: container.RestartPolicy{
 			Name: "unless-stopped",
 		},
-		// Resource limits: Memory, CPU, and process limits
-		Resources: container.Resources{
-			// Memory limit: Hard limit of 256 MB
-			// Container will be OOM killed if it exceeds this limit
-			Memory: memoryLimitBytes,
-			// Memory swap: Set to same as memory to disable swap
-			// This ensures total memory usage (RAM + swap) cannot exceed 256 MB
-			MemorySwap: memorySwapBytes,
-			// CPU limit: 0.25 vCPU using quota/period
-			// Container can use at most 25% of one CPU core
-			CPUQuota: cpuQuota,
-			CPUPeriod: cpuPeriod,
-			// Process limit: Maximum 128 processes
-			// Prevents fork bombs and resource exhaustion attacks
-			PidsLimit: pidsLimitPtr,
-		},
+		// Resource limits removed for testing - containers can use unlimited resources
+		// TODO: Re-enable resource limits after testing
+		Resources: container.Resources{},
 		// Logging configuration: JSON file driver with rotation
 		// Prevents log files from consuming unlimited disk space
 		LogConfig: container.LogConfig{
@@ -194,7 +165,7 @@ func (r *Runner) Run(ctx context.Context, imageName, subdomain, baseDomain strin
 	}
 
 	// Create container
-	log.Printf("[DOCKER] Creating container: %s (Memory: 256MB, CPU: 0.25, PIDs: 128)", containerName)
+	log.Printf("[DOCKER] Creating container: %s (No resource limits)", containerName)
 	resp, err := r.client.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, containerName)
 	if err != nil {
 		// Capture Docker error details for debugging
