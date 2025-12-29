@@ -219,7 +219,7 @@ func (s *DeploymentService) RollbackDeployment(ctx context.Context, appID, previ
 	return nil
 }
 
-// ensureOneContainerPerApp ensures only one active container exists per app
+// ensureOneContainerPerApp ensures only one active container exists per app (MVP constraint)
 func (s *DeploymentService) ensureOneContainerPerApp(ctx context.Context, appID string) error {
 	containers, err := s.findContainersByAppID(ctx, appID)
 	if err != nil {

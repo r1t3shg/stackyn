@@ -42,8 +42,12 @@ func Router(logger *zap.Logger) http.Handler {
 	// Initialize billing service
 	billingService := services.NewBillingService(logger)
 	
+	// Initialize constraints service (MVP constraints)
+	maxBuildTimeMinutes := 15 // MVP: 15 minute max build time
+	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
+	
 	// Initialize handlers
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService)
 	
 	// Initialize auth handlers (with mock services for now)
 	// TODO: Wire up real services when database is connected

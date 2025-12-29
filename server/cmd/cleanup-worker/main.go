@@ -61,6 +61,10 @@ func main() {
 	// Initialize plan enforcement service (not needed for cleanup, but required by interface)
 	planEnforcement := services.NewPlanEnforcementService(logger)
 
+	// Initialize constraints service (not needed for cleanup, but required by interface)
+	maxBuildTimeMinutes := 15
+	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
+
 	// Initialize task handler with cleanup service
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -72,6 +76,7 @@ func main() {
 		nil, // No deployment service needed for cleanup worker
 		cleanupService,
 		planEnforcement,
+		constraintsService,
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

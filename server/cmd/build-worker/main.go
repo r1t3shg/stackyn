@@ -78,6 +78,10 @@ func main() {
 	// Initialize plan enforcement service
 	planEnforcement := services.NewPlanEnforcementService(logger)
 
+	// Initialize constraints service (MVP constraints)
+	maxBuildTimeMinutes := 15 // MVP: 15 minute max build time
+	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
+
 	// Initialize task handler with all services
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -89,6 +93,7 @@ func main() {
 		nil, // No deployment service needed for build worker
 		nil, // No cleanup service needed for build worker
 		planEnforcement,
+		constraintsService,
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

@@ -158,6 +158,14 @@ type Handlers struct {
 	containerLogs     ContainerLogService
 	planEnforcement   PlanEnforcementService
 	billingService    BillingService
+	constraintsService ConstraintsService
+}
+
+// ConstraintsService interface for constraint enforcement
+type ConstraintsService interface {
+	ValidateRepoURL(ctx context.Context, repoURL string) error
+	ValidateAllConstraints(ctx context.Context, repoURL, repoPath string) error
+	ValidateBuildTime(ctx context.Context, buildTimeMinutes int) error
 }
 
 // BillingService interface for billing operations
@@ -198,6 +206,12 @@ func GetPlanLimitError(err error) (*services.PlanLimitError, bool) {
 	return planErr, ok
 }
 
+// GetConstraintError extracts ConstraintError from error
+func GetConstraintError(err error) (*services.ConstraintError, bool) {
+	constraintErr, ok := err.(*services.ConstraintError)
+	return constraintErr, ok
+}
+
 // LogEntry represents a log entry (from services package)
 type LogEntry struct {
 	AppID        string    `json:"app_id"`
@@ -212,13 +226,14 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService) *Handlers {
 	return &Handlers{
-		logger:          logger,
-		logPersistence:  logPersistence,
-		containerLogs:   containerLogs,
-		planEnforcement: planEnforcement,
-		billingService:  billingService,
+		logger:            logger,
+		logPersistence:   logPersistence,
+		containerLogs:      containerLogs,
+		planEnforcement:  planEnforcement,
+		billingService:    billingService,
+		constraintsService: constraintsService,
 	}
 }
 
@@ -347,6 +362,40 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
+	}
+
+	// Validate MVP constraints - repository URL
+	if h.constraintsService != nil {
+		if err := h.constraintsService.ValidateRepoURL(r.Context(), req.RepoURL); err != nil {
+			if constraintErr, ok := GetConstraintError(err); ok {
+				h.writeError(w, http.StatusBadRequest, constraintErr.Message)
+				return
+			}
+			h.writeError(w, http.StatusBadRequest, "Repository URL validation failed")
+			return
+		}
+	}
+
+	// Get user ID from context
+	userID := h.getUserIDFromContext(r)
+
+	// Check max apps limit
+	if h.planEnforcement != nil {
+		currentAppCount, err := h.getCurrentAppCount(r.Context(), userID)
+		if err != nil {
+			h.logger.Error("Failed to get current app count", zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "Failed to check plan limits")
+			return
+		}
+
+		if err := h.planEnforcement.CheckMaxApps(r.Context(), userID, currentAppCount); err != nil {
+			if planErr, ok := GetPlanLimitError(err); ok {
+				h.writeError(w, http.StatusForbidden, planErr.Message)
+				return
+			}
+			h.writeError(w, http.StatusForbidden, "Plan limit exceeded")
+			return
+		}
 	}
 
 	now := time.Now().Format(time.RFC3339)

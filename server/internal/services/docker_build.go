@@ -99,6 +99,10 @@ func (s *DockerBuildService) BuildImage(ctx context.Context, opts BuildOptions, 
 	// Build the image
 	buildResponse, err := s.client.ImageBuild(buildCtx, tarReader, buildOptions)
 	if err != nil {
+		// Check if error is due to timeout
+		if buildCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("MVP constraint violation: build time exceeded maximum allowed time of 15 minutes. Please optimize your build process")
+		}
 		return nil, fmt.Errorf("failed to start image build: %w", err)
 	}
 	defer buildResponse.Body.Close()

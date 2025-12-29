@@ -25,7 +25,14 @@ type TaskHandler struct {
 	deploymentService DeploymentService
 	cleanupService   CleanupService
 	planEnforcement  PlanEnforcementService
+	constraintsService ConstraintsService
 	// Add dependencies here (database, etc.)
+}
+
+// ConstraintsService interface for constraint enforcement
+type ConstraintsService interface {
+	ValidateAllConstraints(ctx context.Context, repoURL, repoPath string) error
+	ValidateBuildTime(ctx context.Context, buildTimeMinutes int) error
 }
 
 // PlanEnforcementService interface for plan enforcement
@@ -96,6 +103,7 @@ func NewTaskHandler(
 	deploymentService DeploymentService,
 	cleanupService CleanupService,
 	planEnforcement PlanEnforcementService,
+	constraintsService ConstraintsService,
 ) *TaskHandler {
 	return &TaskHandler{
 		logger:           logger,
@@ -107,6 +115,7 @@ func NewTaskHandler(
 		deploymentService: deploymentService,
 		cleanupService:   cleanupService,
 		planEnforcement:  planEnforcement,
+		constraintsService: constraintsService,
 	}
 }
 
@@ -152,6 +161,21 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		zap.String("path", cloneResult.Path),
 		zap.String("commit_sha", cloneResult.CommitSHA),
 	)
+
+	// Step 1.5: Validate MVP constraints
+	if h.constraintsService != nil {
+		if err := h.constraintsService.ValidateAllConstraints(ctx, payload.RepoURL, cloneResult.Path); err != nil {
+			if constraintErr, ok := services.GetConstraintError(err); ok {
+				h.logger.Warn("MVP constraint violation",
+					zap.String("constraint", constraintErr.Constraint),
+					zap.String("message", constraintErr.Message),
+					zap.String("details", constraintErr.Details),
+				)
+				return fmt.Errorf("MVP constraint violation: %s", constraintErr.Message)
+			}
+			return fmt.Errorf("constraint validation failed: %w", err)
+		}
+	}
 
 	// Step 2: Detect runtime
 	if h.runtimeDetector == nil {
