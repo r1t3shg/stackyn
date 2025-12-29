@@ -157,6 +157,13 @@ type Handlers struct {
 	logPersistence    LogPersistenceService
 	containerLogs     ContainerLogService
 	planEnforcement   PlanEnforcementService
+	billingService    BillingService
+}
+
+// BillingService interface for billing operations
+type BillingService interface {
+	ProcessLemonSqueezyWebhook(ctx context.Context, event *services.LemonSqueezyWebhookEvent) error
+	GetSubscription(ctx context.Context, userID string) (*services.Subscription, error)
 }
 
 // LogPersistenceService interface for log persistence
@@ -205,12 +212,13 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService) *Handlers {
 	return &Handlers{
 		logger:          logger,
 		logPersistence:  logPersistence,
 		containerLogs:   containerLogs,
 		planEnforcement: planEnforcement,
+		billingService:  billingService,
 	}
 }
 
@@ -760,5 +768,44 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	h.writeJSON(w, http.StatusOK, profile)
+}
+
+// POST /api/webhooks/lemon-squeezy - Handle Lemon Squeezy webhook
+func (h *Handlers) HandleLemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
+	// Verify webhook signature (stub - should verify in production)
+	// Lemon Squeezy signs webhooks with a secret
+	signature := r.Header.Get("X-Signature")
+	if signature == "" {
+		h.logger.Warn("Lemon Squeezy webhook missing signature")
+		// In production, reject unsigned webhooks
+		// h.writeError(w, http.StatusUnauthorized, "Missing signature")
+		// return
+	}
+
+	// TODO: Verify signature using Lemon Squeezy webhook secret
+	// secret := os.Getenv("LEMON_SQUEEZY_WEBHOOK_SECRET")
+	// if !verifySignature(r.Body, signature, secret) {
+	//     h.writeError(w, http.StatusUnauthorized, "Invalid signature")
+	//     return
+	// }
+
+	// Parse webhook event
+	var event services.LemonSqueezyWebhookEvent
+	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+		h.logger.Error("Failed to decode Lemon Squeezy webhook", zap.Error(err))
+		h.writeError(w, http.StatusBadRequest, "Invalid webhook payload")
+		return
+	}
+
+	// Process webhook
+	if err := h.billingService.ProcessLemonSqueezyWebhook(r.Context(), &event); err != nil {
+		h.logger.Error("Failed to process Lemon Squeezy webhook", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to process webhook")
+		return
+	}
+
+	// Return 200 OK to acknowledge receipt
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
 }
 

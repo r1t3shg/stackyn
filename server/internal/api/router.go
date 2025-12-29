@@ -39,8 +39,11 @@ func Router(logger *zap.Logger) http.Handler {
 	// Initialize plan enforcement service
 	planEnforcement := services.NewPlanEnforcementService(logger)
 	
+	// Initialize billing service
+	billingService := services.NewBillingService(logger)
+	
 	// Initialize handlers
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService)
 	
 	// Initialize auth handlers (with mock services for now)
 	// TODO: Wire up real services when database is connected
@@ -89,6 +92,11 @@ func Router(logger *zap.Logger) http.Handler {
 	r.Route("/api/v1/deployments", func(r chi.Router) {
 		r.Get("/{id}", handlers.GetDeploymentByID)
 		r.Get("/{id}/logs", handlers.GetDeploymentLogs)
+	})
+
+	// Billing webhooks routes
+	r.Route("/api/webhooks", func(r chi.Router) {
+		r.Post("/lemon-squeezy", handlers.HandleLemonSqueezyWebhook)
 	})
 
 	return r

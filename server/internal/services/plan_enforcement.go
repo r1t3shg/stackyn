@@ -42,15 +42,21 @@ type PlanLimits struct {
 
 // GetPlanLimits gets the limits for a user's plan
 // TODO: Fetch from database when DB is connected
+// This should integrate with BillingService to get the user's current plan
 func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID string) (*PlanLimits, error) {
 	// TODO: Query database for user's plan
-	// For now, return default limits
 	// In production, this would be:
-	// user, err := s.userRepo.GetByID(ctx, userID)
+	// 1. Get subscription from BillingService
+	// 2. Get plan details from plans table based on subscription.Plan
+	// 3. Return plan limits
+	// 
+	// Example:
+	// billingService := s.billingService // Would need to inject this
+	// subscription, err := billingService.GetSubscription(ctx, userID)
 	// if err != nil {
 	//     return nil, err
 	// }
-	// plan, err := s.planRepo.GetByID(ctx, user.PlanID)
+	// plan, err := s.planRepo.GetByName(ctx, subscription.Plan)
 	// if err != nil {
 	//     return nil, err
 	// }
