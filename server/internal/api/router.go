@@ -32,12 +32,22 @@ func Router(logger *zap.Logger) http.Handler {
 
 	// Initialize handlers
 	handlers := NewHandlers(logger)
+	
+	// Initialize auth handlers (with mock services for now)
+	// TODO: Wire up real services when database is connected
+	authHandlers := NewAuthHandlers(logger, nil, nil, nil, nil)
 
 	// Health check
 	r.Get("/health", handlers.HealthCheck)
 
-	// Auth routes
+	// Auth routes (no auth required)
 	r.Route("/api/auth", func(r chi.Router) {
+		// OTP authentication endpoints
+		r.Post("/send-otp", authHandlers.SendOTP)
+		r.Post("/verify-otp", authHandlers.VerifyOTP)
+		r.Post("/login", authHandlers.Login)
+		
+		// Legacy Firebase endpoint (for compatibility)
 		r.Post("/verify-token", handlers.VerifyToken)
 	})
 
