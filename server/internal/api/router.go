@@ -5,12 +5,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"go.uber.org/zap"
 )
 
 // Router sets up the HTTP router with all routes and middleware
 func Router(logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
+
+	// CORS middleware - allow all origins for development
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
 
 	// Middleware
 	r.Use(middleware.RequestID)
@@ -19,23 +30,44 @@ func Router(logger *zap.Logger) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60))
 
-	// Health check
-	r.Get("/health", healthHandler)
+	// Initialize handlers
+	handlers := NewHandlers(logger)
 
-	// API routes
-	r.Route("/api/v1", func(r chi.Router) {
-		// TODO: Add API routes here
-		// r.Route("/apps", appRoutes)
-		// r.Route("/deployments", deploymentRoutes)
-		// r.Route("/users", userRoutes)
+	// Health check
+	r.Get("/health", handlers.HealthCheck)
+
+	// Auth routes
+	r.Route("/api/auth", func(r chi.Router) {
+		r.Post("/verify-token", handlers.VerifyToken)
+	})
+
+	// User routes
+	r.Route("/api/user", func(r chi.Router) {
+		r.Get("/me", handlers.GetUserProfile)
+	})
+
+	// Apps routes - /api/apps (for listing)
+	r.Get("/api/apps", handlers.ListApps)
+
+	// Apps routes - /api/v1/apps (for CRUD operations)
+	r.Route("/api/v1/apps", func(r chi.Router) {
+		r.Get("/{id}", handlers.GetAppByID)
+		r.Post("/", handlers.CreateApp)
+		r.Delete("/{id}", handlers.DeleteApp)
+		r.Post("/{id}/redeploy", handlers.RedeployApp)
+		r.Get("/{id}/deployments", handlers.GetAppDeployments)
+		r.Get("/{id}/env", handlers.GetEnvVars)
+		r.Post("/{id}/env", handlers.CreateEnvVar)
+		r.Delete("/{id}/env/{key}", handlers.DeleteEnvVar)
+	})
+
+	// Deployments routes
+	r.Route("/api/v1/deployments", func(r chi.Router) {
+		r.Get("/{id}", handlers.GetDeploymentByID)
+		r.Get("/{id}/logs", handlers.GetDeploymentLogs)
 	})
 
 	return r
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }
 
 func loggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
