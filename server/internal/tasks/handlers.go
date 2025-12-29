@@ -22,6 +22,7 @@ type TaskHandler struct {
 	runtimeDetector  RuntimeDetector
 	dockerfileGen    DockerfileGenerator
 	logPersister     LogPersister
+	deploymentService DeploymentService
 	// Add dependencies here (database, etc.)
 }
 
@@ -47,6 +48,14 @@ type LogPersister interface {
 	PersistBuildLog(buildJobID, logs string) error
 }
 
+// DeploymentService interface for deploying containers
+// Uses services package types to avoid duplication
+type DeploymentService interface {
+	DeployContainer(ctx context.Context, opts services.DeploymentOptions) (*services.DeploymentResult, error)
+	RollbackDeployment(ctx context.Context, appID, previousImageName, previousImageTag string) error
+	Close() error
+}
+
 // GitService interface for repository operations
 // Uses services package types to avoid duplication
 type GitService interface {
@@ -63,14 +72,16 @@ func NewTaskHandler(
 	runtimeDetector RuntimeDetector,
 	dockerfileGen DockerfileGenerator,
 	logPersister LogPersister,
+	deploymentService DeploymentService,
 ) *TaskHandler {
 	return &TaskHandler{
-		logger:          logger,
-		gitService:      gitService,
-		dockerBuild:     dockerBuild,
-		runtimeDetector: runtimeDetector,
-		dockerfileGen:   dockerfileGen,
-		logPersister:    logPersister,
+		logger:           logger,
+		gitService:       gitService,
+		dockerBuild:      dockerBuild,
+		runtimeDetector:  runtimeDetector,
+		dockerfileGen:    dockerfileGen,
+		logPersister:     logPersister,
+		deploymentService: deploymentService,
 	}
 }
 
@@ -206,23 +217,78 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		zap.String("app_id", payload.AppID),
 		zap.String("deployment_id", payload.DeploymentID),
 		zap.String("image_name", payload.ImageName),
+		zap.String("build_job_id", payload.BuildJobID),
 	)
 
-	// TODO: Implement actual deploy logic
-	// 1. Pull Docker image
-	// 2. Create/update container
-	// 3. Configure networking (Traefik)
-	// 4. Start container
-	// 5. Update deployment status in database
-	// 6. Persist task state
+	if h.deploymentService == nil {
+		return fmt.Errorf("deployment service not configured")
+	}
 
-	// Simulate work
-	time.Sleep(1 * time.Second)
+	// Extract image name and tag from payload
+	imageName := payload.ImageName
+	if imageName == "" {
+		// Fallback: construct from app ID
+		imageName = fmt.Sprintf("stackyn-%s", payload.AppID)
+	}
+	imageTag := payload.BuildJobID
+	if imageTag == "" {
+		imageTag = "latest"
+	}
+
+	// Generate subdomain if not provided
+	subdomain := payload.Subdomain
+	if subdomain == "" {
+		subdomain = fmt.Sprintf("%s.stackyn.local", payload.AppID)
+	}
+
+	// Default port (can be overridden via env vars)
+	port := 8080
+
+	// Plan-based resource limits (default values - should come from database/plan)
+	// TODO: Fetch actual plan limits from database
+	limits := services.ResourceLimits{
+		MemoryMB: 512, // Default: 512 MB
+		CPU:      0.5, // Default: 0.5 CPU
+	}
+
+	// Prepare deployment options
+	deployOpts := services.DeploymentOptions{
+		AppID:        payload.AppID,
+		DeploymentID: payload.DeploymentID,
+		ImageName:    imageName,
+		ImageTag:     imageTag,
+		Subdomain:    subdomain,
+		Port:         port,
+		Limits:       limits,
+		EnvVars:      make(map[string]string), // Can be extended with additional env vars
+	}
+
+	// Deploy container
+	deployResult, err := h.deploymentService.DeployContainer(ctx, deployOpts)
+	if err != nil {
+		// On deployment failure, attempt rollback if previous deployment exists
+		h.logger.Error("Deployment failed, attempting rollback",
+			zap.String("app_id", payload.AppID),
+			zap.Error(err),
+		)
+
+		// TODO: Get previous image from database
+		// For now, we'll just log the error
+		// rollbackErr := h.deploymentService.RollbackDeployment(ctx, payload.AppID, previousImageName, previousImageTag)
+		
+		return fmt.Errorf("failed to deploy container: %w", err)
+	}
 
 	h.logger.Info("Deploy task completed",
 		zap.String("app_id", payload.AppID),
 		zap.String("deployment_id", payload.DeploymentID),
+		zap.String("container_id", deployResult.ContainerID),
+		zap.String("container_name", deployResult.ContainerName),
+		zap.String("status", deployResult.Status),
 	)
+
+	// TODO: Update deployment status in database
+	// TODO: Persist task state
 
 	return nil
 }

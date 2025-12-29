@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"stackyn/server/internal/infra"
+	"stackyn/server/internal/services"
 	"stackyn/server/internal/tasks"
 	"stackyn/server/internal/workers"
 
@@ -39,8 +40,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize task handler (no Git service needed for deploy worker)
-	taskHandler := tasks.NewTaskHandler(logger, nil)
+	// Initialize Docker deployment service
+	deploymentService, err := services.NewDeploymentService(config.Docker.Host, logger)
+	if err != nil {
+		logger.Fatal("Failed to create deployment service", zap.Error(err))
+	}
+	defer deploymentService.Close()
+
+	// Initialize task handler with deployment service
+	taskHandler := tasks.NewTaskHandler(
+		logger,
+		nil, // No Git service needed for deploy worker
+		nil, // No Docker build service needed for deploy worker
+		nil, // No runtime detector needed for deploy worker
+		nil, // No Dockerfile generator needed for deploy worker
+		nil, // No log persister needed for deploy worker
+		deploymentService,
+	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence
