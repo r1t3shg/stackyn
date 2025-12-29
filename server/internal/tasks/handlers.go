@@ -44,8 +44,10 @@ type DockerfileGenerator interface {
 }
 
 // LogPersister interface for persisting build logs
+// Uses services package types to avoid duplication
 type LogPersister interface {
-	PersistBuildLog(buildJobID, logs string) error
+	PersistLog(ctx context.Context, entry services.LogEntry) error
+	PersistLogStream(ctx context.Context, entry interface{}, reader io.Reader) error
 }
 
 // DeploymentService interface for deploying containers
@@ -178,7 +180,15 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 	if err != nil {
 		// Persist logs even on failure
 		if h.logPersister != nil {
-			if persistErr := h.logPersister.PersistBuildLog(payload.BuildJobID, logBuffer.String()); persistErr != nil {
+			logEntry := services.LogEntry{
+				AppID:      payload.AppID,
+				BuildJobID: payload.BuildJobID,
+				LogType:    string(services.LogTypeBuild),
+				Timestamp:  time.Now(),
+				Content:    logBuffer.String(),
+				Size:       int64(logBuffer.Len()),
+			}
+			if persistErr := h.logPersister.PersistLog(ctx, logEntry); persistErr != nil {
 				h.logger.Warn("Failed to persist build logs", zap.Error(persistErr))
 			}
 		}
@@ -187,7 +197,15 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 
 	// Step 5: Persist build logs
 	if h.logPersister != nil {
-		if err := h.logPersister.PersistBuildLog(payload.BuildJobID, logBuffer.String()); err != nil {
+		logEntry := services.LogEntry{
+			AppID:      payload.AppID,
+			BuildJobID: payload.BuildJobID,
+			LogType:    string(services.LogTypeBuild),
+			Timestamp:  time.Now(),
+			Content:    logBuffer.String(),
+			Size:       int64(logBuffer.Len()),
+		}
+		if err := h.logPersister.PersistLog(ctx, logEntry); err != nil {
 			h.logger.Warn("Failed to persist build logs", zap.Error(err))
 		}
 	}

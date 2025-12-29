@@ -30,8 +30,13 @@ func Router(logger *zap.Logger) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60))
 
+	// Initialize log services (nil for now - wire up when ready)
+	// TODO: Initialize log persistence and container log services
+	var logPersistence LogPersistenceService
+	var containerLogs ContainerLogService
+	
 	// Initialize handlers
-	handlers := NewHandlers(logger)
+	handlers := NewHandlers(logger, logPersistence, containerLogs)
 	
 	// Initialize auth handlers (with mock services for now)
 	// TODO: Wire up real services when database is connected
@@ -69,6 +74,11 @@ func Router(logger *zap.Logger) http.Handler {
 		r.Get("/{id}/env", handlers.GetEnvVars)
 		r.Post("/{id}/env", handlers.CreateEnvVar)
 		r.Delete("/{id}/env/{key}", handlers.DeleteEnvVar)
+		
+		// Log endpoints
+		r.Get("/{id}/logs/build", handlers.GetBuildLogs)
+		r.Get("/{id}/logs/runtime", handlers.GetRuntimeLogs)
+		r.Get("/{id}/logs/runtime/stream", handlers.StreamRuntimeLogs)
 	})
 
 	// Deployments routes

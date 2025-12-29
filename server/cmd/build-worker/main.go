@@ -62,9 +62,18 @@ func main() {
 	// Initialize Dockerfile generator
 	dockerfileGen := services.NewDockerfileGenerator(logger)
 
-	// Initialize log persister (nil for now - wire up when DB is ready)
-	var logPersister tasks.LogPersister
-	// TODO: Initialize with database repository when DB is connected
+	// Initialize log persistence service
+	// Storage directory: ./logs (relative to worker binary)
+	logStorageDir := filepath.Join(".", "logs")
+	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
+		logger.Fatal("Failed to create log storage directory", zap.Error(err))
+	}
+	
+	// Use filesystem storage (can be switched to Postgres via config)
+	usePostgres := false // TODO: Make configurable
+	maxStoragePerAppMB := int64(100) // Default: 100 MB per app
+	
+	logPersistence := services.NewLogPersistenceService(logger, logStorageDir, usePostgres, maxStoragePerAppMB)
 
 	// Initialize task handler with all services
 	taskHandler := tasks.NewTaskHandler(
@@ -73,7 +82,8 @@ func main() {
 		dockerBuild,
 		runtimeDetector,
 		dockerfileGen,
-		logPersister,
+		logPersistence,
+		nil, // No deployment service needed for build worker
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

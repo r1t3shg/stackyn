@@ -40,8 +40,18 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize Docker deployment service
-	deploymentService, err := services.NewDeploymentService(config.Docker.Host, logger)
+	// Initialize log persistence service for runtime logs
+	logStorageDir := "./logs" // Relative to worker binary
+	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
+		logger.Fatal("Failed to create log storage directory", zap.Error(err))
+	}
+	
+	usePostgres := false // TODO: Make configurable
+	maxStoragePerAppMB := int64(100) // Default: 100 MB per app
+	logPersistence := services.NewLogPersistenceService(logger, logStorageDir, usePostgres, maxStoragePerAppMB)
+
+	// Initialize Docker deployment service with log persistence
+	deploymentService, err := services.NewDeploymentService(config.Docker.Host, logger, logPersistence)
 	if err != nil {
 		logger.Fatal("Failed to create deployment service", zap.Error(err))
 	}
@@ -54,7 +64,7 @@ func main() {
 		nil, // No Docker build service needed for deploy worker
 		nil, // No runtime detector needed for deploy worker
 		nil, // No Dockerfile generator needed for deploy worker
-		nil, // No log persister needed for deploy worker
+		logPersistence, // Log persistence for runtime logs
 		deploymentService,
 	)
 

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"time"
 
@@ -17,12 +18,19 @@ import (
 
 // DeploymentService handles container deployment operations
 type DeploymentService struct {
-	client *client.Client
-	logger *zap.Logger
+	client         *client.Client
+	logger         *zap.Logger
+	logPersistence RuntimeLogPersistence // Optional: for persisting runtime logs
+}
+
+// RuntimeLogPersistence interface for persisting runtime logs
+// Accepts interface{} to allow different entry types
+type RuntimeLogPersistence interface {
+	PersistLogStream(ctx context.Context, entry interface{}, reader io.Reader) error
 }
 
 // NewDeploymentService creates a new deployment service
-func NewDeploymentService(dockerHost string, logger *zap.Logger) (*DeploymentService, error) {
+func NewDeploymentService(dockerHost string, logger *zap.Logger, logPersistence RuntimeLogPersistence) (*DeploymentService, error) {
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(dockerHost),
 		client.WithAPIVersionNegotiation(),
@@ -32,8 +40,9 @@ func NewDeploymentService(dockerHost string, logger *zap.Logger) (*DeploymentSer
 	}
 
 	return &DeploymentService{
-		client: cli,
-		logger: logger,
+		client:         cli,
+		logger:         logger,
+		logPersistence: logPersistence,
 	}, nil
 }
 
@@ -153,6 +162,11 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 
 	// Step 5: Start crash detection monitoring
 	go s.monitorContainerCrash(context.Background(), createResp.ID, opts.AppID, opts.DeploymentID)
+
+	// Step 6: Start runtime log streaming and persistence
+	if s.logPersistence != nil {
+		go s.streamAndPersistRuntimeLogs(context.Background(), createResp.ID, opts.AppID, opts.DeploymentID)
+	}
 
 	s.logger.Info("Container deployed successfully",
 		zap.String("container_id", createResp.ID),
@@ -323,6 +337,46 @@ func (s *DeploymentService) generateTraefikLabels(subdomain string, port int, ap
 	}
 
 	return labels
+}
+
+// streamAndPersistRuntimeLogs streams and persists runtime logs from a container
+func (s *DeploymentService) streamAndPersistRuntimeLogs(ctx context.Context, containerID, appID, deploymentID string) {
+	// Stream logs from container
+	logReader, err := s.client.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true, // Follow logs in real-time
+		Timestamps: true,
+		Tail:       "100", // Start from last 100 lines
+	})
+	if err != nil {
+		s.logger.Warn("Failed to stream container logs", zap.Error(err), zap.String("container_id", containerID))
+		return
+	}
+	defer logReader.Close()
+
+	// Create log entry as map for LogPersistenceService
+	logEntry := map[string]interface{}{
+		"app_id":        appID,
+		"deployment_id": deploymentID,
+		"log_type":      "runtime",
+		"timestamp":     time.Now(),
+		"size":          int64(0),
+	}
+
+	// Persist log stream
+	if err := s.persistRuntimeLogStream(ctx, logEntry, logReader); err != nil {
+		s.logger.Warn("Failed to persist runtime logs", zap.Error(err), zap.String("container_id", containerID))
+	}
+}
+
+// persistRuntimeLogStream persists runtime logs using the log persistence service
+func (s *DeploymentService) persistRuntimeLogStream(ctx context.Context, entry interface{}, reader io.Reader) error {
+	// Use the log persistence service if available
+	if s.logPersistence != nil {
+		return s.logPersistence.PersistLogStream(ctx, entry, reader)
+	}
+	return nil
 }
 
 // monitorContainerCrash monitors a container for crashes and triggers rollback

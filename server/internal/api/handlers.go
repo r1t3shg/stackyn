@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -149,11 +152,45 @@ type HealthResponse struct {
 // Handlers
 
 type Handlers struct {
-	logger *zap.Logger
+	logger            *zap.Logger
+	logPersistence    LogPersistenceService
+	containerLogs     ContainerLogService
 }
 
-func NewHandlers(logger *zap.Logger) *Handlers {
-	return &Handlers{logger: logger}
+// LogPersistenceService interface for log persistence
+type LogPersistenceService interface {
+	PersistLog(ctx context.Context, entry LogEntry) error
+	PersistLogStream(ctx context.Context, entry LogEntry, reader io.Reader) error
+	GetLogs(ctx context.Context, appID string, logType LogType, limit int, offset int) ([]LogEntry, error)
+	DeleteOldLogs(ctx context.Context, appID string, before time.Time) error
+}
+
+// ContainerLogService interface for container log streaming
+type ContainerLogService interface {
+	StreamContainerLogs(ctx context.Context, containerID string, since string, tail string, follow bool) (io.ReadCloser, error)
+	GetContainerLogs(ctx context.Context, containerID string, since string, tail string) (string, error)
+}
+
+// LogEntry represents a log entry (from services package)
+type LogEntry struct {
+	AppID        string    `json:"app_id"`
+	BuildJobID   string    `json:"build_job_id,omitempty"`
+	DeploymentID string    `json:"deployment_id,omitempty"`
+	LogType      string    `json:"log_type"`
+	Timestamp    time.Time `json:"timestamp"`
+	Content      string    `json:"content"`
+	Size         int64     `json:"size"`
+}
+
+// LogType represents the type of log (from services package)
+type LogType string
+
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService) *Handlers {
+	return &Handlers{
+		logger:         logger,
+		logPersistence: logPersistence,
+		containerLogs:  containerLogs,
+	}
 }
 
 // Helper to write JSON response
@@ -461,15 +498,150 @@ func (h *Handlers) GetDeploymentByID(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/deployments/{id}/logs - Get deployment logs
 func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	deploymentID, _ := strconv.Atoi(id)
+	deploymentID := id
 	
+	// Get app ID from query parameter or deployment
+	appID := r.URL.Query().Get("app_id")
+	if appID == "" {
+		h.writeError(w, http.StatusBadRequest, "app_id query parameter required")
+		return
+	}
+
+	// Get build logs
+	buildLogs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("build"), 100, 0)
+	if err != nil {
+		h.logger.Warn("Failed to get build logs", zap.Error(err))
+	}
+
+	// Get runtime logs
+	runtimeLogs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("runtime"), 100, 0)
+	if err != nil {
+		h.logger.Warn("Failed to get runtime logs", zap.Error(err))
+	}
+
+	// Find logs for this deployment
+	var buildLog, runtimeLog string
+	for _, log := range buildLogs {
+		if log.BuildJobID == deploymentID || log.DeploymentID == deploymentID {
+			buildLog = log.Content
+			break
+		}
+	}
+	for _, log := range runtimeLogs {
+		if log.DeploymentID == deploymentID {
+			runtimeLog = log.Content
+			break
+		}
+	}
+
 	logs := DeploymentLogs{
-		DeploymentID: deploymentID,
+		DeploymentID: 0, // Will be converted from string if needed
 		Status:       "running",
-		BuildLog:     "Step 1/5 : FROM node:18\nStep 2/5 : WORKDIR /app\nStep 3/5 : COPY package*.json ./\nStep 4/5 : RUN npm install\nStep 5/5 : COPY . .\nSuccessfully built image",
-		RuntimeLog:   "2024-01-01T00:00:00Z [INFO] Server started on port 3000\n2024-01-01T00:00:01Z [INFO] Application ready",
+		BuildLog:     buildLog,
+		RuntimeLog:   runtimeLog,
 	}
 	h.writeJSON(w, http.StatusOK, logs)
+}
+
+// GET /api/v1/apps/{id}/logs/build - Get build logs for an app
+func (h *Handlers) GetBuildLogs(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "id")
+	
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	
+	limit := 100
+	offset := 0
+	
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
+
+	logs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("build"), limit, offset)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get build logs: %v", err))
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, logs)
+}
+
+// GET /api/v1/apps/{id}/logs/runtime - Get runtime logs for an app
+func (h *Handlers) GetRuntimeLogs(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "id")
+	
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	
+	limit := 100
+	offset := 0
+	
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
+
+	logs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("runtime"), limit, offset)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get runtime logs: %v", err))
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, logs)
+}
+
+// GET /api/v1/apps/{id}/logs/runtime/stream - Stream runtime logs for an app
+func (h *Handlers) StreamRuntimeLogs(w http.ResponseWriter, r *http.Request) {
+	_ = chi.URLParam(r, "id") // App ID (for future use)
+	containerID := r.URL.Query().Get("container_id")
+	
+	if containerID == "" {
+		h.writeError(w, http.StatusBadRequest, "container_id query parameter required")
+		return
+	}
+
+	since := r.URL.Query().Get("since")
+	tail := r.URL.Query().Get("tail")
+	if tail == "" {
+		tail = "100" // Default to last 100 lines
+	}
+
+	follow := r.URL.Query().Get("follow") == "true"
+
+	reader, err := h.containerLogs.StreamContainerLogs(r.Context(), containerID, since, tail, follow)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to stream logs: %v", err))
+		return
+	}
+	defer reader.Close()
+
+	// Set headers for streaming
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	
+	if follow {
+		w.Header().Set("Transfer-Encoding", "chunked")
+	}
+
+	// Stream logs to client
+	_, err = io.Copy(w, reader)
+	if err != nil {
+		h.logger.Warn("Error streaming logs", zap.Error(err))
+	}
 }
 
 // GET /health - Health check
