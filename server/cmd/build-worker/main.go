@@ -75,6 +75,9 @@ func main() {
 	
 	logPersistence := services.NewLogPersistenceService(logger, logStorageDir, usePostgres, maxStoragePerAppMB)
 
+	// Initialize plan enforcement service
+	planEnforcement := services.NewPlanEnforcementService(logger)
+
 	// Initialize task handler with all services
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -85,6 +88,7 @@ func main() {
 		logPersistence,
 		nil, // No deployment service needed for build worker
 		nil, // No cleanup service needed for build worker
+		planEnforcement,
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

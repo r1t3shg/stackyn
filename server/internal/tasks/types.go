@@ -19,8 +19,9 @@ type BuildTaskPayload struct {
 	AppID        string `json:"app_id"`
 	BuildJobID   string `json:"build_job_id"`
 	RepoURL      string `json:"repo_url"`
-	Branch        string `json:"branch"`
+	Branch       string `json:"branch"`
 	CommitSHA    string `json:"commit_sha,omitempty"`
+	UserID       string `json:"user_id"` // User who owns the app
 }
 
 // DeployTaskPayload represents the payload for a deploy task
@@ -30,6 +31,8 @@ type DeployTaskPayload struct {
 	BuildJobID    string `json:"build_job_id"`
 	ImageName     string `json:"image_name"`
 	Subdomain     string `json:"subdomain,omitempty"`
+	UserID        string `json:"user_id"` // User who owns the app
+	RequestedRAMMB int   `json:"requested_ram_mb,omitempty"` // RAM requested for deployment
 }
 
 // CleanupTaskPayload represents the payload for a cleanup task

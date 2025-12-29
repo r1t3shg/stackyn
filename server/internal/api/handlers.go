@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+	"stackyn/server/internal/services"
 )
 
 // Mock data structures matching frontend types exactly
@@ -155,6 +156,7 @@ type Handlers struct {
 	logger            *zap.Logger
 	logPersistence    LogPersistenceService
 	containerLogs     ContainerLogService
+	planEnforcement   PlanEnforcementService
 }
 
 // LogPersistenceService interface for log persistence
@@ -171,6 +173,24 @@ type ContainerLogService interface {
 	GetContainerLogs(ctx context.Context, containerID string, since string, tail string) (string, error)
 }
 
+// PlanEnforcementService interface for plan enforcement
+type PlanEnforcementService interface {
+	CheckMaxApps(ctx context.Context, userID string, currentAppCount int) error
+	CheckMaxRAM(ctx context.Context, userID string, requestedRAMMB int) error
+	CheckMaxConcurrentBuilds(ctx context.Context, userID string) error
+	GetQueuePriority(ctx context.Context, userID string) (int, error)
+	IncrementBuildCount(ctx context.Context, userID string) error
+	DecrementBuildCount(ctx context.Context, userID string) error
+	IncrementRAMUsage(ctx context.Context, userID string, ramMB int) error
+	DecrementRAMUsage(ctx context.Context, userID string, ramMB int) error
+}
+
+// GetPlanLimitError extracts PlanLimitError from error
+func GetPlanLimitError(err error) (*services.PlanLimitError, bool) {
+	planErr, ok := err.(*services.PlanLimitError)
+	return planErr, ok
+}
+
 // LogEntry represents a log entry (from services package)
 type LogEntry struct {
 	AppID        string    `json:"app_id"`
@@ -185,12 +205,30 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService) *Handlers {
 	return &Handlers{
-		logger:         logger,
-		logPersistence: logPersistence,
-		containerLogs:  containerLogs,
+		logger:          logger,
+		logPersistence:  logPersistence,
+		containerLogs:   containerLogs,
+		planEnforcement: planEnforcement,
 	}
+}
+
+// getUserIDFromContext extracts user ID from request context
+// TODO: Implement proper user extraction from JWT/auth context
+func (h *Handlers) getUserIDFromContext(r *http.Request) string {
+	// For now, return a placeholder
+	// In production, this would extract from JWT token or session
+	// Example: userID := r.Context().Value("user_id").(string)
+	return "user-1" // Placeholder
+}
+
+// getCurrentAppCount gets the current number of apps for a user
+// TODO: Query database when DB is connected
+func (h *Handlers) getCurrentAppCount(ctx context.Context, userID string) (int, error) {
+	// TODO: Query database for app count
+	// For now, return 0
+	return 0, nil
 }
 
 // Helper to write JSON response
@@ -349,6 +387,22 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/apps/{id}/redeploy - Redeploy app
 func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	
+	// Get user ID from context
+	userID := h.getUserIDFromContext(r)
+
+	// Check max concurrent builds limit
+	if h.planEnforcement != nil {
+		if err := h.planEnforcement.CheckMaxConcurrentBuilds(r.Context(), userID); err != nil {
+			if planErr, ok := GetPlanLimitError(err); ok {
+				h.writeError(w, http.StatusForbidden, planErr.Message)
+				return
+			}
+			h.writeError(w, http.StatusForbidden, "Plan limit exceeded")
+			return
+		}
+	}
+
 	now := time.Now().Format(time.RFC3339)
 	
 	appID, _ := strconv.Atoi(id)

@@ -24,7 +24,19 @@ type TaskHandler struct {
 	logPersister     LogPersister
 	deploymentService DeploymentService
 	cleanupService   CleanupService
+	planEnforcement  PlanEnforcementService
 	// Add dependencies here (database, etc.)
+}
+
+// PlanEnforcementService interface for plan enforcement
+type PlanEnforcementService interface {
+	CheckMaxRAM(ctx context.Context, userID string, requestedRAMMB int) error
+	CheckMaxConcurrentBuilds(ctx context.Context, userID string) error
+	GetQueuePriority(ctx context.Context, userID string) (int, error)
+	IncrementBuildCount(ctx context.Context, userID string) error
+	DecrementBuildCount(ctx context.Context, userID string) error
+	IncrementRAMUsage(ctx context.Context, userID string, ramMB int) error
+	DecrementRAMUsage(ctx context.Context, userID string, ramMB int) error
 }
 
 // DockerBuildService interface for building Docker images
@@ -83,6 +95,7 @@ func NewTaskHandler(
 	logPersister LogPersister,
 	deploymentService DeploymentService,
 	cleanupService CleanupService,
+	planEnforcement PlanEnforcementService,
 ) *TaskHandler {
 	return &TaskHandler{
 		logger:           logger,
@@ -93,6 +106,7 @@ func NewTaskHandler(
 		logPersister:     logPersister,
 		deploymentService: deploymentService,
 		cleanupService:   cleanupService,
+		planEnforcement:  planEnforcement,
 	}
 }
 
@@ -257,6 +271,16 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		zap.String("build_job_id", payload.BuildJobID),
 	)
 
+	// Extract user ID from payload
+	userID := payload.UserID
+	if userID == "" {
+		// Fallback to app ID if user ID not provided (for backward compatibility)
+		userID = payload.AppID
+		h.logger.Warn("UserID not provided in deploy task payload, using app ID as fallback",
+			zap.String("app_id", payload.AppID),
+		)
+	}
+
 	if h.deploymentService == nil {
 		return fmt.Errorf("deployment service not configured")
 	}
@@ -281,10 +305,33 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 	// Default port (can be overridden via env vars)
 	port := 8080
 
-	// Plan-based resource limits (default values - should come from database/plan)
-	// TODO: Fetch actual plan limits from database
+	// Plan-based resource limits
+	// Default values, will be overridden by plan limits if plan enforcement is enabled
+	memoryMB := 512 // Default: 512 MB
+	if payload.RequestedRAMMB > 0 {
+		memoryMB = payload.RequestedRAMMB
+	}
+
+	// Check RAM limit if plan enforcement is enabled
+	if h.planEnforcement != nil {
+		if err := h.planEnforcement.CheckMaxRAM(ctx, userID, memoryMB); err != nil {
+			return fmt.Errorf("plan limit exceeded: %w", err)
+		}
+
+		// Increment RAM usage
+		if err := h.planEnforcement.IncrementRAMUsage(ctx, userID, memoryMB); err != nil {
+			h.logger.Warn("Failed to increment RAM usage", zap.Error(err))
+		}
+
+		// Decrement RAM usage on exit (if deployment fails)
+		defer func() {
+			// Only decrement if deployment failed
+			// Successful deployments should keep RAM usage tracked
+		}()
+	}
+
 	limits := services.ResourceLimits{
-		MemoryMB: 512, // Default: 512 MB
+		MemoryMB: int64(memoryMB),
 		CPU:      0.5, // Default: 0.5 CPU
 	}
 

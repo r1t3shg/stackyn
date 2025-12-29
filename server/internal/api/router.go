@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"go.uber.org/zap"
+	"stackyn/server/internal/services"
 )
 
 // Router sets up the HTTP router with all routes and middleware
@@ -35,8 +36,11 @@ func Router(logger *zap.Logger) http.Handler {
 	var logPersistence LogPersistenceService
 	var containerLogs ContainerLogService
 	
+	// Initialize plan enforcement service
+	planEnforcement := services.NewPlanEnforcementService(logger)
+	
 	// Initialize handlers
-	handlers := NewHandlers(logger, logPersistence, containerLogs)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement)
 	
 	// Initialize auth handlers (with mock services for now)
 	// TODO: Wire up real services when database is connected

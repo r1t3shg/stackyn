@@ -58,6 +58,9 @@ func main() {
 	}
 	defer cleanupService.Close()
 
+	// Initialize plan enforcement service (not needed for cleanup, but required by interface)
+	planEnforcement := services.NewPlanEnforcementService(logger)
+
 	// Initialize task handler with cleanup service
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -68,6 +71,7 @@ func main() {
 		nil, // No log persister needed for cleanup worker
 		nil, // No deployment service needed for cleanup worker
 		cleanupService,
+		planEnforcement,
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

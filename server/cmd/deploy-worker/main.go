@@ -57,6 +57,9 @@ func main() {
 	}
 	defer deploymentService.Close()
 
+	// Initialize plan enforcement service
+	planEnforcement := services.NewPlanEnforcementService(logger)
+
 	// Initialize task handler with deployment service
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -67,6 +70,7 @@ func main() {
 		logPersistence, // Log persistence for runtime logs
 		deploymentService,
 		nil, // No cleanup service needed for deploy worker
+		planEnforcement,
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
