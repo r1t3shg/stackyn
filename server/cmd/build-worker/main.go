@@ -49,8 +49,32 @@ func main() {
 	}
 	gitService := services.NewGitService(logger, cloneDir)
 
-	// Initialize task handler with Git service
-	taskHandler := tasks.NewTaskHandler(logger, gitService)
+	// Initialize Docker build service
+	dockerBuild, err := services.NewDockerBuildService(config.Docker.Host, logger)
+	if err != nil {
+		logger.Fatal("Failed to create Docker build service", zap.Error(err))
+	}
+	defer dockerBuild.Close()
+
+	// Initialize runtime detector
+	runtimeDetector := services.NewRuntimeDetector(logger)
+
+	// Initialize Dockerfile generator
+	dockerfileGen := services.NewDockerfileGenerator(logger)
+
+	// Initialize log persister (nil for now - wire up when DB is ready)
+	var logPersister tasks.LogPersister
+	// TODO: Initialize with database repository when DB is connected
+
+	// Initialize task handler with all services
+	taskHandler := tasks.NewTaskHandler(
+		logger,
+		gitService,
+		dockerBuild,
+		runtimeDetector,
+		dockerfileGen,
+		logPersister,
+	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence

@@ -1,9 +1,12 @@
 package tasks
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -13,9 +16,35 @@ import (
 
 // TaskHandler handles task processing
 type TaskHandler struct {
-	logger     *zap.Logger
-	gitService GitService
-	// Add dependencies here (database, docker client, etc.)
+	logger           *zap.Logger
+	gitService       GitService
+	dockerBuild      DockerBuildService
+	runtimeDetector  RuntimeDetector
+	dockerfileGen    DockerfileGenerator
+	logPersister     LogPersister
+	// Add dependencies here (database, etc.)
+}
+
+// DockerBuildService interface for building Docker images
+// Uses services package types to avoid duplication
+type DockerBuildService interface {
+	BuildImage(ctx context.Context, opts services.BuildOptions, logWriter io.Writer) (*services.BuildResult, error)
+	Close() error
+}
+
+// RuntimeDetector interface for detecting application runtime
+type RuntimeDetector interface {
+	DetectRuntime(repoPath string) (services.Runtime, error)
+}
+
+// DockerfileGenerator interface for generating Dockerfiles
+type DockerfileGenerator interface {
+	GenerateDockerfile(repoPath string, runtime services.Runtime) error
+}
+
+// LogPersister interface for persisting build logs
+type LogPersister interface {
+	PersistBuildLog(buildJobID, logs string) error
 }
 
 // GitService interface for repository operations
@@ -27,10 +56,21 @@ type GitService interface {
 }
 
 // NewTaskHandler creates a new task handler
-func NewTaskHandler(logger *zap.Logger, gitService GitService) *TaskHandler {
+func NewTaskHandler(
+	logger *zap.Logger,
+	gitService GitService,
+	dockerBuild DockerBuildService,
+	runtimeDetector RuntimeDetector,
+	dockerfileGen DockerfileGenerator,
+	logPersister LogPersister,
+) *TaskHandler {
 	return &TaskHandler{
-		logger:     logger,
-		gitService: gitService,
+		logger:          logger,
+		gitService:      gitService,
+		dockerBuild:     dockerBuild,
+		runtimeDetector: runtimeDetector,
+		dockerfileGen:   dockerfileGen,
+		logPersister:    logPersister,
 	}
 }
 
@@ -48,52 +88,109 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		zap.String("branch", payload.Branch),
 	)
 
-	// Clone repository with shallow clone
-	var cloneResult *services.CloneResult
-	if h.gitService != nil {
-		cloneOpts := services.CloneOptions{
-			RepoURL: payload.RepoURL,
-			Branch:  payload.Branch,
-			Shallow: true, // Always use shallow clone
-			Depth:   1,    // Only clone the latest commit
-		}
-
-		var err error
-		cloneResult, err = h.gitService.Clone(ctx, cloneOpts)
-		if err != nil {
-			return fmt.Errorf("failed to clone repository: %w", err)
-		}
-
-		// Ensure cleanup happens even if build fails
-		defer func() {
-			if cleanupErr := h.gitService.Cleanup(cloneResult.Path); cleanupErr != nil {
-				h.logger.Warn("Failed to cleanup clone directory", zap.Error(cleanupErr))
-			}
-		}()
-
-		h.logger.Info("Repository cloned",
-			zap.String("path", cloneResult.Path),
-			zap.String("commit_sha", cloneResult.CommitSHA),
-		)
-	} else {
+	// Step 1: Clone repository with shallow clone
+	if h.gitService == nil {
 		return fmt.Errorf("git service not configured")
 	}
 
-	// TODO: Implement actual build logic
-	// 1. ✅ Clone repository (done)
-	// 2. Build Docker image from cloned repo
-	// 3. Push to registry
-	// 4. Update build job status in database
-	// 5. Persist task state
+	cloneOpts := services.CloneOptions{
+		RepoURL: payload.RepoURL,
+		Branch:  payload.Branch,
+		Shallow: true, // Always use shallow clone
+		Depth:   1,    // Only clone the latest commit
+	}
 
-	// Simulate work
-	time.Sleep(1 * time.Second)
+	cloneResult, err := h.gitService.Clone(ctx, cloneOpts)
+	if err != nil {
+		return fmt.Errorf("failed to clone repository: %w", err)
+	}
+
+	// Ensure cleanup happens even if build fails
+	defer func() {
+		if cleanupErr := h.gitService.Cleanup(cloneResult.Path); cleanupErr != nil {
+			h.logger.Warn("Failed to cleanup clone directory", zap.Error(cleanupErr))
+		}
+	}()
+
+	h.logger.Info("Repository cloned",
+		zap.String("path", cloneResult.Path),
+		zap.String("commit_sha", cloneResult.CommitSHA),
+	)
+
+	// Step 2: Detect runtime
+	if h.runtimeDetector == nil {
+		return fmt.Errorf("runtime detector not configured")
+	}
+
+	runtime, err := h.runtimeDetector.DetectRuntime(cloneResult.Path)
+	if err != nil {
+		return fmt.Errorf("failed to detect runtime: %w", err)
+	}
+
+	if runtime == services.RuntimeUnknown {
+		return fmt.Errorf("could not detect application runtime")
+	}
+
+	h.logger.Info("Runtime detected",
+		zap.String("runtime", string(runtime)),
+	)
+
+	// Step 3: Generate Dockerfile if missing
+	if h.dockerfileGen == nil {
+		return fmt.Errorf("dockerfile generator not configured")
+	}
+
+	if err := h.dockerfileGen.GenerateDockerfile(cloneResult.Path, services.Runtime(runtime)); err != nil {
+		return fmt.Errorf("failed to generate Dockerfile: %w", err)
+	}
+
+	// Step 4: Build Docker image with resource constraints
+	if h.dockerBuild == nil {
+		return fmt.Errorf("docker build service not configured")
+	}
+
+	// Create log buffer for streaming and persistence
+	var logBuffer bytes.Buffer
+	logWriter := io.MultiWriter(&logBuffer, os.Stdout) // Stream to both buffer and stdout
+
+	// Generate image name
+	imageName := fmt.Sprintf("stackyn-%s", payload.AppID)
+	imageTag := payload.BuildJobID
+
+	buildOpts := services.BuildOptions{
+		ContextPath: cloneResult.Path,
+		ImageName:   imageName,
+		Tag:         imageTag,
+	}
+
+	buildResult, err := h.dockerBuild.BuildImage(ctx, buildOpts, logWriter)
+	if err != nil {
+		// Persist logs even on failure
+		if h.logPersister != nil {
+			if persistErr := h.logPersister.PersistBuildLog(payload.BuildJobID, logBuffer.String()); persistErr != nil {
+				h.logger.Warn("Failed to persist build logs", zap.Error(persistErr))
+			}
+		}
+		return fmt.Errorf("failed to build Docker image: %w", err)
+	}
+
+	// Step 5: Persist build logs
+	if h.logPersister != nil {
+		if err := h.logPersister.PersistBuildLog(payload.BuildJobID, logBuffer.String()); err != nil {
+			h.logger.Warn("Failed to persist build logs", zap.Error(err))
+		}
+	}
 
 	h.logger.Info("Build task completed",
 		zap.String("app_id", payload.AppID),
 		zap.String("build_job_id", payload.BuildJobID),
 		zap.String("commit_sha", cloneResult.CommitSHA),
+		zap.String("image_id", buildResult.ImageID),
+		zap.String("image_name", buildResult.ImageName),
 	)
+
+	// TODO: Step 6: Push to registry
+	// TODO: Step 7: Update build job status in database
 
 	return nil
 }
