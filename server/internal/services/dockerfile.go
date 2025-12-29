@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// DockerfileGenerator generates Dockerfiles for different runtimes
+// DockerfileGenerator generates Dockerfiles using Paketo Buildpacks
 type DockerfileGenerator struct {
 	logger *zap.Logger
 }
@@ -20,7 +20,7 @@ func NewDockerfileGenerator(logger *zap.Logger) *DockerfileGenerator {
 	}
 }
 
-// GenerateDockerfile generates a Dockerfile for the given runtime
+// GenerateDockerfile generates a Dockerfile using Paketo Buildpacks for the given runtime
 func (g *DockerfileGenerator) GenerateDockerfile(repoPath string, runtime Runtime) error {
 	// Check if Dockerfile already exists
 	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
@@ -30,23 +30,23 @@ func (g *DockerfileGenerator) GenerateDockerfile(repoPath string, runtime Runtim
 	}
 
 	var content string
+
 	switch runtime {
 	case RuntimeNodeJS:
-		content = g.generateNodeJSDockerfile(repoPath)
+		content = g.generateNodeJSDockerfile()
 	case RuntimePython:
-		content = g.generatePythonDockerfile(repoPath)
+		content = g.generatePythonDockerfile()
 	case RuntimeGo:
-		content = g.generateGoDockerfile(repoPath)
-	case RuntimeRuby:
-		content = g.generateRubyDockerfile(repoPath)
+		content = g.generateGoDockerfile()
 	case RuntimeJava:
-		content = g.generateJavaDockerfile(repoPath)
-	case RuntimePHP:
-		content = g.generatePHPDockerfile(repoPath)
-	case RuntimeStatic:
-		content = g.generateStaticDockerfile(repoPath)
+		content = g.generateJavaDockerfile()
+	case RuntimeRuby, RuntimePHP, RuntimeStatic:
+		// These runtimes are not supported by Paketo Buildpacks
+		return fmt.Errorf("runtime '%s' is not supported by Paketo Buildpacks. Supported runtimes: Node.js, Python, Go, Java", runtime)
+	case RuntimeUnknown:
+		return fmt.Errorf("could not detect runtime. Supported runtimes: Node.js, Python, Go, Java")
 	default:
-		return fmt.Errorf("unsupported runtime: %s", runtime)
+		return fmt.Errorf("unsupported runtime: %s. Supported runtimes: Node.js, Python, Go, Java", runtime)
 	}
 
 	// Write Dockerfile
@@ -54,174 +54,194 @@ func (g *DockerfileGenerator) GenerateDockerfile(repoPath string, runtime Runtim
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 
-	g.logger.Info("Generated Dockerfile", zap.String("path", dockerfilePath), zap.String("runtime", string(runtime)))
+	g.logger.Info("Generated Dockerfile using Paketo Buildpacks",
+		zap.String("path", dockerfilePath),
+		zap.String("runtime", string(runtime)),
+	)
+
 	return nil
 }
 
-func (g *DockerfileGenerator) generateNodeJSDockerfile(repoPath string) string {
-	// Check for package.json to determine if it's a monorepo or single app
-	// Default to Node 18 LTS
-	return `FROM node:18-alpine AS builder
+// generateNodeJSDockerfile generates a Dockerfile for Node.js using Paketo Buildpacks
+func (g *DockerfileGenerator) generateNodeJSDockerfile() string {
+	return `# syntax=docker/dockerfile:1
+# Multi-stage build using Paketo Buildpacks for Node.js
 
-WORKDIR /app
+# Build stage - Use Paketo Node.js builder
+FROM paketobuildpacks/builder-jammy-base:latest AS builder
 
-# Copy package files
-COPY package*.json ./
+# Set working directory
+WORKDIR /workspace
 
-# Install dependencies
-RUN npm ci --only=production
+# Copy application source
+COPY --chown=cnb:cnb . .
 
-# Copy application code
-COPY . .
+# Build using Paketo Buildpacks lifecycle
+# The builder will automatically detect Node.js and install dependencies
+# Note: This requires the CNB lifecycle tools to be available in the builder
+RUN /cnb/lifecycle/creator \
+    -app=/workspace \
+    -layers=/layers \
+    -platform=/platform \
+    -cache-dir=/cache \
+    -log-level=info \
+    || (echo "ERROR: Paketo Buildpacks build failed. Ensure your Node.js application has a valid package.json file." && exit 1)
 
-# Build if needed (for Next.js, React, etc.)
-RUN if [ -f "package.json" ] && grep -q "\"build\"" package.json; then npm run build; fi
+# Production stage - Use Paketo run image
+FROM paketobuildpacks/run-jammy-base:latest
 
-# Production stage
-FROM node:18-alpine
+# Set working directory
+WORKDIR /workspace
 
-WORKDIR /app
+# Copy built application from builder stage
+COPY --from=builder --chown=cnb:cnb /workspace /workspace
+COPY --from=builder --chown=cnb:cnb /layers /layers
+COPY --from=builder --chown=cnb:cnb /platform /platform
 
-# Copy dependencies and built files
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app .
+# Expose dynamic PORT (Paketo Buildpacks set PORT env var at runtime)
+# Default to 3000 if PORT is not set
+EXPOSE ${PORT:-3000}
 
-# Expose port (default 3000, can be overridden)
-EXPOSE 3000
-
-# Start command
-CMD ["node", "index.js"]
+# Use the web process from Paketo Buildpacks
+# The PORT environment variable will be set by the platform
+CMD ["/cnb/process/web"]
 `
 }
 
-func (g *DockerfileGenerator) generatePythonDockerfile(repoPath string) string {
-	return `FROM python:3.11-slim
+// generatePythonDockerfile generates a Dockerfile for Python using Paketo Buildpacks
+func (g *DockerfileGenerator) generatePythonDockerfile() string {
+	return `# syntax=docker/dockerfile:1
+# Multi-stage build using Paketo Buildpacks for Python
 
-WORKDIR /app
+# Build stage - Use Paketo Python builder
+FROM paketobuildpacks/builder-jammy-base:latest AS builder
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Set working directory
+WORKDIR /workspace
 
-# Copy application code
-COPY . .
+# Copy application source
+COPY --chown=cnb:cnb . .
 
-# Expose port (default 8000, can be overridden)
-EXPOSE 8000
+# Build using Paketo Buildpacks lifecycle
+# The builder will automatically detect Python and install dependencies
+# Note: This requires the CNB lifecycle tools to be available in the builder
+RUN /cnb/lifecycle/creator \
+    -app=/workspace \
+    -layers=/layers \
+    -platform=/platform \
+    -cache-dir=/cache \
+    -log-level=info \
+    || (echo "ERROR: Paketo Buildpacks build failed. Ensure your Python application has a valid requirements.txt, setup.py, or Pipfile." && exit 1)
 
-# Start command (adjust based on framework)
-CMD ["python", "app.py"]
+# Production stage - Use Paketo run image
+FROM paketobuildpacks/run-jammy-base:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy built application from builder stage
+COPY --from=builder --chown=cnb:cnb /workspace /workspace
+COPY --from=builder --chown=cnb:cnb /layers /layers
+COPY --from=builder --chown=cnb:cnb /platform /platform
+
+# Expose dynamic PORT (Paketo Buildpacks set PORT env var at runtime)
+# Default to 8000 if PORT is not set
+EXPOSE ${PORT:-8000}
+
+# Use the web process from Paketo Buildpacks
+# The PORT environment variable will be set by the platform
+CMD ["/cnb/process/web"]
 `
 }
 
-func (g *DockerfileGenerator) generateGoDockerfile(repoPath string) string {
-	return `FROM golang:1.22-alpine AS builder
+// generateGoDockerfile generates a Dockerfile for Go using Paketo Buildpacks
+func (g *DockerfileGenerator) generateGoDockerfile() string {
+	return `# syntax=docker/dockerfile:1
+# Multi-stage build using Paketo Buildpacks for Go
 
-WORKDIR /app
+# Build stage - Use Paketo Go builder
+FROM paketobuildpacks/builder-jammy-base:latest AS builder
 
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
+# Set working directory
+WORKDIR /workspace
 
-# Copy source code
-COPY . .
+# Copy application source
+COPY --chown=cnb:cnb . .
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o app .
+# Build using Paketo Buildpacks lifecycle
+# The builder will automatically detect Go and build the binary
+# Note: This requires the CNB lifecycle tools to be available in the builder
+RUN /cnb/lifecycle/creator \
+    -app=/workspace \
+    -layers=/layers \
+    -platform=/platform \
+    -cache-dir=/cache \
+    -log-level=info \
+    || (echo "ERROR: Paketo Buildpacks build failed. Ensure your Go application has a valid go.mod file." && exit 1)
 
-# Production stage
-FROM alpine:latest
+# Production stage - Use Paketo run image
+FROM paketobuildpacks/run-jammy-base:latest
 
-WORKDIR /app
+# Set working directory
+WORKDIR /workspace
 
-# Copy binary
-COPY --from=builder /app/app .
+# Copy built application from builder stage
+COPY --from=builder --chown=cnb:cnb /workspace /workspace
+COPY --from=builder --chown=cnb:cnb /layers /layers
+COPY --from=builder --chown=cnb:cnb /platform /platform
 
-# Expose port (default 8080, can be overridden)
-EXPOSE 8080
+# Expose dynamic PORT (Paketo Buildpacks set PORT env var at runtime)
+# Default to 8080 if PORT is not set
+EXPOSE ${PORT:-8080}
 
-CMD ["./app"]
+# Use the web process from Paketo Buildpacks
+# The PORT environment variable will be set by the platform
+CMD ["/cnb/process/web"]
 `
 }
 
-func (g *DockerfileGenerator) generateRubyDockerfile(repoPath string) string {
-	return `FROM ruby:3.2-alpine
+// generateJavaDockerfile generates a Dockerfile for Java using Paketo Buildpacks
+func (g *DockerfileGenerator) generateJavaDockerfile() string {
+	return `# syntax=docker/dockerfile:1
+# Multi-stage build using Paketo Buildpacks for Java
 
-WORKDIR /app
+# Build stage - Use Paketo Java builder
+FROM paketobuildpacks/builder-jammy-base:latest AS builder
 
-# Install dependencies
-COPY Gemfile Gemfile.lock ./
-RUN bundle install
+# Set working directory
+WORKDIR /workspace
 
-# Copy application code
-COPY . .
+# Copy application source
+COPY --chown=cnb:cnb . .
 
-# Expose port (default 3000, can be overridden)
-EXPOSE 3000
+# Build using Paketo Buildpacks lifecycle
+# The builder will automatically detect Java (Maven/Gradle) and build
+# Note: This requires the CNB lifecycle tools to be available in the builder
+RUN /cnb/lifecycle/creator \
+    -app=/workspace \
+    -layers=/layers \
+    -platform=/platform \
+    -cache-dir=/cache \
+    -log-level=info \
+    || (echo "ERROR: Paketo Buildpacks build failed. Ensure your Java application has a valid pom.xml or build.gradle file." && exit 1)
 
-CMD ["bundle", "exec", "rackup", "-o", "0.0.0.0"]
+# Production stage - Use Paketo run image
+FROM paketobuildpacks/run-jammy-base:latest
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy built application from builder stage
+COPY --from=builder --chown=cnb:cnb /workspace /workspace
+COPY --from=builder --chown=cnb:cnb /layers /layers
+COPY --from=builder --chown=cnb:cnb /platform /platform
+
+# Expose dynamic PORT (Paketo Buildpacks set PORT env var at runtime)
+# Default to 8080 if PORT is not set
+EXPOSE ${PORT:-8080}
+
+# Use the web process from Paketo Buildpacks
+# The PORT environment variable will be set by the platform
+CMD ["/cnb/process/web"]
 `
 }
-
-func (g *DockerfileGenerator) generateJavaDockerfile(repoPath string) string {
-	return `FROM maven:3.9-eclipse-temurin-17 AS builder
-
-WORKDIR /app
-
-# Copy pom.xml and build
-COPY pom.xml .
-RUN mvn dependency:go-offline
-
-# Copy source and build
-COPY src ./src
-RUN mvn package -DskipTests
-
-# Production stage
-FROM eclipse-temurin:17-jre-alpine
-
-WORKDIR /app
-
-# Copy JAR
-COPY --from=builder /app/target/*.jar app.jar
-
-# Expose port (default 8080, can be overridden)
-EXPOSE 8080
-
-CMD ["java", "-jar", "app.jar"]
-`
-}
-
-func (g *DockerfileGenerator) generatePHPDockerfile(repoPath string) string {
-	return `FROM php:8.2-apache
-
-WORKDIR /var/www/html
-
-# Install dependencies
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --optimize-autoloader
-
-# Copy application code
-COPY . .
-
-# Expose port
-EXPOSE 80
-
-CMD ["apache2-foreground"]
-`
-}
-
-func (g *DockerfileGenerator) generateStaticDockerfile(repoPath string) string {
-	return `FROM nginx:alpine
-
-WORKDIR /usr/share/nginx/html
-
-# Copy static files
-COPY . .
-
-# Expose port
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
-`
-}
-
