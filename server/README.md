@@ -37,7 +37,59 @@ The v2 backend maintains full compatibility with the existing frontend API contr
 
 This ensures a smooth transition to v2 without disrupting the user experience or requiring frontend development work.
 
-## Getting Started
+## Setup
 
-This is a fresh implementation. Development setup and deployment instructions will be added as the system is built out.
+### Prerequisites
 
+- Go 1.22+
+- PostgreSQL 12+
+- sqlc (for code generation)
+
+### Installation
+
+1. Install dependencies:
+   ```bash
+   go mod download
+   ```
+
+2. Install sqlc (if not already installed):
+   ```bash
+   go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+   ```
+
+3. Generate database code:
+   ```bash
+   sqlc generate
+   ```
+
+4. Set up configuration:
+   ```bash
+   cp configs/env.example .env
+   # Edit .env with your values
+   ```
+
+5. Run migrations:
+   ```bash
+   # Set DATABASE_URL environment variable
+   export DATABASE_URL="postgres://user:password@localhost/stackyn?sslmode=disable"
+   # Migrations run automatically on startup
+   ```
+
+6. Build and run:
+   ```bash
+   go build -o bin/api.exe ./cmd/api
+   ./bin/api.exe
+   ```
+
+## Database
+
+The backend uses:
+- **sqlc** for type-safe SQL queries
+- **pgx/v5** for PostgreSQL driver
+- **golang-migrate** for database migrations
+
+See `internal/db/README.md` for more details on database setup and usage.
+
+## Configuration
+
+See `configs/README.md` for configuration details.
