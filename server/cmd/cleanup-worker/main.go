@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"stackyn/server/internal/infra"
+	"stackyn/server/internal/services"
 	"stackyn/server/internal/tasks"
 	"stackyn/server/internal/workers"
 
@@ -39,8 +41,34 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize task handler (no Git service needed for cleanup worker)
-	taskHandler := tasks.NewTaskHandler(logger, nil)
+	// Initialize cleanup service
+	// Temp directories to prune
+	tempDirs := []string{
+		filepath.Join(".", "clones"),    // Git clone directories
+		filepath.Join(".", "logs"),      // Log directories (old logs)
+		filepath.Join(".", "tmp"),        // Temporary files
+		filepath.Join(".", "builds"),     // Build artifacts
+	}
+
+	maxDiskUsagePercent := 85.0 // Start cleanup when disk usage exceeds 85%
+
+	cleanupService, err := services.NewCleanupService(config.Docker.Host, logger, tempDirs, maxDiskUsagePercent)
+	if err != nil {
+		logger.Fatal("Failed to create cleanup service", zap.Error(err))
+	}
+	defer cleanupService.Close()
+
+	// Initialize task handler with cleanup service
+	taskHandler := tasks.NewTaskHandler(
+		logger,
+		nil, // No Git service needed for cleanup worker
+		nil, // No Docker build service needed for cleanup worker
+		nil, // No runtime detector needed for cleanup worker
+		nil, // No Dockerfile generator needed for cleanup worker
+		nil, // No log persister needed for cleanup worker
+		nil, // No deployment service needed for cleanup worker
+		cleanupService,
+	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence

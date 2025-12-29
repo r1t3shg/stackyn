@@ -66,6 +66,7 @@ func main() {
 		nil, // No Dockerfile generator needed for deploy worker
 		logPersistence, // Log persistence for runtime logs
 		deploymentService,
+		nil, // No cleanup service needed for deploy worker
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

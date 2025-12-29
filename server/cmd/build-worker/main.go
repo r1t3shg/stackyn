@@ -84,6 +84,7 @@ func main() {
 		dockerfileGen,
 		logPersistence,
 		nil, // No deployment service needed for build worker
+		nil, // No cleanup service needed for build worker
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

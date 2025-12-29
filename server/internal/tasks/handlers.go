@@ -23,6 +23,7 @@ type TaskHandler struct {
 	dockerfileGen    DockerfileGenerator
 	logPersister     LogPersister
 	deploymentService DeploymentService
+	cleanupService   CleanupService
 	// Add dependencies here (database, etc.)
 }
 
@@ -58,6 +59,12 @@ type DeploymentService interface {
 	Close() error
 }
 
+// CleanupService interface for cleanup operations
+type CleanupService interface {
+	RunCleanup(ctx context.Context) (*services.CleanupResult, error)
+	Close() error
+}
+
 // GitService interface for repository operations
 // Uses services package types to avoid duplication
 type GitService interface {
@@ -75,6 +82,7 @@ func NewTaskHandler(
 	dockerfileGen DockerfileGenerator,
 	logPersister LogPersister,
 	deploymentService DeploymentService,
+	cleanupService CleanupService,
 ) *TaskHandler {
 	return &TaskHandler{
 		logger:           logger,
@@ -84,6 +92,7 @@ func NewTaskHandler(
 		dockerfileGen:    dockerfileGen,
 		logPersister:     logPersister,
 		deploymentService: deploymentService,
+		cleanupService:   cleanupService,
 	}
 }
 
@@ -192,6 +201,16 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 				h.logger.Warn("Failed to persist build logs", zap.Error(persistErr))
 			}
 		}
+
+		// Trigger cleanup on build failure
+		// This ensures build artifacts and temp files are cleaned up
+		if h.cleanupService != nil {
+			h.logger.Info("Triggering cleanup after build failure")
+			if _, cleanupErr := h.cleanupService.RunCleanup(ctx); cleanupErr != nil {
+				h.logger.Warn("Cleanup after build failure failed", zap.Error(cleanupErr))
+			}
+		}
+
 		return fmt.Errorf("failed to build Docker image: %w", err)
 	}
 
@@ -324,19 +343,32 @@ func (h *TaskHandler) HandleCleanupTask(ctx context.Context, t *asynq.Task) erro
 		zap.Strings("image_names", payload.ImageNames),
 	)
 
-	// TODO: Implement actual cleanup logic
-	// 1. Stop and remove containers
-	// 2. Remove Docker images
-	// 3. Clean up networking
-	// 4. Update database
-	// 5. Persist task state
+	if h.cleanupService == nil {
+		return fmt.Errorf("cleanup service not configured")
+	}
 
-	// Simulate work
-	time.Sleep(1 * time.Second)
+	// Run cleanup operation
+	result, err := h.cleanupService.RunCleanup(ctx)
+	if err != nil {
+		return fmt.Errorf("cleanup operation failed: %w", err)
+	}
 
+	// Log results
 	h.logger.Info("Cleanup task completed",
 		zap.String("app_id", payload.AppID),
+		zap.Int("containers_removed", result.ContainersRemoved),
+		zap.Int("images_removed", result.ImagesRemoved),
+		zap.Int64("space_freed_mb", result.SpaceFreedMB),
+		zap.Int("temp_dirs_pruned", result.TempDirsPruned),
+		zap.Int("errors", len(result.Errors)),
 	)
+
+	// Log any errors that occurred
+	if len(result.Errors) > 0 {
+		for _, errMsg := range result.Errors {
+			h.logger.Warn("Cleanup error", zap.String("error", errMsg))
+		}
+	}
 
 	return nil
 }
