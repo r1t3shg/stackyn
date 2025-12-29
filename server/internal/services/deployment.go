@@ -95,7 +95,14 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 		Image:  imageRef,
 		Env:    envVars,
 		Labels: s.generateTraefikLabels(opts.Subdomain, opts.Port, opts.AppID),
-		// Health check will be configured via Traefik
+		// Docker health check (complements Traefik health check)
+		Healthcheck: &container.HealthConfig{
+			Test:        []string{"CMD-SHELL", fmt.Sprintf("wget --no-verbose --tries=1 --spider http://localhost:%d/ || exit 1", opts.Port)},
+			Interval:    10 * time.Second,
+			Timeout:     3 * time.Second,
+			Retries:     3,
+			StartPeriod: 10 * time.Second,
+		},
 	}
 
 	// Create host config with resource limits
@@ -276,24 +283,43 @@ func (s *DeploymentService) generateContainerName(appID, deploymentID string) st
 	return fmt.Sprintf("stackyn-%s-%s", appID, deploymentID)
 }
 
-// generateTraefikLabels generates Traefik labels for routing
+// generateTraefikLabels generates Traefik labels for routing with HTTPS, subdomains, and health checks
 func (s *DeploymentService) generateTraefikLabels(subdomain string, port int, appID string) map[string]string {
+	routerName := fmt.Sprintf("app-%s", appID)
+	serviceName := fmt.Sprintf("app-%s", appID)
+	middlewareName := fmt.Sprintf("app-%s-redirect", appID)
+	
 	labels := map[string]string{
 		// Enable Traefik
 		"traefik.enable": "true",
 		
-		// HTTP router
-		"traefik.http.routers.app.rule": fmt.Sprintf("Host(`%s`)", subdomain),
-		"traefik.http.routers.app.entrypoints": "web",
+		// HTTP Router (redirects to HTTPS)
+		fmt.Sprintf("traefik.http.routers.%s-http.rule", routerName): fmt.Sprintf("Host(`%s`)", subdomain),
+		fmt.Sprintf("traefik.http.routers.%s-http.entrypoints", routerName): "web",
+		fmt.Sprintf("traefik.http.routers.%s-http.middlewares", routerName): middlewareName,
+		
+		// HTTPS Router (main router)
+		fmt.Sprintf("traefik.http.routers.%s.rule", routerName): fmt.Sprintf("Host(`%s`)", subdomain),
+		fmt.Sprintf("traefik.http.routers.%s.entrypoints", routerName): "websecure",
+		fmt.Sprintf("traefik.http.routers.%s.tls", routerName): "true",
+		fmt.Sprintf("traefik.http.routers.%s.tls.certresolver", routerName): "letsencrypt",
 		
 		// Service configuration
-		"traefik.http.services.app.loadbalancer.server.port": strconv.Itoa(port),
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", serviceName): strconv.Itoa(port),
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.path", serviceName): "/",
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.interval", serviceName): "10s",
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.timeout", serviceName): "3s",
+		
+		// Redirect middleware (HTTP to HTTPS)
+		fmt.Sprintf("traefik.http.middlewares.%s.redirectscheme.scheme", middlewareName): "https",
+		fmt.Sprintf("traefik.http.middlewares.%s.redirectscheme.permanent", middlewareName): "true",
 		
 		// Use Traefik network
 		"traefik.docker.network": "traefik",
 		
 		// App ID label for container lookup
 		"app.id": appID,
+		"app.subdomain": subdomain,
 	}
 
 	return labels
