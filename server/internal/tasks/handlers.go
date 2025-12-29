@@ -8,18 +8,29 @@ import (
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
+	"stackyn/server/internal/services"
 )
 
 // TaskHandler handles task processing
 type TaskHandler struct {
-	logger *zap.Logger
+	logger     *zap.Logger
+	gitService GitService
 	// Add dependencies here (database, docker client, etc.)
 }
 
+// GitService interface for repository operations
+// Uses services package types to avoid duplication
+type GitService interface {
+	ValidatePublicRepo(ctx context.Context, repoURL string) error
+	Clone(ctx context.Context, opts services.CloneOptions) (*services.CloneResult, error)
+	Cleanup(clonePath string) error
+}
+
 // NewTaskHandler creates a new task handler
-func NewTaskHandler(logger *zap.Logger) *TaskHandler {
+func NewTaskHandler(logger *zap.Logger, gitService GitService) *TaskHandler {
 	return &TaskHandler{
-		logger: logger,
+		logger:     logger,
+		gitService: gitService,
 	}
 }
 
@@ -34,11 +45,43 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		zap.String("app_id", payload.AppID),
 		zap.String("build_job_id", payload.BuildJobID),
 		zap.String("repo_url", payload.RepoURL),
+		zap.String("branch", payload.Branch),
 	)
 
+	// Clone repository with shallow clone
+	var cloneResult *services.CloneResult
+	if h.gitService != nil {
+		cloneOpts := services.CloneOptions{
+			RepoURL: payload.RepoURL,
+			Branch:  payload.Branch,
+			Shallow: true, // Always use shallow clone
+			Depth:   1,    // Only clone the latest commit
+		}
+
+		var err error
+		cloneResult, err = h.gitService.Clone(ctx, cloneOpts)
+		if err != nil {
+			return fmt.Errorf("failed to clone repository: %w", err)
+		}
+
+		// Ensure cleanup happens even if build fails
+		defer func() {
+			if cleanupErr := h.gitService.Cleanup(cloneResult.Path); cleanupErr != nil {
+				h.logger.Warn("Failed to cleanup clone directory", zap.Error(cleanupErr))
+			}
+		}()
+
+		h.logger.Info("Repository cloned",
+			zap.String("path", cloneResult.Path),
+			zap.String("commit_sha", cloneResult.CommitSHA),
+		)
+	} else {
+		return fmt.Errorf("git service not configured")
+	}
+
 	// TODO: Implement actual build logic
-	// 1. Clone repository
-	// 2. Build Docker image
+	// 1. ✅ Clone repository (done)
+	// 2. Build Docker image from cloned repo
 	// 3. Push to registry
 	// 4. Update build job status in database
 	// 5. Persist task state
@@ -49,6 +92,7 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 	h.logger.Info("Build task completed",
 		zap.String("app_id", payload.AppID),
 		zap.String("build_job_id", payload.BuildJobID),
+		zap.String("commit_sha", cloneResult.CommitSHA),
 	)
 
 	return nil

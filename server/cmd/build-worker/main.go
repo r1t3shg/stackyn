@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"stackyn/server/internal/infra"
+	"stackyn/server/internal/services"
 	"stackyn/server/internal/tasks"
 	"stackyn/server/internal/workers"
 
@@ -39,8 +41,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize task handler
-	taskHandler := tasks.NewTaskHandler(logger)
+	// Initialize Git service
+	// Clone directory: ./clones (relative to worker binary)
+	cloneDir := filepath.Join(".", "clones")
+	if err := os.MkdirAll(cloneDir, 0755); err != nil {
+		logger.Fatal("Failed to create clone directory", zap.Error(err))
+	}
+	gitService := services.NewGitService(logger, cloneDir)
+
+	// Initialize task handler with Git service
+	taskHandler := tasks.NewTaskHandler(logger, gitService)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence

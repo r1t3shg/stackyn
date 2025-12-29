@@ -39,8 +39,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize task handler
-	taskHandler := tasks.NewTaskHandler(logger)
+	// Initialize task handler (no Git service needed for cleanup worker)
+	taskHandler := tasks.NewTaskHandler(logger, nil)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence
