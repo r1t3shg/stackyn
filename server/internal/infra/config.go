@@ -157,6 +157,11 @@ func LoadConfig() (*Config, error) {
 	// Build computed connection strings
 	config.Postgres.DSN = buildPostgresDSN(config.Postgres)
 	config.Redis.Addr = buildRedisAddr(config.Redis)
+	
+	// Override Redis addr if explicitly set
+	if viper.IsSet("redis.addr") {
+		config.Redis.Addr = viper.GetString("redis.addr")
+	}
 
 	// Validate required configs (fail fast)
 	if err := validateConfig(config); err != nil {
@@ -184,6 +189,7 @@ func setDefaults() {
 	viper.SetDefault("redis.port", 6379)
 	viper.SetDefault("redis.password", "")
 	viper.SetDefault("redis.db", 0)
+	viper.SetDefault("redis.addr", "localhost:6379") // Computed from host:port
 
 	// Docker defaults
 	viper.SetDefault("docker.host", "unix:///var/run/docker.sock")

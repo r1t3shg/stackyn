@@ -8,30 +8,53 @@ import (
 	"syscall"
 	"time"
 
+	"stackyn/server/internal/infra"
+	"stackyn/server/internal/tasks"
+	"stackyn/server/internal/workers"
+
 	"go.uber.org/zap"
 )
 
 func main() {
+	// Load configuration
+	config, err := infra.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Initialize logger
-	logger, err := initLogger()
+	logger, err := initLogger(config.LogLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer logger.Sync()
 
+	logger.Info("Starting deploy worker",
+		zap.String("redis_addr", config.Redis.Addr),
+	)
+
 	// Create root context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize deploy worker
-	worker := setupDeployWorker(ctx, logger)
+	// Initialize task handler
+	taskHandler := tasks.NewTaskHandler(logger)
 
-	// Start worker in goroutine
+	// Initialize task state persistence (nil for now - wire up when DB is ready)
+	var taskPersistence *tasks.TaskStatePersistence
+	// TODO: Initialize with database repository when DB is connected
+
+	// Initialize Asynq server
+	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence)
+	server.RegisterHandlers()
+
+	// Start server in goroutine
 	go func() {
-		logger.Info("Starting deploy worker")
-		if err := worker.Start(ctx); err != nil {
-			logger.Fatal("Deploy worker failed", zap.Error(err))
+		logger.Info("Starting deploy worker server")
+		if err := server.Start(ctx); err != nil && err != context.Canceled {
+			logger.Fatal("Deploy worker server failed", zap.Error(err))
 		}
 	}()
 
@@ -42,57 +65,39 @@ func main() {
 
 	logger.Info("Shutting down deploy worker...")
 
-	// Cancel context to signal worker to stop
+	// Cancel context to signal server to stop
 	cancel()
 
-	// Wait for worker to finish with timeout
+	// Wait for server to finish with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Wait for worker to finish gracefully
-	done := make(chan error, 1)
-	go func() {
-		done <- worker.Stop(shutdownCtx)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			logger.Error("Deploy worker shutdown error", zap.Error(err))
-		} else {
-			logger.Info("Deploy worker stopped gracefully")
-		}
-	case <-shutdownCtx.Done():
-		logger.Warn("Deploy worker forced to shutdown due to timeout")
+	if err := server.Stop(shutdownCtx); err != nil {
+		logger.Error("Deploy worker shutdown error", zap.Error(err))
+	} else {
+		logger.Info("Deploy worker stopped gracefully")
 	}
 
 	logger.Info("Deploy worker exited")
 }
 
-func initLogger() (*zap.Logger, error) {
+func initLogger(level string) (*zap.Logger, error) {
 	config := zap.NewProductionConfig()
-	config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	
+	var zapLevel zap.AtomicLevel
+	switch level {
+	case "debug":
+		zapLevel = zap.NewAtomicLevelAt(zap.DebugLevel)
+	case "info":
+		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
+	case "warn":
+		zapLevel = zap.NewAtomicLevelAt(zap.WarnLevel)
+	case "error":
+		zapLevel = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	default:
+		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
+	}
+	
+	config.Level = zapLevel
 	return config.Build()
 }
-
-func setupDeployWorker(ctx context.Context, logger *zap.Logger) *DeployWorker {
-	// TODO: Initialize deploy worker from internal/workers package
-	return &DeployWorker{logger: logger}
-}
-
-// DeployWorker is a placeholder - will be implemented in internal/workers
-type DeployWorker struct {
-	logger *zap.Logger
-}
-
-func (w *DeployWorker) Start(ctx context.Context) error {
-	// TODO: Implement worker logic
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func (w *DeployWorker) Stop(ctx context.Context) error {
-	// TODO: Implement graceful stop
-	return nil
-}
-
