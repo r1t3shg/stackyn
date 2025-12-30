@@ -48,7 +48,7 @@ services:
 
   # Traefik Reverse Proxy
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.1
     container_name: stackyn-traefik
     command:
       - "--api.dashboard=true"
