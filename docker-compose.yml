@@ -52,6 +52,10 @@ services:
       - "--providers.docker.network=stackyn-network"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
       - "443:443"
@@ -210,7 +214,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${FRONTEND_API_URL:-http://localhost:8080}
+        VITE_API_BASE_URL: ${FRONTEND_API_URL:-https://api.staging.stackyn.com}
     container_name: stackyn-frontend
     ports:
       - "3000:3000"
@@ -222,9 +226,19 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=stackyn-network"
-      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-localhost}`)"
-      - "traefik.http.routers.frontend.entrypoints=web"
+      # HTTP router (redirects to HTTPS)
+      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      - "traefik.http.routers.frontend-http.entrypoints=web"
+      - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
+      # HTTPS router (main router with SSL)
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      # Redirect middleware
+      - "traefik.http.middlewares.frontend-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.frontend-redirect.redirectscheme.permanent=true"
 
 networks:
   stackyn-network:
