@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS env_vars;
+DROP TABLE IF EXISTS runtime_instances;
+DROP TABLE IF EXISTS deployments;
+DROP TABLE IF EXISTS build_jobs;
+DROP TABLE IF EXISTS apps;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS plans;
+
