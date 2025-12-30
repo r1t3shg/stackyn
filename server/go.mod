@@ -1,6 +1,6 @@
 module stackyn/server
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
@@ -11,7 +11,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/golang-migrate/migrate/v4 v4.18.0
 	github.com/hibiken/asynq v0.25.1
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.7.1
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.44.0
