@@ -1,9 +1,6 @@
 module stackyn/server
 
-// IMPORTANT: Go 1.24.0 DOES NOT EXIST! Latest stable is 1.23.
-// Dockerfiles use golang:1.23-alpine, so this MUST be 1.23.
-// DO NOT change this to 1.24.0 - it will break the build!
-go 1.24.0
+go 1.25.5
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
