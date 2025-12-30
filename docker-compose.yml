@@ -105,8 +105,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
-    ports:
-      - "8080:8080"
+    # Port mapping removed - API accessed via Traefik on Docker network
+    # If you need direct access, uncomment: - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
