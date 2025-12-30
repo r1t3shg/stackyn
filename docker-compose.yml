@@ -27,16 +27,21 @@ services:
   redis:
     image: redis:7-alpine
     container_name: stackyn-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    command: 
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-}
     # Port mapping removed - services access via Docker network
     # If you need external access, uncomment: - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a $REDIS_PASSWORD} ping || exit 1"]
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi"]
       interval: 10s
       timeout: 5s
       retries: 5
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     networks:
       - stackyn-network
     restart: unless-stopped
