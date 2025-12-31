@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"stackyn/server/internal/db"
 	"stackyn/server/internal/infra"
@@ -54,9 +55,10 @@ func Router(logger *zap.Logger, config *infra.Config, database *db.DB) http.Hand
 	// Initialize email service
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
-	// Initialize repositories
-	otpRepo := NewOTPRepo(database, logger)
-	userRepo := NewUserRepo(database, logger)
+	// Initialize repositories (use pool directly to avoid dependency on generated code)
+	pool := database.GetPool()
+	otpRepo := NewOTPRepo(pool, logger)
+	userRepo := NewUserRepo(pool, logger)
 	
 	// Initialize OTP service
 	otpService := services.NewOTPService(logger, otpRepo, emailService)
