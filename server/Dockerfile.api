@@ -15,6 +15,7 @@ COPY . .
 # Install sqlc and generate database code
 RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 RUN sqlc generate
+RUN ls -la internal/db/*.go
 
 # Build API binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api ./cmd/api
