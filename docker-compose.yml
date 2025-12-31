@@ -242,19 +242,31 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=stackyn-network"
-      # HTTP router (redirects to HTTPS)
+      # HTTP router for main domain (redirects to HTTPS)
       - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend-http.entrypoints=web"
       - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
-      # HTTPS router (main router with SSL)
+      # HTTPS router for main domain (with SSL)
       - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      # HTTP router for console subdomain (redirects to HTTPS)
+      - "traefik.http.routers.console-http.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      - "traefik.http.routers.console-http.entrypoints=web"
+      - "traefik.http.routers.console-http.middlewares=console-redirect"
+      # HTTPS router for console subdomain (with SSL)
+      - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      - "traefik.http.routers.console.entrypoints=websecure"
+      - "traefik.http.routers.console.tls=true"
+      - "traefik.http.routers.console.tls.certresolver=letsencrypt"
+      # Service configuration
       - "traefik.http.services.frontend.loadbalancer.server.port=3000"
-      # Redirect middleware
+      # Redirect middlewares
       - "traefik.http.middlewares.frontend-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.frontend-redirect.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.console-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.console-redirect.redirectscheme.permanent=true"
 
 networks:
   stackyn-network:
