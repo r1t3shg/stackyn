@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"stackyn/server/internal/api"
+	"stackyn/server/internal/db"
 	"stackyn/server/internal/infra"
 
 	"go.uber.org/zap"
@@ -39,8 +40,15 @@ func main() {
 		zap.String("docker_host", config.Docker.Host),
 	)
 
+	// Initialize database connection
+	database, err := db.NewDB(config.Postgres.DSN, logger)
+	if err != nil {
+		logger.Fatal("Failed to connect to database", zap.Error(err))
+	}
+	defer database.Close()
+
 	// Initialize HTTP server with chi router
-	router := api.Router(logger)
+	router := api.Router(logger, config, database)
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%s", config.Server.Addr, config.Server.Port),
 		Handler: router,

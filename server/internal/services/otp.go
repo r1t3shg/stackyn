@@ -12,21 +12,23 @@ import (
 )
 
 type OTPService struct {
-	logger *zap.Logger
-	db     OTPRepository
+	logger       *zap.Logger
+	db           OTPRepository
+	emailService *EmailService
 }
 
 type OTPRepository interface {
 	CreateOTP(email, otpHash string, expiresAt time.Time) error
-	GetOTPByEmail(email string) (otpHash string, expiresAt time.Time, err error)
+	GetOTPByEmail(email string) (otpID, otpHash string, expiresAt time.Time, err error)
 	MarkOTPAsUsed(otpID string) error
 }
 
 // NewOTPService creates a new OTP service
-func NewOTPService(logger *zap.Logger, db OTPRepository) *OTPService {
+func NewOTPService(logger *zap.Logger, db OTPRepository, emailService *EmailService) *OTPService {
 	return &OTPService{
-		logger: logger,
-		db:     db,
+		logger:       logger,
+		db:           db,
+		emailService: emailService,
 	}
 }
 
@@ -87,6 +89,17 @@ func (s *OTPService) SendOTP(email string) (string, error) {
 		zap.Time("expires_at", expiresAt),
 	)
 
+	// Send OTP via email service
+	if s.emailService != nil {
+		if err := s.emailService.SendOTPEmail(email, otp); err != nil {
+			s.logger.Error("Failed to send OTP email", zap.Error(err), zap.String("email", email))
+			// Don't fail the entire operation if email fails - OTP is still stored
+			// In development, we might want to return the OTP in the response
+		}
+	} else {
+		s.logger.Warn("Email service not configured, OTP not sent", zap.String("email", email))
+	}
+
 	// Return plain OTP for sending via email (in production, send via email service)
 	return otp, nil
 }
@@ -94,7 +107,7 @@ func (s *OTPService) SendOTP(email string) (string, error) {
 // VerifyOTP verifies an OTP for the given email
 func (s *OTPService) VerifyOTPForEmail(email, otp string) (bool, error) {
 	// Get OTP from database
-	otpHash, expiresAt, err := s.db.GetOTPByEmail(email)
+	_, otpHash, expiresAt, err := s.db.GetOTPByEmail(email)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, fmt.Errorf("no valid OTP found for email")
@@ -117,14 +130,13 @@ func (s *OTPService) VerifyOTPForEmail(email, otp string) (bool, error) {
 
 // MarkOTPAsUsed marks an OTP as used
 func (s *OTPService) MarkOTPAsUsed(email string) error {
-	// Get OTP ID from database (simplified - in production, track OTP ID)
-	otpHash, _, err := s.db.GetOTPByEmail(email)
+	// Get OTP ID from database
+	otpID, _, _, err := s.db.GetOTPByEmail(email)
 	if err != nil {
 		return err
 	}
 
-	// Mark as used (this is simplified - in production, use OTP ID)
-	_ = otpHash // We'd need to track OTP ID to mark it as used
-	return nil
+	// Mark as used using OTP ID
+	return s.db.MarkOTPAsUsed(otpID)
 }
 

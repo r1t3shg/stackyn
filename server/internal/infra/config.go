@@ -34,6 +34,9 @@ type Config struct {
 
 	// Worker configuration
 	WorkerConcurrency int
+
+	// Email configuration
+	Email EmailConfig
 }
 
 type ServerConfig struct {
@@ -79,6 +82,11 @@ type TraefikConfig struct {
 type JWTConfig struct {
 	Secret     string
 	Expiration int // in seconds
+}
+
+type EmailConfig struct {
+	ResendAPIKey string
+	FromEmail   string
 }
 
 // LoadConfig loads configuration using viper with support for:
@@ -152,6 +160,10 @@ func LoadConfig() (*Config, error) {
 		},
 		LogLevel:          viper.GetString("log.level"),
 		WorkerConcurrency: viper.GetInt("worker.concurrency"),
+		Email: EmailConfig{
+			ResendAPIKey: viper.GetString("email.resend_api_key"),
+			FromEmail:   viper.GetString("email.from_email"),
+		},
 	}
 
 	// Build computed connection strings
@@ -213,6 +225,10 @@ func setDefaults() {
 
 	// Worker defaults
 	viper.SetDefault("worker.concurrency", 10)
+
+	// Email defaults
+	viper.SetDefault("email.resend_api_key", "")
+	viper.SetDefault("email.from_email", "noreply@stackyn.com")
 }
 
 func buildPostgresDSN(pg PostgresConfig) string {

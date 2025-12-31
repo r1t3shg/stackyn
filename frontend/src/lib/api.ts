@@ -168,9 +168,35 @@ export const healthCheck = async (): Promise<{ status: string }> => {
   return handleResponse<{ status: string }>(response);
 };
 
-// Auth API - Firebase Auth signup flow
+// Auth API - OTP and Firebase Auth signup flow
 export const authApi = {
-  // Verify Firebase token
+  // Send OTP to email
+  sendOTP: async (email: string): Promise<{ message: string; otp?: string }> => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/send-otp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    }, false);
+    return handleResponse<{ message: string; otp?: string }>(response);
+  },
+
+  // Verify OTP and get JWT token
+  verifyOTP: async (email: string, otp: string): Promise<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }> => {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, otp }),
+    }, false);
+    return handleResponse<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }>(response);
+  },
+
+  // Verify Firebase token (legacy)
   verifyToken: async (idToken: string): Promise<{ uid: string; email: string; email_verified: boolean }> => {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-token`, {

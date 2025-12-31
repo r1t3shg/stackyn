@@ -18,6 +18,11 @@ type AuthHandlers struct {
 	otpRepo    OTPRepository
 }
 
+// GetJWTService returns the JWT service (for use in handlers)
+func (h *AuthHandlers) GetJWTService() *services.JWTService {
+	return h.jwtService
+}
+
 type User struct {
 	ID          string `json:"id"`
 	Email       string `json:"email"`
@@ -28,6 +33,7 @@ type User struct {
 type UserRepository interface {
 	GetUserByEmail(email string) (*User, error)
 	CreateUser(email, fullName, companyName string) (*User, error)
+	UpdateUser(userID, fullName, companyName string) (*User, error)
 }
 
 type OTPRepository interface {
@@ -319,5 +325,38 @@ func ValidateEmail(email string) bool {
 		}
 	}
 	return hasDot
+}
+
+type UpdateUserRequest struct {
+	FullName    string `json:"full_name"`
+	CompanyName string `json:"company_name"`
+}
+
+// UpdateUserProfile updates user profile details
+// POST /api/auth/update-profile
+// Requires: AuthMiddleware (sets user_id in context)
+func (h *AuthHandlers) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context (set by AuthMiddleware)
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	var req UpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Update user
+	user, err := h.userRepo.UpdateUser(userID, req.FullName, req.CompanyName)
+	if err != nil {
+		h.logger.Error("Failed to update user", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to update user")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, user)
 }
 

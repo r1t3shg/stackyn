@@ -102,6 +102,8 @@ services:
       JWT_EXPIRATION: 3600
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
+      EMAIL_RESEND_API_KEY: ${RESEND_API_KEY:-re_6iU1KmCf_3p6MzQRbsDyerP736x1WWExj}
+      EMAIL_FROM_EMAIL: ${EMAIL_FROM_EMAIL:-noreply@stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs

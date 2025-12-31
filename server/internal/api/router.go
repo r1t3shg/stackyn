@@ -7,11 +7,13 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"go.uber.org/zap"
+	"stackyn/server/internal/db"
+	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 )
 
 // Router sets up the HTTP router with all routes and middleware
-func Router(logger *zap.Logger) http.Handler {
+func Router(logger *zap.Logger, config *infra.Config, database *db.DB) http.Handler {
 	r := chi.NewRouter()
 
 	// CORS middleware - allow all origins for development
@@ -49,9 +51,21 @@ func Router(logger *zap.Logger) http.Handler {
 	// Initialize handlers
 	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService)
 	
-	// Initialize auth handlers (with mock services for now)
-	// TODO: Wire up real services when database is connected
-	authHandlers := NewAuthHandlers(logger, nil, nil, nil, nil)
+	// Initialize email service
+	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
+	
+	// Initialize repositories
+	otpRepo := NewOTPRepo(database, logger)
+	userRepo := NewUserRepo(database, logger)
+	
+	// Initialize OTP service
+	otpService := services.NewOTPService(logger, otpRepo, emailService)
+	
+	// Initialize JWT service
+	jwtService := services.NewJWTService(config.JWT.Secret, logger)
+	
+	// Initialize auth handlers
+	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo)
 
 	// Health check
 	r.Get("/health", handlers.HealthCheck)
@@ -65,6 +79,9 @@ func Router(logger *zap.Logger) http.Handler {
 		
 		// Legacy Firebase endpoint (for compatibility)
 		r.Post("/verify-token", handlers.VerifyToken)
+		
+		// Update user profile (requires auth)
+		r.With(AuthMiddleware(jwtService, logger)).Post("/update-profile", authHandlers.UpdateUserProfile)
 	})
 
 	// User routes
