@@ -104,6 +104,10 @@ func LoadConfig() (*Config, error) {
 	// Enable environment variable support
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	
+	// Explicitly bind environment variables for email config
+	viper.BindEnv("email.resend_api_key", "EMAIL_RESEND_API_KEY")
+	viper.BindEnv("email.from_email", "EMAIL_FROM_EMAIL")
 
 	// Set default values
 	setDefaults()
@@ -161,6 +165,7 @@ func LoadConfig() (*Config, error) {
 		LogLevel:          viper.GetString("log.level"),
 		WorkerConcurrency: viper.GetInt("worker.concurrency"),
 		Email: EmailConfig{
+			// Check both dot notation and direct env var name
 			ResendAPIKey: viper.GetString("email.resend_api_key"),
 			FromEmail:   viper.GetString("email.from_email"),
 		},
