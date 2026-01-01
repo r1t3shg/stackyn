@@ -1,13 +1,44 @@
-import { API_ENDPOINTS } from './config';
+import { API_ENDPOINTS, API_BASE_URL } from './config';
 import type { App, Deployment, DeploymentLogs, CreateAppRequest, CreateAppResponse, EnvVar, CreateEnvVarRequest, UserProfile } from './types';
 
 // Helper function to handle API responses
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
+    // Check if response is JSON before trying to parse
+    const contentType = response.headers.get('content-type');
+    let error: { error?: string } = { error: response.statusText };
+    
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        error = await response.json();
+      } catch (e) {
+        // If JSON parsing fails, use default error
+        error = { error: response.statusText };
+      }
+    } else {
+      // Response is not JSON (likely HTML error page)
+      const text = await response.text().catch(() => '');
+      if (response.status === 404) {
+        error = { error: `API endpoint not found. Please check that the backend server is running and the endpoint exists.` };
+      } else if (response.status >= 500) {
+        error = { error: `Server error (${response.status}). Please try again later.` };
+      } else {
+        error = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+    }
+    
     throw new Error(error.error || `HTTP error! status: ${response.status}`);
   }
-  return response.json();
+  
+  // Check content type before parsing JSON
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    return response.json();
+  } else {
+    // If response is not JSON, return as text wrapped in an object
+    const text = await response.text();
+    throw new Error(`Expected JSON response but received ${contentType || 'unknown content type'}`);
+  }
 }
 
 // Helper to handle fetch errors with better messages
@@ -172,20 +203,33 @@ export const healthCheck = async (): Promise<{ status: string }> => {
 export const authApi = {
   // Send OTP to email
   sendOTP: async (email: string): Promise<{ message: string; otp?: string }> => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
-    const response = await safeFetch(`${API_BASE_URL}/api/auth/send-otp`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email }),
-    }, false);
-    return handleResponse<{ message: string; otp?: string }>(response);
+    const url = `${API_BASE_URL}/api/auth/send-otp`;
+    console.log('Sending OTP request to:', url);
+    
+    try {
+      const response = await safeFetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      }, false);
+      return handleResponse<{ message: string; otp?: string }>(response);
+    } catch (err) {
+      console.error('Error sending OTP:', err);
+      // Provide more helpful error message
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+          throw new Error(`Cannot connect to API server at ${API_BASE_URL}. Please check that the backend is running and accessible.`);
+        }
+        throw err;
+      }
+      throw new Error('Failed to send OTP. Please try again.');
+    }
   },
 
   // Verify OTP and get JWT token
   verifyOTP: async (email: string, otp: string): Promise<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }> => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-otp`, {
       method: 'POST',
       headers: {
@@ -198,7 +242,6 @@ export const authApi = {
 
   // Verify Firebase token (legacy)
   verifyToken: async (idToken: string): Promise<{ uid: string; email: string; email_verified: boolean }> => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-token`, {
       method: 'POST',
       headers: {
@@ -214,7 +257,6 @@ export const authApi = {
 export const userApi = {
   // Get current user profile with plan and quota
   getProfile: async (): Promise<UserProfile> => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await safeFetch(`${API_BASE_URL}/api/user/me`, undefined, true);
     return handleResponse<UserProfile>(response);
   },

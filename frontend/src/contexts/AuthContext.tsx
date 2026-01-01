@@ -8,6 +8,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
+import { API_BASE_URL } from '@/lib/config';
 import { auth } from '@/lib/firebase';
 
 interface User {
@@ -73,8 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
-    
     // Try Firebase login first (for new users)
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -217,7 +216,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('No user logged in');
     }
 
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
     const response = await fetch(`${API_BASE_URL}/api/auth/signup/complete`, {
       method: 'POST',
       headers: {

@@ -24,7 +24,10 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+# Note: Using npm install instead of npm ci because package-lock.json 
+# needs to be updated with new dependencies. After updating the lock file
+# locally, switch back to 'npm ci' for faster, reproducible builds.
+RUN npm install
 
 # Copy source code
 COPY . .

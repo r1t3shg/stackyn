@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { authApi } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/config';
 import Logo from '@/components/Logo';
 
 type SignupStep = 'email' | 'otp' | 'details';
@@ -147,7 +148,6 @@ export default function SignUp() {
       }
 
       // Update user profile via API
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
       const response = await fetch(`${API_BASE_URL}/api/auth/update-profile`, {
         method: 'POST',
         headers: {
