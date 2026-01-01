@@ -16,14 +16,15 @@ import (
 func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
 
-	// CORS middleware - allow all origins for development
+	// CORS middleware - allow frontend origins
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
+		AllowedOrigins:   []string{"https://staging.stackyn.com", "https://console.staging.stackyn.com", "http://localhost:3000", "http://localhost:5173"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Requested-With"},
+		ExposedHeaders:   []string{"Link", "Content-Length"},
 		AllowCredentials: false,
 		MaxAge:           300,
+		Debug:            false,
 	}))
 
 	// Middleware
