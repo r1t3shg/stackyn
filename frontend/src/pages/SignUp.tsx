@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { authApi } from '@/lib/api';
 import Logo from '@/components/Logo';
 
 type SignupStep = 'email' | 'otp' | 'details';
 
 export default function SignUp() {
-  const [searchParams] = useSearchParams();
-  const selectedPlan = searchParams.get('plan') || 'free';
-  
   const [step, setStep] = useState<SignupStep>('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -18,7 +15,6 @@ export default function SignUp() {
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [otpSent, setOtpSent] = useState(false);
   const navigate = useNavigate();
 
   // Redirect if already logged in
@@ -59,7 +55,6 @@ export default function SignUp() {
     setLoading(true);
     try {
       await authApi.sendOTP(email);
-      setOtpSent(true);
       setStep('otp');
       setResendCooldown(60); // 60 second cooldown
       setError(null);
@@ -317,7 +312,6 @@ export default function SignUp() {
                 onClick={() => {
                   setStep('email');
                   setOtp('');
-                  setOtpSent(false);
                 }}
                 className="w-full py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
               >
