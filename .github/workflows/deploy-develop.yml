@@ -160,69 +160,69 @@ jobs:
             -o ServerAliveCountMax=10 \
             -o TCPKeepAlive=yes \
             root@${{ secrets.STAGING_HOST }} << 'DEPLOY_SCRIPT'
-            set -e  # Exit on error
-            
-            echo "🚀 Starting deployment..."
-            cd /opt/stackyn
-            
-            # Backup current deployment
-            echo "📦 Creating backup..."
-            if [ -d ".git" ]; then
-              git stash || true
-              CURRENT_COMMIT=$(git rev-parse HEAD)
-              echo "Current commit: $CURRENT_COMMIT"
-            fi
-            
-            # Pull latest code
-            echo "📥 Pulling latest code..."
-            git checkout develop
-            git pull origin develop
-            NEW_COMMIT=$(git rev-parse HEAD)
-            echo "New commit: $NEW_COMMIT"
-            
-            # Ensure environment variables are set
-            if [ ! -f .env ]; then
-              echo "⚠️  Warning: .env file not found. Make sure environment variables are set."
-            fi
-            
-            # Build and deploy
-            echo "🔨 Building and deploying containers..."
-            docker compose down || true  # Ignore errors if containers aren't running
-            
-            # Build containers (this may take several minutes)
-            # Use unbuffered output and keep connection alive
-            echo "Building containers (this may take several minutes)..."
-            if ! docker compose build --no-cache; then
-              echo "❌ Build failed. Showing recent logs:"
-              docker compose build --no-cache 2>&1 | tail -n 100
-              exit 1
-            fi
-            
-            echo "Starting containers..."
-            docker compose up -d
-            
-            # Wait for services to be healthy
-            echo "⏳ Waiting for services to start..."
-            sleep 15
-            
-            # Health check
-            echo "🏥 Checking service health..."
-            if docker compose ps | grep -q "Up"; then
-              echo "✅ Services are running"
-              docker compose ps
-            else
-              echo "❌ Some services failed to start"
-              docker compose ps
-              echo "📋 Recent logs:"
-              docker compose logs --tail=50
-              exit 1
-            fi
-            
-            # Show recent logs
+          set -e  # Exit on error
+          
+          echo "🚀 Starting deployment..."
+          cd /opt/stackyn
+          
+          # Backup current deployment
+          echo "📦 Creating backup..."
+          if [ -d ".git" ]; then
+            git stash || true
+            CURRENT_COMMIT=$(git rev-parse HEAD)
+            echo "Current commit: $CURRENT_COMMIT"
+          fi
+          
+          # Pull latest code
+          echo "📥 Pulling latest code..."
+          git checkout develop
+          git pull origin develop
+          NEW_COMMIT=$(git rev-parse HEAD)
+          echo "New commit: $NEW_COMMIT"
+          
+          # Ensure environment variables are set
+          if [ ! -f .env ]; then
+            echo "⚠️  Warning: .env file not found. Make sure environment variables are set."
+          fi
+          
+          # Build and deploy
+          echo "🔨 Building and deploying containers..."
+          docker compose down || true  # Ignore errors if containers aren't running
+          
+          # Build containers (this may take several minutes)
+          # Use unbuffered output and keep connection alive
+          echo "Building containers (this may take several minutes)..."
+          if ! docker compose build --no-cache; then
+            echo "❌ Build failed. Showing recent logs:"
+            docker compose build --no-cache 2>&1 | tail -n 100
+            exit 1
+          fi
+          
+          echo "Starting containers..."
+          docker compose up -d
+          
+          # Wait for services to be healthy
+          echo "⏳ Waiting for services to start..."
+          sleep 15
+          
+          # Health check
+          echo "🏥 Checking service health..."
+          if docker compose ps | grep -q "Up"; then
+            echo "✅ Services are running"
+            docker compose ps
+          else
+            echo "❌ Some services failed to start"
+            docker compose ps
             echo "📋 Recent logs:"
-            docker compose logs --tail=20
-            
-            echo "✅ Deployment completed successfully!"
+            docker compose logs --tail=50
+            exit 1
+          fi
+          
+          # Show recent logs
+          echo "📋 Recent logs:"
+          docker compose logs --tail=20
+          
+          echo "✅ Deployment completed successfully!"
 DEPLOY_SCRIPT
 
       - name: Deployment status
