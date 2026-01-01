@@ -28,7 +28,11 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: ./frontend
-        run: npm ci
+        run: |
+          # Note: Using npm install instead of npm ci because package-lock.json 
+          # needs to be updated with new dependencies. After updating the lock file
+          # locally, switch back to 'npm ci' for faster, reproducible builds.
+          npm install
 
       - name: Lint frontend
         working-directory: ./frontend
