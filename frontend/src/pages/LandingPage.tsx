@@ -87,7 +87,7 @@ export default function LandingPage() {
                 onClick={handleSignInClick}
                   className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"
               >
-                Sign in
+                Login
               </a>
               )}
             </div>
@@ -170,7 +170,7 @@ export default function LandingPage() {
                   onClick={handleSignInClick}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center"
                 >
-                  Sign in
+                  Login
                 </a>
                 )}
               </nav>
