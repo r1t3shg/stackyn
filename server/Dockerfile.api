@@ -12,12 +12,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Install sqlc and generate database code (optional, not required for our code)
-RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest || true
-RUN sqlc generate 2>&1 || true
+# Verify db package compiles FIRST (db.NewDB is manually written in db.go, not generated)
+RUN echo "=== Building db package ===" && go build -v ./internal/db
 
-# Test that db package compiles
-RUN go build ./internal/db
+# Install sqlc (optional - we use raw SQL, but install for future use)  
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+# Generate sqlc code (optional - we don't use it, but run it for completeness)
+RUN sqlc generate 2>&1 || echo "Note: sqlc generate failed (this is OK, we use raw SQL, db.NewDB is in db.go)"
 
 # Build API binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api ./cmd/api
