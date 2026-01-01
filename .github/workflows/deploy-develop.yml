@@ -102,6 +102,19 @@ jobs:
           ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
           chmod 644 ~/.ssh/known_hosts
           
+          # Create SSH config with keepalive settings
+          cat > ~/.ssh/config << EOF
+          Host ${{ secrets.STAGING_HOST }}
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
+            TCPKeepAlive yes
+            Compression no
+            ControlMaster auto
+            ControlPath ~/.ssh/control-%h-%p-%r
+            ControlPersist 10m
+          EOF
+          chmod 600 ~/.ssh/config
+          
           # Test SSH connection
           echo "🔍 Testing SSH connection..."
           ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@${{ secrets.STAGING_HOST }} "echo 'SSH connection successful'" || {
@@ -139,7 +152,14 @@ jobs:
             exit 1
           fi
           
-          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o BatchMode=yes root@${{ secrets.STAGING_HOST }} << 'EOF'
+          # Use SSH with keepalive and run deployment in a way that won't timeout
+          ssh -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=10 \
+            -o TCPKeepAlive=yes \
+            root@${{ secrets.STAGING_HOST }} << 'DEPLOY_SCRIPT'
             set -e  # Exit on error
             
             echo "🚀 Starting deployment..."
@@ -148,7 +168,7 @@ jobs:
             # Backup current deployment
             echo "📦 Creating backup..."
             if [ -d ".git" ]; then
-              git stash
+              git stash || true
               CURRENT_COMMIT=$(git rev-parse HEAD)
               echo "Current commit: $CURRENT_COMMIT"
             fi
@@ -168,12 +188,22 @@ jobs:
             # Build and deploy
             echo "🔨 Building and deploying containers..."
             docker compose down || true  # Ignore errors if containers aren't running
-            docker compose build --no-cache
+            
+            # Build containers (this may take several minutes)
+            # Use unbuffered output and keep connection alive
+            echo "Building containers (this may take several minutes)..."
+            if ! docker compose build --no-cache; then
+              echo "❌ Build failed. Showing recent logs:"
+              docker compose build --no-cache 2>&1 | tail -n 100
+              exit 1
+            fi
+            
+            echo "Starting containers..."
             docker compose up -d
             
             # Wait for services to be healthy
             echo "⏳ Waiting for services to start..."
-            sleep 10
+            sleep 15
             
             # Health check
             echo "🏥 Checking service health..."
@@ -183,6 +213,7 @@ jobs:
             else
               echo "❌ Some services failed to start"
               docker compose ps
+              echo "📋 Recent logs:"
               docker compose logs --tail=50
               exit 1
             fi
@@ -192,7 +223,7 @@ jobs:
             docker compose logs --tail=20
             
             echo "✅ Deployment completed successfully!"
-          EOF
+DEPLOY_SCRIPT
 
       - name: Deployment status
         if: failure()
