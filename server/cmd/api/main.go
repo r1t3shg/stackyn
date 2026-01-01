@@ -47,8 +47,8 @@ func main() {
 	}
 	defer database.Close()
 
-	// Initialize HTTP server with chi router
-	router := api.Router(logger, config, database)
+	// Initialize HTTP server with chi router (pass pool directly)
+	router := api.Router(logger, config, database.GetPool())
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%s", config.Server.Addr, config.Server.Port),
 		Handler: router,

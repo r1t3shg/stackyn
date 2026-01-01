@@ -3,17 +3,19 @@ package api
 import (
 	"net/http"
 
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
-	"stackyn/server/internal/db"
 	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 )
 
 // Router sets up the HTTP router with all routes and middleware
-func Router(logger *zap.Logger, config *infra.Config, database *db.DB) http.Handler {
+func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.Handler {
 	r := chi.NewRouter()
 
 	// CORS middleware - allow all origins for development
@@ -54,8 +56,7 @@ func Router(logger *zap.Logger, config *infra.Config, database *db.DB) http.Hand
 	// Initialize email service
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
-	// Initialize repositories (use pool directly to avoid dependency on generated code)
-	pool := database.GetPool()
+	// Initialize repositories (use pool directly)
 	otpRepo := NewOTPRepo(pool, logger)
 	userRepo := NewUserRepo(pool, logger)
 	
