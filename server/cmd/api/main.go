@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"stackyn/server/internal/api"
-	"stackyn/server/internal/db"
 	"stackyn/server/internal/infra"
 
 	"go.uber.org/zap"
@@ -40,15 +40,21 @@ func main() {
 		zap.String("docker_host", config.Docker.Host),
 	)
 
-	// Initialize database connection
-	database, err := db.NewDB(config.Postgres.DSN, logger)
+	// Initialize database connection pool
+	pool, err := pgxpool.New(context.Background(), config.Postgres.DSN)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
-	defer database.Close()
+	defer pool.Close()
 
-	// Initialize HTTP server with chi router (pass pool directly)
-	router := api.Router(logger, config, database.GetPool())
+	// Test connection
+	if err := pool.Ping(context.Background()); err != nil {
+		logger.Fatal("Failed to ping database", zap.Error(err))
+	}
+	logger.Info("Database connection established")
+
+	// Initialize HTTP server with chi router
+	router := api.Router(logger, config, pool)
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%s", config.Server.Addr, config.Server.Port),
 		Handler: router,

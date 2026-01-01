@@ -15,11 +15,8 @@ COPY . .
 # Install sqlc
 RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
-# Generate sqlc code (may fail if queries are missing, but that's OK since we use raw SQL)
+# Generate sqlc code
 RUN sqlc generate
-
-# Verify db package compiles (db.NewDB is manually written in db.go)
-RUN go build ./internal/db
 
 # Build API binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api ./cmd/api
