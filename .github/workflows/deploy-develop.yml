@@ -223,7 +223,7 @@ jobs:
           docker compose logs --tail=20
           
           echo "✅ Deployment completed successfully!"
-DEPLOY_SCRIPT
+          DEPLOY_SCRIPT
 
       - name: Deployment status
         if: failure()
