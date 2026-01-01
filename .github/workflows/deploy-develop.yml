@@ -75,13 +75,71 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          
+          # Detect key type and write accordingly
+          SSH_KEY="${{ secrets.STAGING_SSH_KEY }}"
+          if echo "$SSH_KEY" | grep -q "BEGIN.*ED25519"; then
+            KEY_FILE=~/.ssh/id_ed25519
+            echo "🔑 Detected ED25519 key"
+          elif echo "$SSH_KEY" | grep -q "BEGIN.*RSA"; then
+            KEY_FILE=~/.ssh/id_rsa
+            echo "🔑 Detected RSA key"
+          elif echo "$SSH_KEY" | grep -q "BEGIN"; then
+            # Default to ed25519 if we can't determine
+            KEY_FILE=~/.ssh/id_ed25519
+            echo "🔑 Using default key file (ed25519)"
+          else
+            echo "⚠️  Warning: SSH key format not recognized. Ensure STAGING_SSH_KEY includes full key with headers."
+            KEY_FILE=~/.ssh/id_ed25519
+          fi
+          
+          # Write SSH key (preserve newlines)
+          echo "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          
+          # Add host to known_hosts
+          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+          
+          # Test SSH connection
+          echo "🔍 Testing SSH connection..."
+          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@${{ secrets.STAGING_HOST }} "echo 'SSH connection successful'" || {
+            echo "❌ SSH connection test failed"
+            echo "Key file: $KEY_FILE"
+            echo "Key file exists: $(test -f "$KEY_FILE" && echo 'yes' || echo 'no')"
+            if [ -f "$KEY_FILE" ]; then
+              echo "Key file permissions: $(ls -la "$KEY_FILE")"
+              echo "Key file first line: $(head -n1 "$KEY_FILE")"
+              echo "Key file last line: $(tail -n1 "$KEY_FILE")"
+            fi
+            echo ""
+            echo "💡 Troubleshooting tips:"
+            echo "1. Ensure STAGING_SSH_KEY secret includes the full private key with headers"
+            echo "2. Verify the key is added to the server's authorized_keys"
+            echo "3. Check that STAGING_HOST is correct"
+            exit 1
+          }
+          
+          # Export key file path for use in deployment step
+          echo "KEY_FILE=$KEY_FILE" >> $GITHUB_ENV
+          echo "✅ SSH setup complete. Using key: $KEY_FILE"
 
       - name: Deploy to staging
         run: |
-          ssh root@${{ secrets.STAGING_HOST }} << 'EOF'
+          # Try to use detected key file, fallback to common key types
+          if [ -f "${{ env.KEY_FILE }}" ]; then
+            KEY_FILE="${{ env.KEY_FILE }}"
+          elif [ -f ~/.ssh/id_ed25519 ]; then
+            KEY_FILE=~/.ssh/id_ed25519
+          elif [ -f ~/.ssh/id_rsa ]; then
+            KEY_FILE=~/.ssh/id_rsa
+          else
+            echo "❌ No SSH key found"
+            exit 1
+          fi
+          
+          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o BatchMode=yes root@${{ secrets.STAGING_HOST }} << 'EOF'
             set -e  # Exit on error
             
             echo "🚀 Starting deployment..."
