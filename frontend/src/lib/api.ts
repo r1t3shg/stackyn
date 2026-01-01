@@ -17,7 +17,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
       }
     } else {
       // Response is not JSON (likely HTML error page)
-      const text = await response.text().catch(() => '');
+      // Consume the response body to avoid memory leaks
+      await response.text().catch(() => '');
       if (response.status === 404) {
         error = { error: `API endpoint not found. Please check that the backend server is running and the endpoint exists.` };
       } else if (response.status >= 500) {
@@ -35,8 +36,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
   if (contentType && contentType.includes('application/json')) {
     return response.json();
   } else {
-    // If response is not JSON, return as text wrapped in an object
-    const text = await response.text();
+    // If response is not JSON, consume the body and throw error
+    await response.text().catch(() => '');
     throw new Error(`Expected JSON response but received ${contentType || 'unknown content type'}`);
   }
 }
