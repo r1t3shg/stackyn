@@ -5,11 +5,69 @@ on:
     branches:
       - develop
 
+env:
+  NODE_VERSION: '20'
+  GO_VERSION: '1.25'
+
 jobs:
-  deploy:
+  # CI: Build and test
+  ci:
     runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Frontend: Lint and Build
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: ./frontend
+        run: npm run lint
+        continue-on-error: false
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.FRONTEND_API_URL || 'https://api.staging.stackyn.com' }}
+
+      # Backend: Build verification
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Verify backend builds
+        working-directory: ./server
+        run: |
+          go mod download
+          go mod verify
+          go build -o /tmp/api ./cmd/api
+          go build -o /tmp/build-worker ./cmd/build-worker
+          go build -o /tmp/deploy-worker ./cmd/deploy-worker
+          go build -o /tmp/cleanup-worker ./cmd/cleanup-worker
+          echo "✅ All backend binaries built successfully"
+
+  # CD: Deploy to staging
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -17,11 +75,65 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Deploy to staging
         run: |
           ssh root@${{ secrets.STAGING_HOST }} << 'EOF'
+            set -e  # Exit on error
+            
+            echo "🚀 Starting deployment..."
             cd /opt/stackyn
+            
+            # Backup current deployment
+            echo "📦 Creating backup..."
+            if [ -d ".git" ]; then
+              git stash
+              CURRENT_COMMIT=$(git rev-parse HEAD)
+              echo "Current commit: $CURRENT_COMMIT"
+            fi
+            
+            # Pull latest code
+            echo "📥 Pulling latest code..."
             git checkout develop
             git pull origin develop
-            docker compose up -d --build
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "New commit: $NEW_COMMIT"
+            
+            # Ensure environment variables are set
+            if [ ! -f .env ]; then
+              echo "⚠️  Warning: .env file not found. Make sure environment variables are set."
+            fi
+            
+            # Build and deploy
+            echo "🔨 Building and deploying containers..."
+            docker compose down || true  # Ignore errors if containers aren't running
+            docker compose build --no-cache
+            docker compose up -d
+            
+            # Wait for services to be healthy
+            echo "⏳ Waiting for services to start..."
+            sleep 10
+            
+            # Health check
+            echo "🏥 Checking service health..."
+            if docker compose ps | grep -q "Up"; then
+              echo "✅ Services are running"
+              docker compose ps
+            else
+              echo "❌ Some services failed to start"
+              docker compose ps
+              docker compose logs --tail=50
+              exit 1
+            fi
+            
+            # Show recent logs
+            echo "📋 Recent logs:"
+            docker compose logs --tail=20
+            
+            echo "✅ Deployment completed successfully!"
           EOF
+
+      - name: Deployment status
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Check the logs above for details."
+          exit 1

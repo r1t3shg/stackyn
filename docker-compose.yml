@@ -154,6 +154,7 @@ services:
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
       DOCKER_TLS_ENABLED: false
+      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
     volumes:
@@ -192,6 +193,7 @@ services:
       TRAEFIK_API_URL: http://traefik:8080
       TRAEFIK_ENTRY_POINT: web
       TRAEFIK_NETWORK_NAME: stackyn-network
+      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
     volumes:
@@ -218,6 +220,7 @@ services:
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
       DOCKER_TLS_ENABLED: false
+      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
