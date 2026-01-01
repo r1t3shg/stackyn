@@ -11,7 +11,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     if (contentType && contentType.includes('application/json')) {
       try {
         error = await response.json();
-      } catch (e) {
+      } catch {
         // If JSON parsing fails, use default error
         error = { error: response.statusText };
       }
