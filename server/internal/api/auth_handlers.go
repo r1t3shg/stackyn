@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -104,8 +105,17 @@ func (h *AuthHandlers) SendOTP(w http.ResponseWriter, r *http.Request) {
 	// Generate and send OTP
 	otp, err := h.otpService.SendOTP(req.Email)
 	if err != nil {
-		h.logger.Error("Failed to send OTP", zap.Error(err), zap.String("email", req.Email))
-		h.writeError(w, http.StatusInternalServerError, "Failed to send OTP")
+		h.logger.Error("Failed to send OTP", 
+			zap.Error(err), 
+			zap.String("email", req.Email),
+			zap.String("error_type", fmt.Sprintf("%T", err)),
+		)
+		// Return more detailed error message for debugging
+		errorMsg := "Failed to send OTP"
+		if err != nil {
+			errorMsg = fmt.Sprintf("Failed to send OTP: %v", err)
+		}
+		h.writeError(w, http.StatusInternalServerError, errorMsg)
 		return
 	}
 

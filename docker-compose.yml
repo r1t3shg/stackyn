@@ -12,6 +12,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Initialize database schema on first startup
+      - ./server/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
     # Port mapping removed - services access via Docker network
     # If you need external access, uncomment: - "5432:5432"
     healthcheck:
