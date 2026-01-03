@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"go.uber.org/zap"
+	stackynerrors "stackyn/server/internal/errors"
 )
 
 // GitService handles Git repository operations
@@ -32,8 +33,9 @@ func NewGitService(logger *zap.Logger, cloneDir string) *GitService {
 type CloneOptions struct {
 	RepoURL   string
 	Branch    string
-	Shallow   bool // Enable shallow clone
-	Depth     int  // Depth for shallow clone (default: 1)
+	Shallow   bool   // Enable shallow clone
+	Depth     int    // Depth for shallow clone (default: 1)
+	UniqueID  string // Optional unique identifier for concurrent builds (e.g., build_job_id)
 }
 
 // CloneResult represents the result of a clone operation
@@ -71,17 +73,24 @@ func (s *GitService) ValidatePublicRepo(ctx context.Context, repoURL string) err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("repository is not accessible (may be private): %w", err)
+		// Network error - could be private or unreachable
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "no such host") {
+			return stackynerrors.New(stackynerrors.ErrorCodeRepoNotFound, fmt.Sprintf("Repository %s is not accessible", repoURL))
+		}
+		return stackynerrors.New(stackynerrors.ErrorCodeRepoPrivateUnsupported, fmt.Sprintf("Repository %s may be private or not accessible", repoURL))
 	}
 	defer resp.Body.Close()
 
 	// Check if repository is accessible (200 or 301/302 for redirects)
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("repository not found or is private")
+		return stackynerrors.New(stackynerrors.ErrorCodeRepoNotFound, fmt.Sprintf("Repository %s not found or branch doesn't exist", repoURL))
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("repository is not accessible (status: %d)", resp.StatusCode)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return stackynerrors.New(stackynerrors.ErrorCodeRepoPrivateUnsupported, fmt.Sprintf("Repository %s appears to be private", repoURL))
+		}
+		return stackynerrors.New(stackynerrors.ErrorCodeRepoNotFound, fmt.Sprintf("Repository not accessible (status: %d)", resp.StatusCode))
 	}
 
 	s.logger.Info("Repository validated as public",
@@ -96,15 +105,27 @@ func (s *GitService) ValidatePublicRepo(ctx context.Context, repoURL string) err
 func (s *GitService) Clone(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
 	// Validate repository is public
 	if err := s.ValidatePublicRepo(ctx, opts.RepoURL); err != nil {
-		return nil, fmt.Errorf("repository validation failed: %w", err)
+		// If it's already a StackynError, return it directly
+		if stackynErr, ok := stackynerrors.AsStackynError(err); ok {
+			return nil, stackynErr
+		}
+		return nil, stackynerrors.Wrap(stackynerrors.ErrorCodeRepoNotFound, err, "Repository validation failed")
 	}
 
 	// Normalize URL to HTTPS
 	httpsURL := s.normalizeGitHubURL(opts.RepoURL)
 
 	// Create unique directory for this clone
+	// If UniqueID is provided, use it to avoid conflicts with concurrent builds
 	repoName := s.extractRepoName(httpsURL)
-	clonePath := filepath.Join(s.cloneDir, repoName)
+	var clonePath string
+	if opts.UniqueID != "" {
+		// Use unique ID to create separate directories for concurrent builds
+		clonePath = filepath.Join(s.cloneDir, fmt.Sprintf("%s-%s", repoName, opts.UniqueID))
+	} else {
+		// Legacy behavior: use repo name only (for backward compatibility)
+		clonePath = filepath.Join(s.cloneDir, repoName)
+	}
 
 	// Clean up existing directory if it exists
 	if _, err := os.Stat(clonePath); err == nil {
@@ -146,12 +167,20 @@ func (s *GitService) Clone(ctx context.Context, opts CloneOptions) (*CloneResult
 		zap.Bool("shallow", opts.Shallow),
 		zap.Int("depth", gitCloneOpts.Depth),
 		zap.String("clone_path", clonePath),
+		zap.String("unique_id", opts.UniqueID),
 	)
 
 	// Clone repository
 	repo, err := git.PlainClone(clonePath, false, gitCloneOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to clone repository: %w", err)
+		// Check for specific error types
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+			return nil, stackynerrors.New(stackynerrors.ErrorCodeRepoNotFound, fmt.Sprintf("Branch '%s' does not exist in repository", opts.Branch))
+		}
+		if strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "private") {
+			return nil, stackynerrors.New(stackynerrors.ErrorCodeRepoPrivateUnsupported, "Repository appears to be private")
+		}
+		return nil, stackynerrors.Wrap(stackynerrors.ErrorCodeRepoNotFound, err, "Failed to clone repository")
 	}
 
 	// Get the checked out commit

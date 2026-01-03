@@ -105,12 +105,42 @@ func LoadConfig() (*Config, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	
+	// Explicitly bind environment variables for Redis (must be before setDefaults)
+	viper.BindEnv("redis.host", "REDIS_HOST")
+	viper.BindEnv("redis.port", "REDIS_PORT")
+	viper.BindEnv("redis.password", "REDIS_PASSWORD")
+	viper.BindEnv("redis.db", "REDIS_DB")
+	viper.BindEnv("redis.addr", "REDIS_ADDR")
+	
 	// Explicitly bind environment variables for email config
 	viper.BindEnv("email.resend_api_key", "EMAIL_RESEND_API_KEY")
 	viper.BindEnv("email.from_email", "EMAIL_FROM_EMAIL")
 
-	// Set default values
+	// Set default values (env vars will override these)
 	setDefaults()
+	
+	// Force read environment variables by explicitly checking them
+	// This ensures env vars take precedence over defaults
+	if redisHost := os.Getenv("REDIS_HOST"); redisHost != "" {
+		viper.Set("redis.host", redisHost)
+	}
+	if redisPort := os.Getenv("REDIS_PORT"); redisPort != "" {
+		// Parse port as integer
+		var port int
+		if _, err := fmt.Sscanf(redisPort, "%d", &port); err == nil {
+			viper.Set("redis.port", port)
+		}
+	}
+	if redisPassword := os.Getenv("REDIS_PASSWORD"); redisPassword != "" {
+		viper.Set("redis.password", redisPassword)
+	}
+	if redisDB := os.Getenv("REDIS_DB"); redisDB != "" {
+		// Parse DB as integer
+		var db int
+		if _, err := fmt.Sscanf(redisDB, "%d", &db); err == nil {
+			viper.Set("redis.db", db)
+		}
+	}
 
 	// Try to read config file (optional - env vars take precedence)
 	if err := viper.ReadInConfig(); err != nil {
@@ -140,10 +170,32 @@ func LoadConfig() (*Config, error) {
 			SSLMode:  viper.GetString("postgres.sslmode"),
 		},
 		Redis: RedisConfig{
-			Host:     viper.GetString("redis.host"),
-			Port:     viper.GetInt("redis.port"),
-			Password: viper.GetString("redis.password"),
-			DB:       viper.GetInt("redis.db"),
+			// Read directly from environment variables (bypass viper completely)
+			Host: func() string {
+				if h := os.Getenv("REDIS_HOST"); h != "" {
+					return h
+				}
+				return "localhost"
+			}(),
+			Port: func() int {
+				if p := os.Getenv("REDIS_PORT"); p != "" {
+					var port int
+					if _, err := fmt.Sscanf(p, "%d", &port); err == nil {
+						return port
+					}
+				}
+				return 6379
+			}(),
+			Password: os.Getenv("REDIS_PASSWORD"),
+			DB: func() int {
+				if d := os.Getenv("REDIS_DB"); d != "" {
+					var db int
+					if _, err := fmt.Sscanf(d, "%d", &db); err == nil {
+						return db
+					}
+				}
+				return 0
+			}(),
 		},
 		Docker: DockerConfig{
 			Host:       viper.GetString("docker.host"),
@@ -173,11 +225,13 @@ func LoadConfig() (*Config, error) {
 
 	// Build computed connection strings
 	config.Postgres.DSN = buildPostgresDSN(config.Postgres)
-	config.Redis.Addr = buildRedisAddr(config.Redis)
 	
-	// Override Redis addr if explicitly set
-	if viper.IsSet("redis.addr") {
-		config.Redis.Addr = viper.GetString("redis.addr")
+	// Check for REDIS_ADDR first (most direct way to set Redis address)
+	if redisAddr := os.Getenv("REDIS_ADDR"); redisAddr != "" {
+		config.Redis.Addr = redisAddr
+	} else {
+		// Build from host and port
+		config.Redis.Addr = buildRedisAddr(config.Redis)
 	}
 
 	// Validate required configs (fail fast)
@@ -243,6 +297,25 @@ func buildPostgresDSN(pg PostgresConfig) string {
 
 func buildRedisAddr(redis RedisConfig) string {
 	return fmt.Sprintf("%s:%d", redis.Host, redis.Port)
+}
+
+// getEnvWithDefault gets value from environment variable or returns default
+func getEnvWithDefault(envKey, defaultValue string) string {
+	if val := os.Getenv(envKey); val != "" {
+		return val
+	}
+	return defaultValue
+}
+
+// getEnvIntWithDefault gets integer value from environment variable or returns default
+func getEnvIntWithDefault(envKey string, defaultValue int) int {
+	if val := os.Getenv(envKey); val != "" {
+		var intVal int
+		if _, err := fmt.Sscanf(val, "%d", &intVal); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
 }
 
 func validateConfig(config *Config) error {

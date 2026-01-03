@@ -35,6 +35,21 @@ export default function Home() {
       setApps(Array.isArray(data) ? data : []);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load apps';
+      
+      // If it's a 401 error, redirect to login using React Router (no page refresh)
+      // Check for various 401 error message formats
+      if (errorMessage.includes('401') || 
+          errorMessage.includes('Unauthorized') || 
+          errorMessage.toLowerCase().includes('unauthorized')) {
+        console.log('Unauthorized access - redirecting to login');
+        // Clear any stale auth data
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        // Use React Router navigation (no page refresh)
+        navigate('/login', { replace: true });
+        return;
+      }
+      
       setError(errorMessage);
       console.error('Error loading apps:', err);
       setApps([]);

@@ -45,18 +45,6 @@ func (s *TaskEnqueueService) EnqueueBuildTask(ctx context.Context, payload inter
 		priority = 1 // Default priority
 	}
 
-	// Map priority to Asynq queue
-	// Higher priority number = higher priority queue
-	var queueName string
-	switch {
-	case priority >= 10:
-		queueName = "critical" // Premium plans
-	case priority >= 5:
-		queueName = "default" // Pro plans
-	default:
-		queueName = "low" // Free plans
-	}
-
 	// Serialize payload
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -66,15 +54,19 @@ func (s *TaskEnqueueService) EnqueueBuildTask(ctx context.Context, payload inter
 	// Create task
 	task := asynq.NewTask("build_task", payloadBytes)
 
-	// Enqueue with priority
-	info, err := s.client.Enqueue(task, asynq.Queue(queueName))
+	// Use build-specific queue to ensure only build-worker processes it
+	// Builds should only start when explicitly triggered by user (CreateApp or RedeployApp)
+	info, err := s.client.Enqueue(task, 
+		asynq.Queue("build"), // Use build-specific queue
+		asynq.MaxRetry(0),    // No automatic retries - user must manually trigger redeploy
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to enqueue build task: %w", err)
 	}
 
 	s.logger.Info("Enqueued build task",
 		zap.String("task_id", info.ID),
-		zap.String("queue", queueName),
+		zap.String("queue", "build"),
 		zap.Int("priority", priority),
 		zap.String("user_id", userID),
 	)
@@ -91,17 +83,6 @@ func (s *TaskEnqueueService) EnqueueDeployTask(ctx context.Context, payload inte
 		priority = 1 // Default priority
 	}
 
-	// Map priority to Asynq queue
-	var queueName string
-	switch {
-	case priority >= 10:
-		queueName = "critical"
-	case priority >= 5:
-		queueName = "default"
-	default:
-		queueName = "low"
-	}
-
 	// Serialize payload
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -111,15 +92,15 @@ func (s *TaskEnqueueService) EnqueueDeployTask(ctx context.Context, payload inte
 	// Create task
 	task := asynq.NewTask("deploy_task", payloadBytes)
 
-	// Enqueue with priority
-	info, err := s.client.Enqueue(task, asynq.Queue(queueName))
+	// Use deploy-specific queue to ensure only deploy-worker processes it
+	info, err := s.client.Enqueue(task, asynq.Queue("deploy"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to enqueue deploy task: %w", err)
 	}
 
 	s.logger.Info("Enqueued deploy task",
 		zap.String("task_id", info.ID),
-		zap.String("queue", queueName),
+		zap.String("queue", "deploy"),
 		zap.Int("priority", priority),
 		zap.String("user_id", userID),
 	)

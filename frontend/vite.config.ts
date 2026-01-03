@@ -31,6 +31,19 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    // Proxy API requests to local backend during development
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/health': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   build: {
     outDir: 'dist',

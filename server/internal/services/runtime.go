@@ -43,8 +43,12 @@ func (d *RuntimeDetector) DetectRuntime(repoPath string) (Runtime, error) {
 		return RuntimeNodeJS, nil
 	}
 
-	// Check for requirements.txt or setup.py (Python)
-	if d.fileExists(repoPath, "requirements.txt") || d.fileExists(repoPath, "setup.py") || d.fileExists(repoPath, "Pipfile") {
+	// Check for Python files (requirements.txt, setup.py, Pipfile, pyproject.toml, or .py files)
+	if d.fileExists(repoPath, "requirements.txt") || 
+		d.fileExists(repoPath, "setup.py") || 
+		d.fileExists(repoPath, "Pipfile") ||
+		d.fileExists(repoPath, "pyproject.toml") ||
+		d.hasPythonFiles(repoPath) {
 		d.logger.Info("Detected Python runtime", zap.String("path", repoPath))
 		return RuntimePython, nil
 	}
@@ -90,6 +94,34 @@ func (d *RuntimeDetector) fileExists(repoPath, filename string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// hasPythonFiles checks if the repository contains Python files
+func (d *RuntimeDetector) hasPythonFiles(repoPath string) bool {
+	err := filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+		if info.IsDir() {
+			// Skip hidden directories, node_modules, and common build/cache directories
+			if strings.HasPrefix(info.Name(), ".") || 
+				info.Name() == "node_modules" ||
+				info.Name() == "__pycache__" ||
+				info.Name() == ".venv" ||
+				info.Name() == "venv" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".py" {
+			return fmt.Errorf("found Python file") // Signal that we found a Python file
+		}
+		return nil
+	})
+	
+	return err != nil // If err is not nil, we found a Python file
+}
+
 // hasStaticFiles checks if the repository contains static files
 func (d *RuntimeDetector) hasStaticFiles(repoPath string) bool {
 	staticExtensions := []string{".html", ".htm", ".css", ".js"}
@@ -99,8 +131,12 @@ func (d *RuntimeDetector) hasStaticFiles(repoPath string) bool {
 			return nil // Skip errors
 		}
 		if info.IsDir() {
-			// Skip hidden directories and node_modules
-			if strings.HasPrefix(info.Name(), ".") || info.Name() == "node_modules" {
+			// Skip hidden directories, node_modules, and Python-specific directories
+			if strings.HasPrefix(info.Name(), ".") || 
+				info.Name() == "node_modules" ||
+				info.Name() == "__pycache__" ||
+				info.Name() == ".venv" ||
+				info.Name() == "venv" {
 				return filepath.SkipDir
 			}
 			return nil

@@ -12,6 +12,10 @@ const (
 	QueueCritical = "critical"
 	QueueDefault  = "default"
 	QueueLow      = "low"
+	// Task-type-specific queues to prevent cross-worker processing
+	QueueBuild   = "build"
+	QueueDeploy  = "deploy"
+	QueueCleanup = "cleanup"
 )
 
 // BuildTaskPayload represents the payload for a build task
@@ -33,6 +37,8 @@ type DeployTaskPayload struct {
 	Subdomain     string `json:"subdomain,omitempty"`
 	UserID        string `json:"user_id"` // User who owns the app
 	RequestedRAMMB int   `json:"requested_ram_mb,omitempty"` // RAM requested for deployment
+	UseDockerCompose bool `json:"use_docker_compose,omitempty"` // Whether to deploy using docker-compose
+	RepoPath      string `json:"repo_path,omitempty"` // Path to cloned repository (for docker-compose)
 }
 
 // CleanupTaskPayload represents the payload for a cleanup task

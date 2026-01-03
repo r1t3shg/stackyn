@@ -34,13 +34,28 @@ func NewOTPService(logger *zap.Logger, db OTPRepository, emailService *EmailServ
 
 // GenerateOTP generates a 6-digit OTP
 func (s *OTPService) GenerateOTP() (string, error) {
+	// Generate a random number between 0 and 999999 (6 digits max)
+	// Use modulo to ensure it's always in the 6-digit range
 	bytes := make([]byte, 3)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	
-	// Generate 6-digit OTP (000000-999999)
-	otp := fmt.Sprintf("%06d", int(bytes[0])<<16|int(bytes[1])<<8|int(bytes[2])%1000000)
+	// Combine 3 bytes to get a number in 0-16777215 range
+	// Then use modulo to get 0-999999 range
+	randomNum := int(bytes[0])<<16 | int(bytes[1])<<8 | int(bytes[2])
+	randomNum = randomNum % 1000000 // Ensure 6 digits (0-999999)
+	
+	// Format as 6-digit string with leading zeros if needed
+	// This ensures we always get exactly 6 digits
+	otp := fmt.Sprintf("%06d", randomNum)
+	
+	// Safety check: ensure it's exactly 6 digits
+	if len(otp) != 6 {
+		// This should never happen, but if it does, regenerate
+		return "", fmt.Errorf("generated OTP has invalid length: %d", len(otp))
+	}
+	
 	return otp, nil
 }
 
