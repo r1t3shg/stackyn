@@ -279,6 +279,24 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
 
+	h.logger.Info("Repository cloned",
+		zap.String("path", cloneResult.Path),
+		zap.String("commit_sha", cloneResult.CommitSHA),
+	)
+
+	// Repository cloned - status will be stored in DB
+
+	// MVP constraints validation removed - allowing all repository types
+
+	// Check for docker-compose.yml file (must be before defer to be in scope)
+	hasDockerCompose := h.hasDockerComposeFile(cloneResult.Path)
+	h.logger.Info("Docker Compose detection",
+		zap.String("app_id", payload.AppID),
+		zap.String("build_job_id", payload.BuildJobID),
+		zap.Bool("has_docker_compose", hasDockerCompose),
+		zap.String("repo_path", cloneResult.Path),
+	)
+
 	// Ensure cleanup happens even if build fails
 	// BUT: Skip cleanup if docker-compose is detected (deploy task needs the repo path)
 	defer func() {
@@ -295,24 +313,6 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 			)
 		}
 	}()
-
-	h.logger.Info("Repository cloned",
-		zap.String("path", cloneResult.Path),
-		zap.String("commit_sha", cloneResult.CommitSHA),
-	)
-
-	// Repository cloned - status will be stored in DB
-
-	// MVP constraints validation removed - allowing all repository types
-
-	// Check for docker-compose.yml file
-	hasDockerCompose := h.hasDockerComposeFile(cloneResult.Path)
-	h.logger.Info("Docker Compose detection",
-		zap.String("app_id", payload.AppID),
-		zap.String("build_job_id", payload.BuildJobID),
-		zap.Bool("has_docker_compose", hasDockerCompose),
-		zap.String("repo_path", cloneResult.Path),
-	)
 
 	// Step 2: Detect runtime
 	if h.runtimeDetector == nil {
