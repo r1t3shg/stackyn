@@ -251,7 +251,21 @@ jobs:
           docker compose down --remove-orphans -v || true  # Remove volumes and orphaned containers
           
           # Wait a moment for ports to be released
-          sleep 2
+          sleep 3
+          
+          # Find and stop any containers using port 8080
+          echo "🔍 Finding containers using port 8080..."
+          CONTAINERS_ON_8080=$(docker ps --filter "publish=8080" --format "{{.ID}} {{.Names}}" 2>/dev/null || true)
+          if [ ! -z "$CONTAINERS_ON_8080" ]; then
+            echo "⚠️  Found containers using port 8080:"
+            echo "$CONTAINERS_ON_8080"
+            echo "🛑 Stopping these containers..."
+            docker ps --filter "publish=8080" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || true
+            docker ps -a --filter "publish=8080" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+            sleep 2
+          else
+            echo "✅ No containers found using port 8080"
+          fi
           
           # Check for and kill processes using port 8080 (API port)
           echo "🔍 Checking for processes using port 8080..."
@@ -275,12 +289,10 @@ jobs:
           echo "🧹 Cleaning up dangling containers..."
           docker ps -a --filter "name=stackyn" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
           
-          # Additional cleanup: remove any containers using port 8080
-          echo "🧹 Removing containers using port 8080..."
-          docker ps --filter "publish=8080" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
-          
           # Wait again for cleanup to complete
           sleep 2
+          
+          echo "✅ Cleanup complete"
           
           # Build containers (this may take several minutes)
           # Use unbuffered output and keep connection alive

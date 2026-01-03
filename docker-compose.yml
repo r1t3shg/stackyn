@@ -109,9 +109,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
-    # Expose port for local development access
-    ports:
-      - "8080:8080"
+    # Expose port for local development access only
+    # For VPS/production, Traefik handles all routing, so port mapping is not needed
+    # Uncomment the following lines for local development:
+    # ports:
+    #   - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
