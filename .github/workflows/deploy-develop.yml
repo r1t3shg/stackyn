@@ -188,17 +188,30 @@ jobs:
             if [ -f env.example ]; then
               echo "📋 Creating .env from env.example template..."
               cp env.example .env
-              echo "⚠️  IMPORTANT: Edit .env file on the server and set all required values!"
-              echo "   Required: POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET, ACME_EMAIL, APP_BASE_DOMAIN"
+              echo "✅ Created .env from env.example"
             elif [ -f .env.production.example ]; then
               echo "📋 Creating .env from .env.production.example template..."
               cp .env.production.example .env
-              echo "⚠️  IMPORTANT: Edit .env file on the server and set all required values!"
-              echo "   Required: POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET, ACME_EMAIL, APP_BASE_DOMAIN"
+              echo "✅ Created .env from .env.production.example"
             else
               echo "❌ No .env file or template found. Deployment cannot continue."
               echo "   Looking for: env.example or .env.production.example"
               exit 1
+            fi
+          else
+            echo "✅ .env file exists"
+            # Check if APP_BASE_DOMAIN is missing and add it if needed
+            if ! grep -q "^APP_BASE_DOMAIN=" .env; then
+              echo "⚠️  APP_BASE_DOMAIN not found in .env, adding it..."
+              if [ -f env.example ] && grep -q "^APP_BASE_DOMAIN=" env.example; then
+                # Extract APP_BASE_DOMAIN from env.example and append to .env
+                grep "^APP_BASE_DOMAIN=" env.example >> .env
+                echo "✅ Added APP_BASE_DOMAIN to .env"
+              else
+                # Add default value
+                echo "APP_BASE_DOMAIN=staging.stackyn.com" >> .env
+                echo "✅ Added APP_BASE_DOMAIN=staging.stackyn.com to .env"
+              fi
             fi
           fi
           
@@ -217,9 +230,16 @@ jobs:
             for var in "${MISSING_VARS[@]}"; do
               echo "   - $var"
             done
-            echo "⚠️  Please set these in the .env file on the server before deploying."
+            echo ""
+            echo "💡 Solution:"
+            echo "   1. SSH into the VPS: ssh root@${{ secrets.STAGING_HOST }}"
+            echo "   2. Edit .env: cd /opt/stackyn && nano .env"
+            echo "   3. Add missing variables (see env.example for format)"
+            echo "   4. Redeploy"
             exit 1
           fi
+          
+          echo "✅ All required environment variables are set"
           
           echo "✅ Environment variables verified"
           
