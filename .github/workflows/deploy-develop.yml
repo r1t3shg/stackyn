@@ -245,7 +245,42 @@ jobs:
           
           # Build and deploy
           echo "🔨 Building and deploying containers..."
-          docker compose down || true  # Ignore errors if containers aren't running
+          
+          # Stop and remove existing containers, networks, and volumes
+          echo "🛑 Stopping existing containers..."
+          docker compose down --remove-orphans -v || true  # Remove volumes and orphaned containers
+          
+          # Wait a moment for ports to be released
+          sleep 2
+          
+          # Check for and kill processes using port 8080 (API port)
+          echo "🔍 Checking for processes using port 8080..."
+          if command -v lsof >/dev/null 2>&1; then
+            PID=$(lsof -ti:8080 2>/dev/null) && kill -9 $PID 2>/dev/null && echo "✅ Killed process on port 8080 (PID: $PID)" || echo "✅ Port 8080 is free"
+          elif command -v fuser >/dev/null 2>&1; then
+            fuser -k 8080/tcp 2>/dev/null && echo "✅ Killed process on port 8080" || echo "✅ Port 8080 is free"
+          elif command -v netstat >/dev/null 2>&1; then
+            # Fallback: use netstat to find and kill process
+            PID=$(netstat -tlnp 2>/dev/null | grep ':8080' | awk '{print $7}' | cut -d'/' -f1 | head -1)
+            if [ ! -z "$PID" ] && [ "$PID" != "-" ]; then
+              kill -9 $PID 2>/dev/null && echo "✅ Killed process on port 8080 (PID: $PID)" || echo "✅ Port 8080 is free"
+            else
+              echo "✅ Port 8080 is free"
+            fi
+          else
+            echo "⚠️  Could not check port 8080 (lsof/fuser/netstat not available)"
+          fi
+          
+          # Remove any dangling containers that might be using the port
+          echo "🧹 Cleaning up dangling containers..."
+          docker ps -a --filter "name=stackyn" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+          
+          # Additional cleanup: remove any containers using port 8080
+          echo "🧹 Removing containers using port 8080..."
+          docker ps --filter "publish=8080" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+          
+          # Wait again for cleanup to complete
+          sleep 2
           
           # Build containers (this may take several minutes)
           # Use unbuffered output and keep connection alive
@@ -257,7 +292,7 @@ jobs:
           fi
           
           echo "Starting containers..."
-          docker compose up -d
+          docker compose up -d --remove-orphans
           
           # Wait for services to be healthy
           echo "⏳ Waiting for services to start..."
