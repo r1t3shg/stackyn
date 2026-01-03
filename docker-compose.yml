@@ -157,6 +157,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -196,6 +197,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -222,6 +224,7 @@ services:
       DOCKER_TLS_ENABLED: false
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs

@@ -181,9 +181,47 @@ jobs:
           echo "New commit: $NEW_COMMIT"
           
           # Ensure environment variables are set
+          echo "🔍 Checking environment configuration..."
           if [ ! -f .env ]; then
-            echo "⚠️  Warning: .env file not found. Make sure environment variables are set."
+            echo "⚠️  Warning: .env file not found."
+            # Try env.example first (the actual file name), then .env.production.example as fallback
+            if [ -f env.example ]; then
+              echo "📋 Creating .env from env.example template..."
+              cp env.example .env
+              echo "⚠️  IMPORTANT: Edit .env file on the server and set all required values!"
+              echo "   Required: POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET, ACME_EMAIL, APP_BASE_DOMAIN"
+            elif [ -f .env.production.example ]; then
+              echo "📋 Creating .env from .env.production.example template..."
+              cp .env.production.example .env
+              echo "⚠️  IMPORTANT: Edit .env file on the server and set all required values!"
+              echo "   Required: POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET, ACME_EMAIL, APP_BASE_DOMAIN"
+            else
+              echo "❌ No .env file or template found. Deployment cannot continue."
+              echo "   Looking for: env.example or .env.production.example"
+              exit 1
+            fi
           fi
+          
+          # Verify critical environment variables are set
+          echo "✅ Verifying critical environment variables..."
+          source .env || true
+          MISSING_VARS=()
+          [ -z "$POSTGRES_PASSWORD" ] && MISSING_VARS+=("POSTGRES_PASSWORD")
+          [ -z "$JWT_SECRET" ] && MISSING_VARS+=("JWT_SECRET")
+          [ -z "$API_DOMAIN" ] && MISSING_VARS+=("API_DOMAIN")
+          [ -z "$APP_BASE_DOMAIN" ] && MISSING_VARS+=("APP_BASE_DOMAIN")
+          [ -z "$ACME_EMAIL" ] && MISSING_VARS+=("ACME_EMAIL")
+          
+          if [ ${#MISSING_VARS[@]} -ne 0 ]; then
+            echo "❌ Missing required environment variables:"
+            for var in "${MISSING_VARS[@]}"; do
+              echo "   - $var"
+            done
+            echo "⚠️  Please set these in the .env file on the server before deploying."
+            exit 1
+          fi
+          
+          echo "✅ Environment variables verified"
           
           # Build and deploy
           echo "🔨 Building and deploying containers..."
@@ -207,6 +245,7 @@ jobs:
           
           # Health check
           echo "🏥 Checking service health..."
+          sleep 5  # Additional wait for services to initialize
           if docker compose ps | grep -q "Up"; then
             echo "✅ Services are running"
             docker compose ps
@@ -218,11 +257,29 @@ jobs:
             exit 1
           fi
           
+          # Verify API is responding
+          echo "🔍 Verifying API health..."
+          sleep 10  # Wait for API to be ready
+          API_URL="https://${API_DOMAIN:-api.staging.stackyn.com}/health"
+          if curl -f -s "$API_URL" > /dev/null 2>&1; then
+            echo "✅ API health check passed"
+          else
+            echo "⚠️  API health check failed (may need more time or SSL certificate)"
+            echo "   URL: $API_URL"
+            echo "   This is normal if SSL certificates are still being generated."
+          fi
+          
           # Show recent logs
           echo "📋 Recent logs:"
           docker compose logs --tail=20
           
+          echo ""
           echo "✅ Deployment completed successfully!"
+          echo "🌐 Access your application at:"
+          echo "   - Landing: https://${FRONTEND_DOMAIN:-staging.stackyn.com}"
+          echo "   - API: https://${API_DOMAIN:-api.staging.stackyn.com}"
+          echo ""
+          echo "💡 Note: SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT
 
       - name: Deployment status

@@ -323,7 +323,13 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 	// Generate subdomain if not provided
 	subdomain := payload.Subdomain
 	if subdomain == "" {
-		subdomain = fmt.Sprintf("%s.stackyn.local", payload.AppID)
+		// Get base domain from environment variable
+		baseDomain := os.Getenv("APP_BASE_DOMAIN")
+		if baseDomain == "" {
+			// Default to .local for local development
+			baseDomain = "stackyn.local"
+		}
+		subdomain = fmt.Sprintf("%s.%s", payload.AppID, baseDomain)
 	}
 
 	// Default port (can be overridden via env vars)
