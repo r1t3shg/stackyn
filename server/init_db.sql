@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     full_name VARCHAR(255),
     company_name VARCHAR(255),
+    password_hash VARCHAR(255),
     email_verified BOOLEAN NOT NULL DEFAULT false,
     plan_id UUID,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

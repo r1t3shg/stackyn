@@ -209,21 +209,36 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 			// Create new user with password if provided
 			user, err = h.userRepo.CreateUser(req.Email, "", "", passwordHash)
 			if err != nil {
-				h.logger.Error("Failed to create user", zap.Error(err))
-				h.writeError(w, http.StatusInternalServerError, "Failed to create user")
+				h.logger.Error("Failed to create user", 
+					zap.Error(err), 
+					zap.String("email", req.Email),
+					zap.String("error_type", fmt.Sprintf("%T", err)),
+				)
+				errorMsg := fmt.Sprintf("Failed to create user: %v", err)
+				h.writeError(w, http.StatusInternalServerError, errorMsg)
 				return
 			}
 		} else {
-			h.logger.Error("Failed to get user", zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "Failed to get user")
+			h.logger.Error("Failed to get user", 
+				zap.Error(err), 
+				zap.String("email", req.Email),
+				zap.String("error_type", fmt.Sprintf("%T", err)),
+			)
+			errorMsg := fmt.Sprintf("Failed to get user: %v", err)
+			h.writeError(w, http.StatusInternalServerError, errorMsg)
 			return
 		}
 	} else if passwordHash != "" {
 		// User exists, update password if provided
 		user, err = h.userRepo.UpdateUser(user.ID, user.FullName, user.CompanyName, passwordHash)
 		if err != nil {
-			h.logger.Error("Failed to update password", zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "Failed to update password")
+			h.logger.Error("Failed to update password", 
+				zap.Error(err), 
+				zap.String("user_id", user.ID),
+				zap.String("error_type", fmt.Sprintf("%T", err)),
+			)
+			errorMsg := fmt.Sprintf("Failed to update password: %v", err)
+			h.writeError(w, http.StatusInternalServerError, errorMsg)
 			return
 		}
 	}
