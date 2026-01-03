@@ -26,9 +26,13 @@ export default function Login() {
 
     try {
       await login(email, password);
+      // Only navigate on successful login
       navigate('/apps');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      // Display error message without refreshing the page
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred during login';
+      setError(errorMessage);
+      console.error('Login error:', err);
     } finally {
       setLoading(false);
     }

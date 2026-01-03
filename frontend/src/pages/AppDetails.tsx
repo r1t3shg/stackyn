@@ -26,6 +26,25 @@ export default function AppDetailsPage() {
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  // Poll for app/deployment status updates (DB is single source of truth)
+  useEffect(() => {
+    // Only poll if app is in building/deploying state
+    const hasActiveBuild = deployments.some(d => 
+      d.status === 'building' || d.status === 'pending'
+    );
+    
+    if (!hasActiveBuild) {
+      return;
+    }
+
+    // Poll every 2 seconds while building
+    const interval = setInterval(() => {
+      loadApp();
+      loadDeployments();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [appId, deployments]);
 
   useEffect(() => {
     if (appId) {
@@ -47,6 +66,20 @@ export default function AppDetailsPage() {
       return () => clearInterval(interval);
     }
   }, [activeTab, app?.deployment?.active_deployment_id, autoRefresh]);
+
+  // Refresh app data periodically when viewing metrics tab to get fresh usage stats
+  useEffect(() => {
+    if (activeTab === 'metrics') {
+      // Load fresh app data immediately when switching to metrics tab
+      loadApp();
+      // Auto-refresh metrics every 10 seconds
+      const interval = setInterval(() => {
+        loadApp();
+        loadDeployments();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, appId]);
 
   const loadApp = async () => {
     try {
@@ -271,6 +304,22 @@ export default function AppDetailsPage() {
               <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-3">{app.name}</h1>
               <div className="flex items-center gap-4 flex-wrap">
                 <StatusBadge status={app.status || 'unknown'} />
+                {/* Show deployment status if building/pending */}
+                {deployments.length > 0 && (deployments[0].status === 'building' || deployments[0].status === 'pending') && (
+                  <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--primary)]"></div>
+                    <span>Building...</span>
+                  </div>
+                )}
+                {/* Show error message if deployment failed */}
+                {deployments.length > 0 && deployments[0].status === 'failed' && deployments[0].error_message && (
+                  <div className="flex items-center gap-2 text-sm text-[var(--error)]">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>{extractString(deployments[0].error_message)}</span>
+                  </div>
+                )}
                 {app.url && (
                   <a
                     href={app.url}
@@ -314,23 +363,23 @@ export default function AppDetailsPage() {
             <div>
               <div className="text-xs text-[var(--text-muted)] mb-1">RAM Used</div>
               <div className="text-lg font-semibold text-[var(--text-primary)]">
-                {app.deployment?.usage_stats?.memory_usage_mb 
+                {app.deployment?.usage_stats?.memory_usage_mb !== undefined
                   ? `${app.deployment.usage_stats.memory_usage_mb} MB`
-                  : '—'}
+                  : 'N/A'}
               </div>
             </div>
             <div>
               <div className="text-xs text-[var(--text-muted)] mb-1">Disk Used</div>
               <div className="text-lg font-semibold text-[var(--text-primary)]">
-                {app.deployment?.usage_stats?.disk_usage_gb 
+                {app.deployment?.usage_stats?.disk_usage_gb !== undefined
                   ? `${app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB`
-                  : '—'}
+                  : 'N/A'}
               </div>
             </div>
             <div>
               <div className="text-xs text-[var(--text-muted)] mb-1">Container Status</div>
               <div className="text-lg font-semibold text-[var(--text-primary)]">
-                {app.status === 'running' || app.status === 'healthy' ? 'Running' : app.status || 'Unknown'}
+                {app.status || 'Unknown'}
               </div>
             </div>
             <div>
@@ -549,11 +598,31 @@ export default function AppDetailsPage() {
           {/* Metrics Tab */}
           {activeTab === 'metrics' && (
             <div className="space-y-6">
-              {app.deployment?.usage_stats ? (
+              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-[var(--text-primary)]">Resource Usage</h2>
+                  <button
+                    onClick={() => {
+                      loadApp();
+                      loadDeployments();
+                    }}
+                    className="px-3 py-1 text-sm bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] rounded transition-colors flex items-center gap-2"
+                    title="Refresh metrics"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+              {loading ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)] mb-4"></div>
+                  <p className="text-[var(--text-muted)]">Loading metrics...</p>
+                </div>
+              ) : app.deployment?.usage_stats ? (
                 <>
-                  <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                    <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Resource Usage</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-sm text-[var(--text-muted)]">Memory Usage</div>
@@ -576,14 +645,14 @@ export default function AppDetailsPage() {
                           ></div>
                         </div>
                         <div className="text-xs text-[var(--text-secondary)]">
-                          {app.deployment.usage_stats.memory_usage_mb} MB / {app.deployment.resource_limits?.memory_mb || 0} MB
+                          {app.deployment.usage_stats.memory_usage_mb} MB {app.deployment.resource_limits?.memory_mb ? `/ ${app.deployment.resource_limits.memory_mb} MB` : ''}
                         </div>
                       </div>
 
                       <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                        <div className="text-sm text-[var(--text-muted)] mb-1">CPU Load</div>
+                        <div className="text-sm text-[var(--text-muted)] mb-1">CPU Allocation</div>
                         <div className="text-2xl font-bold text-[var(--text-primary)]">
-                          {app.deployment.resource_limits?.cpu || 0} vCPU
+                          {app.deployment.resource_limits?.cpu ? `${app.deployment.resource_limits.cpu} vCPU` : 'N/A'}
                         </div>
                         <div className="text-xs text-[var(--text-muted)] mt-1">Allocated</div>
                       </div>
@@ -602,42 +671,40 @@ export default function AppDetailsPage() {
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                    <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-4">Disk Usage</h2>
-                    <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm text-[var(--text-muted)]">Disk Usage</div>
-                        <div className="text-sm font-semibold text-[var(--text-primary)]">
-                          {app.deployment.usage_stats.disk_usage_percent.toFixed(1)}%
-                        </div>
+                  <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)] mt-4">
+                    <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Disk Usage</h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm text-[var(--text-muted)]">Disk Usage</div>
+                      <div className="text-sm font-semibold text-[var(--text-primary)]">
+                        {app.deployment.usage_stats.disk_usage_percent.toFixed(1)}%
                       </div>
-                      <div className="w-full bg-[var(--surface)] rounded-full h-3 mb-2">
-                        <div
-                          className={`h-3 rounded-full transition-all ${
-                            app.deployment.usage_stats.disk_usage_percent > 90
-                              ? 'bg-[var(--error)]'
-                              : app.deployment.usage_stats.disk_usage_percent > 70
-                              ? 'bg-[var(--warning)]'
-                              : 'bg-[var(--success)]'
-                          }`}
-                          style={{
-                            width: `${Math.min(app.deployment.usage_stats.disk_usage_percent, 100)}%`,
-                          }}
-                        ></div>
-                      </div>
-                      <div className="text-xs text-[var(--text-secondary)]">
-                        {app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB / {app.deployment.resource_limits?.disk_gb || 0} GB
-                      </div>
+                    </div>
+                    <div className="w-full bg-[var(--surface)] rounded-full h-3 mb-2">
+                      <div
+                        className={`h-3 rounded-full transition-all ${
+                          app.deployment.usage_stats.disk_usage_percent > 90
+                            ? 'bg-[var(--error)]'
+                            : app.deployment.usage_stats.disk_usage_percent > 70
+                            ? 'bg-[var(--warning)]'
+                            : 'bg-[var(--success)]'
+                        }`}
+                        style={{
+                          width: `${Math.min(app.deployment.usage_stats.disk_usage_percent, 100)}%`,
+                        }}
+                      ></div>
+                    </div>
+                    <div className="text-xs text-[var(--text-secondary)]">
+                      {app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB {app.deployment.resource_limits?.disk_gb ? `/ ${app.deployment.resource_limits.disk_gb} GB` : ''}
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 text-center">
+                <div className="text-center py-8">
                   <p className="text-[var(--text-muted)]">No metrics available yet. Metrics will appear after the app is deployed.</p>
                 </div>
               )}
+              </div>
             </div>
           )}
 

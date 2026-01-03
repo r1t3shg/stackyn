@@ -72,11 +72,14 @@ async function safeFetch(url: string, options?: RequestInit, requireAuth: boolea
     
     console.log('API response status:', response.status, response.statusText);
     
-    // If unauthorized, clear auth and redirect to login
+    // If unauthorized, clear auth but don't redirect automatically
+    // Let the calling component handle the error and navigation using React Router
+    // This prevents page refreshes and allows proper error handling
     if (response.status === 401 && requireAuth) {
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
-      window.location.href = '/login';
+      // Dispatch a custom event so components can listen and handle navigation
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
     
     return response;
@@ -230,13 +233,17 @@ export const authApi = {
   },
 
   // Verify OTP and get JWT token
-  verifyOTP: async (email: string, otp: string): Promise<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }> => {
+  verifyOTP: async (email: string, otp: string, password?: string): Promise<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }> => {
+    const body: { email: string; otp: string; password?: string } = { email, otp };
+    if (password) {
+      body.password = password;
+    }
     const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-otp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ email, otp }),
+      body: JSON.stringify(body),
     }, false);
     return handleResponse<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }>(response);
   },

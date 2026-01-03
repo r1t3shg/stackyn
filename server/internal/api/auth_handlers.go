@@ -1,11 +1,13 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 	"go.uber.org/zap"
 	"stackyn/server/internal/services"
 )
@@ -24,16 +26,17 @@ func (h *AuthHandlers) GetJWTService() *services.JWTService {
 }
 
 type User struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	FullName    string `json:"full_name,omitempty"`
-	CompanyName string `json:"company_name,omitempty"`
+	ID           string `json:"id"`
+	Email        string `json:"email"`
+	FullName     string `json:"full_name,omitempty"`
+	CompanyName  string `json:"company_name,omitempty"`
+	PasswordHash string `json:"-"` // Never return password hash in JSON
 }
 
 type UserRepository interface {
 	GetUserByEmail(email string) (*User, error)
-	CreateUser(email, fullName, companyName string) (*User, error)
-	UpdateUser(userID, fullName, companyName string) (*User, error)
+	CreateUser(email, fullName, companyName, passwordHash string) (*User, error)
+	UpdateUser(userID, fullName, companyName, passwordHash string) (*User, error)
 }
 
 type OTPRepository interface {
@@ -52,8 +55,9 @@ type SendOTPResponse struct {
 }
 
 type VerifyOTPRequest struct {
-	Email string `json:"email" validate:"required,email"`
-	OTP   string `json:"otp" validate:"required,len=6"`
+	Email    string `json:"email" validate:"required,email"`
+	OTP      string `json:"otp" validate:"required,len=6"`
+	Password string `json:"password,omitempty"` // Optional password for signup
 }
 
 type VerifyOTPResponse struct {
@@ -62,8 +66,9 @@ type VerifyOTPResponse struct {
 }
 
 type LoginRequest struct {
-	Email string `json:"email" validate:"required,email"`
-	OTP   string `json:"otp" validate:"required,len=6"`
+	Email    string `json:"email" validate:"required,email"`
+	OTP      string `json:"otp,omitempty"`      // Optional: for OTP login
+	Password string `json:"password,omitempty"` // Optional: for password login
 }
 
 type LoginResponse struct {
@@ -145,7 +150,7 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	// Get OTP from database
 	otpID, otpHash, expiresAt, err := h.otpRepo.GetOTPByEmail(req.Email)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			h.writeError(w, http.StatusUnauthorized, "Invalid or expired OTP")
 			return
 		}
@@ -171,12 +176,28 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("Failed to mark OTP as used", zap.Error(err))
 	}
 
+	// Hash password if provided
+	var passwordHash string
+	if req.Password != "" {
+		if len(req.Password) < 8 {
+			h.writeError(w, http.StatusBadRequest, "Password must be at least 8 characters")
+			return
+		}
+		hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			h.logger.Error("Failed to hash password", zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "Failed to process password")
+			return
+		}
+		passwordHash = string(hashedBytes)
+	}
+
 	// Get or create user
 	user, err := h.userRepo.GetUserByEmail(req.Email)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// Create new user
-			user, err = h.userRepo.CreateUser(req.Email, "", "")
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Create new user with password if provided
+			user, err = h.userRepo.CreateUser(req.Email, "", "", passwordHash)
 			if err != nil {
 				h.logger.Error("Failed to create user", zap.Error(err))
 				h.writeError(w, http.StatusInternalServerError, "Failed to create user")
@@ -185,6 +206,14 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.logger.Error("Failed to get user", zap.Error(err))
 			h.writeError(w, http.StatusInternalServerError, "Failed to get user")
+			return
+		}
+	} else if passwordHash != "" {
+		// User exists, update password if provided
+		user, err = h.userRepo.UpdateUser(user.ID, user.FullName, user.CompanyName, passwordHash)
+		if err != nil {
+			h.logger.Error("Failed to update password", zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "Failed to update password")
 			return
 		}
 	}
@@ -205,7 +234,7 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-// Login handles login with OTP (alias for verify-otp for compatibility)
+// Login handles login with OTP or password
 // POST /api/auth/login
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -220,50 +249,66 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate OTP format
-	if len(req.OTP) != 6 {
-		h.writeError(w, http.StatusBadRequest, "OTP must be 6 digits")
-		return
-	}
-
-	// Get OTP from database
-	otpID, otpHash, expiresAt, err := h.otpRepo.GetOTPByEmail(req.Email)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			h.writeError(w, http.StatusUnauthorized, "Invalid email or OTP")
-			return
-		}
-		h.logger.Error("Failed to get OTP", zap.Error(err))
-		h.writeError(w, http.StatusInternalServerError, "Failed to verify OTP")
-		return
-	}
-
-	// Check if expired
-	if time.Now().After(expiresAt) {
-		h.writeError(w, http.StatusUnauthorized, "OTP has expired")
-		return
-	}
-
-	// Verify OTP
-	if !h.otpService.VerifyOTP(req.OTP, otpHash) {
-		h.writeError(w, http.StatusUnauthorized, "Invalid email or OTP")
-		return
-	}
-
-	// Mark OTP as used
-	if err := h.otpRepo.MarkOTPAsUsed(otpID); err != nil {
-		h.logger.Warn("Failed to mark OTP as used", zap.Error(err))
-	}
-
 	// Get user
 	user, err := h.userRepo.GetUserByEmail(req.Email)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			h.writeError(w, http.StatusUnauthorized, "User not found")
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusUnauthorized, "Invalid email or password")
 			return
 		}
 		h.logger.Error("Failed to get user", zap.Error(err))
 		h.writeError(w, http.StatusInternalServerError, "Failed to get user")
+		return
+	}
+
+	// Authenticate with password or OTP
+	if req.Password != "" {
+		// Password authentication
+		if user.PasswordHash == "" {
+			h.writeError(w, http.StatusUnauthorized, "Password not set. Please use OTP login or set a password.")
+			return
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+			h.writeError(w, http.StatusUnauthorized, "Invalid email or password")
+			return
+		}
+	} else if req.OTP != "" {
+		// OTP authentication
+		if len(req.OTP) != 6 {
+			h.writeError(w, http.StatusBadRequest, "OTP must be 6 digits")
+			return
+		}
+
+		// Get OTP from database
+		otpID, otpHash, expiresAt, err := h.otpRepo.GetOTPByEmail(req.Email)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				h.writeError(w, http.StatusUnauthorized, "Invalid email or OTP")
+				return
+			}
+			h.logger.Error("Failed to get OTP", zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "Failed to verify OTP")
+			return
+		}
+
+		// Check if expired
+		if time.Now().After(expiresAt) {
+			h.writeError(w, http.StatusUnauthorized, "OTP has expired")
+			return
+		}
+
+		// Verify OTP
+		if !h.otpService.VerifyOTP(req.OTP, otpHash) {
+			h.writeError(w, http.StatusUnauthorized, "Invalid email or OTP")
+			return
+		}
+
+		// Mark OTP as used
+		if err := h.otpRepo.MarkOTPAsUsed(otpID); err != nil {
+			h.logger.Warn("Failed to mark OTP as used", zap.Error(err))
+		}
+	} else {
+		h.writeError(w, http.StatusBadRequest, "Either password or OTP is required")
 		return
 	}
 
@@ -330,6 +375,7 @@ func ValidateEmail(email string) bool {
 type UpdateUserRequest struct {
 	FullName    string `json:"full_name"`
 	CompanyName string `json:"company_name"`
+	Password    string `json:"password,omitempty"` // Optional: to update password
 }
 
 // UpdateUserProfile updates user profile details
@@ -349,8 +395,24 @@ func (h *AuthHandlers) UpdateUserProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Hash password if provided
+	var passwordHash string
+	if req.Password != "" {
+		if len(req.Password) < 8 {
+			h.writeError(w, http.StatusBadRequest, "Password must be at least 8 characters")
+			return
+		}
+		hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			h.logger.Error("Failed to hash password", zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "Failed to process password")
+			return
+		}
+		passwordHash = string(hashedBytes)
+	}
+
 	// Update user
-	user, err := h.userRepo.UpdateUser(userID, req.FullName, req.CompanyName)
+	user, err := h.userRepo.UpdateUser(userID, req.FullName, req.CompanyName, passwordHash)
 	if err != nil {
 		h.logger.Error("Failed to update user", zap.Error(err))
 		h.writeError(w, http.StatusInternalServerError, "Failed to update user")

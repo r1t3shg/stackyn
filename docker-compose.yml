@@ -62,6 +62,8 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Skip ACME for localhost domains (Let's Encrypt doesn't support localhost)
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
     ports:
       - "80:80"
       - "443:443"
@@ -107,8 +109,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
-    # Port mapping removed - API accessed via Traefik on Docker network
-    # If you need direct access, uncomment: - "8080:8080"
+    # Expose port for local development access
+    ports:
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,12 +123,16 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=stackyn-network"
-      # HTTP router (redirects to HTTPS)
-      - "traefik.http.routers.api-http.rule=Host(`${API_DOMAIN:-api.staging.stackyn.com}`)"
+      # HTTP router for localhost (no TLS, no redirect) - for local development
+      - "traefik.http.routers.api-localhost.rule=Host(`localhost`) || Host(`localhost:8080`)"
+      - "traefik.http.routers.api-localhost.entrypoints=web"
+      - "traefik.http.routers.api-localhost.service=api"
+      # HTTP router for production (redirects to HTTPS)
+      - "traefik.http.routers.api-http.rule=Host(`${API_DOMAIN:-api.staging.stackyn.com}`) && !Host(`localhost`)"
       - "traefik.http.routers.api-http.entrypoints=web"
       - "traefik.http.routers.api-http.middlewares=api-redirect"
-      # HTTPS router (main router with SSL)
-      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN:-api.staging.stackyn.com}`)"
+      # HTTPS router (main router with SSL) - only for production domains (exclude localhost)
+      - "traefik.http.routers.api.rule=HostRegexp(`{domain:.+}`) && !Host(`localhost`) && !Host(`localhost:8080`) && Host(`${API_DOMAIN:-api.staging.stackyn.com}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls=true"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
@@ -157,6 +164,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
+      API_SERVER_URL: http://api:8080
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-stackyn.local}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -196,6 +205,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-stackyn.local}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -217,14 +227,31 @@ services:
       dockerfile: Dockerfile.cleanup-worker
     container_name: stackyn-cleanup-worker
     environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: stackyn_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DATABASE: stackyn
+      POSTGRES_SSLMODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: 0
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
       DOCKER_TLS_ENABLED: false
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
+      WORKER_CONCURRENCY: 10
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-stackyn.local}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - stackyn-network
     restart: unless-stopped
@@ -247,21 +274,25 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=stackyn-network"
-      # HTTP router for main domain (redirects to HTTPS)
-      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      # HTTP router for localhost (no TLS, no redirect) - for local development
+      - "traefik.http.routers.frontend-localhost.rule=Host(`localhost`) || Host(`localhost:3000`)"
+      - "traefik.http.routers.frontend-localhost.entrypoints=web"
+      - "traefik.http.routers.frontend-localhost.service=frontend"
+      # HTTP router for production main domain (redirects to HTTPS) - only matches domains with dots
+      - "traefik.http.routers.frontend-http.rule=HostRegexp(`{subdomain:.*}\\.{domain:.*}`) || HostRegexp(`{domain:.*}\\.{tld:.*}`)"
       - "traefik.http.routers.frontend-http.entrypoints=web"
       - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
-      # HTTPS router for main domain (with SSL)
-      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      # HTTPS router for main domain (with SSL) - only matches domains with dots (excludes localhost)
+      - "traefik.http.routers.frontend.rule=HostRegexp(`{subdomain:.*}\\.{domain:.*}`) || HostRegexp(`{domain:.*}\\.{tld:.*}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      # HTTP router for console subdomain (redirects to HTTPS)
-      - "traefik.http.routers.console-http.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      # HTTP router for console subdomain (redirects to HTTPS) - only matches domains with dots
+      - "traefik.http.routers.console-http.rule=HostRegexp(`{subdomain:.*}\\.{domain:.*}`) || HostRegexp(`{domain:.*}\\.{tld:.*}`)"
       - "traefik.http.routers.console-http.entrypoints=web"
       - "traefik.http.routers.console-http.middlewares=console-redirect"
-      # HTTPS router for console subdomain (with SSL)
-      - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      # HTTPS router for console subdomain (with SSL) - only matches domains with dots (excludes localhost)
+      - "traefik.http.routers.console.rule=HostRegexp(`{subdomain:.*}\\.{domain:.*}`) || HostRegexp(`{domain:.*}\\.{tld:.*}`)"
       - "traefik.http.routers.console.entrypoints=websecure"
       - "traefik.http.routers.console.tls=true"
       - "traefik.http.routers.console.tls.certresolver=letsencrypt"

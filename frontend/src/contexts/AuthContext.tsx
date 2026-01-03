@@ -70,7 +70,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    // Listen for unauthorized events from API calls
+    const handleUnauthorized = () => {
+      setUser(null);
+      setToken(null);
+      setFirebaseUser(null);
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -82,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(idToken);
       setFirebaseUser(userCredential.user);
       
-      // Also try to get user from our backend
+      // Also try to get user from our backend (non-blocking - don't fail login if this fails)
       try {
         const response = await fetch(`${API_BASE_URL}/api/auth/verify-token`, {
           method: 'POST',
@@ -101,9 +113,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
           setUser(userData);
           localStorage.setItem('auth_user', JSON.stringify(userData));
+        } else {
+          // If verify-token fails, still allow login but log the error
+          console.warn('Failed to verify token with backend (non-critical):', response.status);
         }
       } catch (err) {
-        console.error('Failed to verify token with backend:', err);
+        // Don't throw - this is a non-critical operation
+        // Login should still succeed even if backend verification fails
+        if (err instanceof Error) {
+          console.warn(`Failed to verify token with backend at ${API_BASE_URL}/api/auth/verify-token (non-critical):`, err.message);
+          if (err.message.includes('Failed to fetch') || err.message.includes('ERR_CONNECTION_REFUSED')) {
+            console.warn('Make sure the backend server is running on port 8080');
+          }
+        } else {
+          console.warn('Failed to verify token with backend (non-critical):', err);
+        }
       }
       
       localStorage.setItem('auth_token', idToken);
@@ -131,8 +155,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: 'Login failed' }));
-          throw new Error(error.error || 'Invalid email or password');
+          let errorMessage = 'Invalid email or password';
+          try {
+            const error = await response.json();
+            errorMessage = error.error || errorMessage;
+          } catch {
+            // If response is not JSON, use status text
+            if (response.status === 401) {
+              errorMessage = 'Invalid email or password';
+            } else if (response.status === 500) {
+              errorMessage = 'Server error. Please try again later.';
+            } else if (response.status === 0 || response.status >= 500) {
+              errorMessage = 'Cannot connect to server. Please check your connection.';
+            } else {
+              errorMessage = `Login failed (${response.status})`;
+            }
+          }
+          throw new Error(errorMessage);
         }
         
         const data = await response.json();
@@ -148,6 +187,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('Legacy login successful');
       } catch (legacyError: any) {
         // If legacy login also fails, throw a clear error
+        // Make sure to preserve the error message
+        if (legacyError instanceof Error) {
+          throw legacyError;
+        }
         throw new Error(legacyError.message || 'Invalid email or password');
       }
     }

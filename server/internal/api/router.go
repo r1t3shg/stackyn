@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -17,12 +18,36 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	r := chi.NewRouter()
 
 	// CORS middleware - allow frontend origins
+	// Use AllowOriginFunc to support staging subdomains dynamically
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://staging.stackyn.com", "https://console.staging.stackyn.com", "http://localhost:3000", "http://localhost:5173"},
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			// Allow specific origins
+			allowedOrigins := []string{
+				"https://staging.stackyn.com",
+				"https://console.staging.stackyn.com",
+				"http://localhost:3000",
+				"http://localhost:3001",
+				"http://localhost:5173",
+			}
+			
+			// Check exact matches first
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+			
+			// Allow any staging.stackyn.com subdomain
+			if strings.HasSuffix(origin, ".staging.stackyn.com") || origin == "https://staging.stackyn.com" {
+				return true
+			}
+			
+			return false
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Requested-With"},
 		ExposedHeaders:   []string{"Link", "Content-Length"},
-		AllowCredentials: false,
+		AllowCredentials: true, // Allow credentials for JWT tokens
 		MaxAge:           300,
 		Debug:            false,
 	}))
@@ -49,15 +74,21 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	maxBuildTimeMinutes := 15 // MVP: 15 minute max build time
 	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
 	
-	// Initialize handlers
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService)
-	
 	// Initialize email service
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
+	
+	// Initialize task enqueue service for triggering builds/deployments
+	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, logger, planEnforcement)
+	if err != nil {
+		logger.Error("Failed to initialize task enqueue service", zap.Error(err))
+		// Continue without task enqueue - deployments will need to be triggered manually
+		taskEnqueue = nil
+	}
 	
 	// Initialize repositories (use pool directly)
 	otpRepo := NewOTPRepo(pool, logger)
 	userRepo := NewUserRepo(pool, logger)
+	appRepo := NewAppRepo(pool, logger)
 	
 	// Initialize OTP service
 	otpService := services.NewOTPService(logger, otpRepo, emailService)
@@ -65,6 +96,26 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Initialize JWT service
 	jwtService := services.NewJWTService(config.JWT.Secret, logger)
 	
+	// Initialize deployment repository
+	deploymentRepo := NewDeploymentRepo(pool, logger)
+
+	// Initialize deployment service for verification (optional - can be nil)
+	// Note: Deployment service requires Docker client, which may not be available in API server
+	// For now, we'll pass nil and handlers will return service unavailable if called
+	// TODO: Initialize deployment service if Docker is available in API server
+	// deploymentSvc, err := services.NewDeploymentService(config.Docker.Host, logger, nil, config.Traefik.NetworkName)
+	// var deploymentService handlers.DeploymentService
+	// if err != nil {
+	// 	logger.Warn("Failed to initialize deployment service in API server", zap.Error(err))
+	// 	deploymentService = nil
+	// } else {
+	// 	deploymentService = deploymentSvc
+	// }
+
+	// Initialize handlers with appRepo, deploymentRepo and task enqueue service
+	// WebSocket removed - DB is single source of truth
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, appRepo, deploymentRepo, taskEnqueue, nil, nil)
+
 	// Initialize auth handlers
 	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo)
 
@@ -82,7 +133,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/verify-token", handlers.VerifyToken)
 		
 		// Update user profile (requires auth)
-		r.With(AuthMiddleware(jwtService, logger)).Post("/update-profile", authHandlers.UpdateUserProfile)
+		r.With(AuthMiddleware(jwtService, userRepo, logger)).Post("/update-profile", authHandlers.UpdateUserProfile)
 	})
 
 	// User routes
@@ -90,11 +141,14 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/me", handlers.GetUserProfile)
 	})
 
-	// Apps routes - /api/apps (for listing)
-	r.Get("/api/apps", handlers.ListApps)
+	// Apps routes - /api/apps (for listing) - requires authentication
+	r.With(AuthMiddleware(jwtService, userRepo, logger)).Get("/api/apps", handlers.ListApps)
 
-	// Apps routes - /api/v1/apps (for CRUD operations)
+	// Apps routes - /api/v1/apps (for CRUD operations) - requires authentication
 	r.Route("/api/v1/apps", func(r chi.Router) {
+		// Apply authentication middleware to all routes
+		r.Use(AuthMiddleware(jwtService, userRepo, logger))
+		
 		r.Get("/{id}", handlers.GetAppByID)
 		r.Post("/", handlers.CreateApp)
 		r.Delete("/{id}", handlers.DeleteApp)
@@ -108,6 +162,9 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/{id}/logs/build", handlers.GetBuildLogs)
 		r.Get("/{id}/logs/runtime", handlers.GetRuntimeLogs)
 		r.Get("/{id}/logs/runtime/stream", handlers.StreamRuntimeLogs)
+		
+		// Verification endpoint
+		r.Get("/{id}/verify", handlers.VerifyDeployment)
 	})
 
 	// Deployments routes
@@ -127,6 +184,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 func loggingMiddleware(logger *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// No WebSocket endpoints - removed for DB-based status updates
+
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
 

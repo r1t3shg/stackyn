@@ -9,11 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"stackyn/server/internal/api"
 	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 	"stackyn/server/internal/tasks"
 	"stackyn/server/internal/workers"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
@@ -82,6 +84,45 @@ func main() {
 	maxBuildTimeMinutes := 15 // MVP: 15 minute max build time
 	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
 
+	// Initialize task enqueue service (needed to enqueue deploy tasks after build)
+	taskEnqueueService, err := services.NewTaskEnqueueService(config.Redis.Addr, logger, planEnforcement)
+	if err != nil {
+		logger.Fatal("Failed to initialize task enqueue service", zap.Error(err))
+	}
+	defer taskEnqueueService.Close()
+
+	// Initialize database connection for app repository
+	pgxConfig, err := pgxpool.ParseConfig(fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		config.Postgres.User,
+		config.Postgres.Password,
+		config.Postgres.Host,
+		config.Postgres.Port,
+		config.Postgres.Database,
+		config.Postgres.SSLMode,
+	))
+	if err != nil {
+		logger.Fatal("Failed to parse database connection string", zap.Error(err))
+	}
+	
+	dbPool, err := pgxpool.NewWithConfig(ctx, pgxConfig)
+	if err != nil {
+		logger.Fatal("Failed to create database connection pool", zap.Error(err))
+	}
+	defer dbPool.Close()
+	
+	// Verify database connection
+	if err := dbPool.Ping(ctx); err != nil {
+		logger.Fatal("Failed to ping database", zap.Error(err))
+	}
+	logger.Info("Database connection established for build worker")
+
+	// Initialize app repository for updating app status
+	appRepo := api.NewAppRepo(dbPool, logger)
+
+	// Initialize deployment repository for creating failed deployments with error messages
+	deploymentRepo := api.NewDeploymentRepo(dbPool, logger)
+
 	// Initialize task handler with all services
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -94,6 +135,10 @@ func main() {
 		nil, // No cleanup service needed for build worker
 		planEnforcement,
 		constraintsService,
+		taskEnqueueService, // Pass task enqueue service to enqueue deploy tasks
+		nil,                // No WebSocket broadcaster - DB is single source of truth
+		deploymentRepo,     // Deployment repository for creating failed deployments with error messages
+		appRepo,            // App repository for updating app status
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
@@ -101,9 +146,13 @@ func main() {
 	// TODO: Initialize with database repository when DB is connected
 	// taskPersistence = tasks.NewTaskStatePersistence(dbRepo, logger)
 
-	// Initialize Asynq server
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence)
-	server.RegisterHandlers()
+	// Initialize Asynq server - only listen to build queue
+	buildQueues := map[string]int{
+		tasks.QueueBuild: 10, // Only process build tasks
+	}
+	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, buildQueues)
+	// Only register build task handler for build worker
+	server.RegisterBuildHandler()
 
 	// Start server in goroutine
 	go func() {

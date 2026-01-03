@@ -77,15 +77,23 @@ func main() {
 		cleanupService,
 		planEnforcement,
 		constraintsService,
+		nil, // No task enqueue service needed for cleanup worker
+		nil, // No WebSocket broadcast client needed for cleanup worker
+		nil, // No deployment repository needed for cleanup worker
+		nil, // No app repository needed for cleanup worker
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence
 	// TODO: Initialize with database repository when DB is connected
 
-	// Initialize Asynq server
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence)
-	server.RegisterHandlers()
+	// Initialize Asynq server - only listen to cleanup queue
+	cleanupQueues := map[string]int{
+		tasks.QueueCleanup: 5, // Only process cleanup tasks
+	}
+	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, cleanupQueues)
+	// Only register cleanup task handler for cleanup worker
+	server.RegisterCleanupHandler()
 
 	// Start server in goroutine
 	go func() {

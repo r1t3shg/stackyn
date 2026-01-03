@@ -8,11 +8,13 @@ import (
 	"syscall"
 	"time"
 
+	"stackyn/server/internal/api"
 	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 	"stackyn/server/internal/tasks"
 	"stackyn/server/internal/workers"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
@@ -50,8 +52,12 @@ func main() {
 	maxStoragePerAppMB := int64(100) // Default: 100 MB per app
 	logPersistence := services.NewLogPersistenceService(logger, logStorageDir, usePostgres, maxStoragePerAppMB)
 
-	// Initialize Docker deployment service with log persistence
-	deploymentService, err := services.NewDeploymentService(config.Docker.Host, logger, logPersistence)
+	// Initialize Docker deployment service with log persistence and network name
+	networkName := config.Traefik.NetworkName
+	if networkName == "" {
+		networkName = "stackyn-network" // Default fallback
+	}
+	deploymentService, err := services.NewDeploymentService(config.Docker.Host, logger, logPersistence, networkName)
 	if err != nil {
 		logger.Fatal("Failed to create deployment service", zap.Error(err))
 	}
@@ -64,7 +70,39 @@ func main() {
 	maxBuildTimeMinutes := 15 // MVP: 15 minute max build time
 	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
 
-	// Initialize task handler with deployment service
+	// Initialize database connection for deployment repository
+	pgxConfig, err := pgxpool.ParseConfig(fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		config.Postgres.User,
+		config.Postgres.Password,
+		config.Postgres.Host,
+		config.Postgres.Port,
+		config.Postgres.Database,
+		config.Postgres.SSLMode,
+	))
+	if err != nil {
+		logger.Fatal("Failed to parse database connection string", zap.Error(err))
+	}
+	
+	dbPool, err := pgxpool.NewWithConfig(ctx, pgxConfig)
+	if err != nil {
+		logger.Fatal("Failed to create database connection pool", zap.Error(err))
+	}
+	defer dbPool.Close()
+	
+	// Verify database connection
+	if err := dbPool.Ping(ctx); err != nil {
+		logger.Fatal("Failed to ping database", zap.Error(err))
+	}
+	logger.Info("Database connection established for deploy worker")
+
+	// Initialize deployment repository
+	deploymentRepo := api.NewDeploymentRepo(dbPool, logger)
+
+	// Initialize app repository for updating app status and URL
+	appRepo := api.NewAppRepo(dbPool, logger)
+
+	// Initialize task handler with deployment service and repository
 	taskHandler := tasks.NewTaskHandler(
 		logger,
 		nil, // No Git service needed for deploy worker
@@ -76,15 +114,23 @@ func main() {
 		nil, // No cleanup service needed for deploy worker
 		planEnforcement,
 		constraintsService,
+		nil, // No task enqueue service needed for deploy worker
+		nil, // No WebSocket broadcast client needed for deploy worker
+		deploymentRepo, // Deployment repository for storing deployment status in DB
+		appRepo,        // App repository for updating app status and URL
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
 	var taskPersistence *tasks.TaskStatePersistence
 	// TODO: Initialize with database repository when DB is connected
 
-	// Initialize Asynq server
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence)
-	server.RegisterHandlers()
+	// Initialize Asynq server - only listen to deploy queue
+	deployQueues := map[string]int{
+		tasks.QueueDeploy: 10, // Only process deploy tasks
+	}
+	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, deployQueues)
+	// Only register deploy task handler for deploy worker
+	server.RegisterDeployHandler()
 
 	// Start server in goroutine
 	go func() {
