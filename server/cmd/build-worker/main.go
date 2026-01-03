@@ -85,7 +85,7 @@ func main() {
 	constraintsService := services.NewConstraintsService(logger, maxBuildTimeMinutes)
 
 	// Initialize task enqueue service (needed to enqueue deploy tasks after build)
-	taskEnqueueService, err := services.NewTaskEnqueueService(config.Redis.Addr, logger, planEnforcement)
+	taskEnqueueService, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
 	if err != nil {
 		logger.Fatal("Failed to initialize task enqueue service", zap.Error(err))
 	}
@@ -150,7 +150,7 @@ func main() {
 	buildQueues := map[string]int{
 		tasks.QueueBuild: 10, // Only process build tasks
 	}
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, buildQueues)
+	server := workers.NewAsynqServer(config.Redis.Addr, config.Redis.Password, logger, taskHandler, taskPersistence, buildQueues)
 	// Only register build task handler for build worker
 	server.RegisterBuildHandler()
 

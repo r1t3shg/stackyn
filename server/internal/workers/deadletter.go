@@ -39,13 +39,14 @@ func (h *DeadLetterQueueHandler) HandleDeadLetterTask(ctx context.Context, t *as
 }
 
 // SetupDeadLetterQueue configures dead-letter queue monitoring
-func SetupDeadLetterQueue(redisAddr string, logger *zap.Logger) {
+func SetupDeadLetterQueue(redisAddr string, redisPassword string, logger *zap.Logger) {
 	// Asynq automatically moves failed tasks to dead-letter queue after max retries
 	// We can monitor this queue using Asynq's inspector
 	
 	// Create inspector to monitor dead-letter queue
 	inspector := asynq.NewInspector(asynq.RedisClientOpt{
-		Addr: redisAddr,
+		Addr:     redisAddr,
+		Password: redisPassword,
 	})
 
 	// Periodically check dead-letter queue

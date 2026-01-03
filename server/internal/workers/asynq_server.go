@@ -23,9 +23,10 @@ type AsynqServer struct {
 // NewAsynqServer creates a new Asynq server
 // queues specifies which queues this worker should listen to (map of queue name to weight)
 // If nil, defaults to all task-specific queues
-func NewAsynqServer(redisAddr string, logger *zap.Logger, handler *tasks.TaskHandler, persist *tasks.TaskStatePersistence, queues map[string]int) *AsynqServer {
+func NewAsynqServer(redisAddr string, redisPassword string, logger *zap.Logger, handler *tasks.TaskHandler, persist *tasks.TaskStatePersistence, queues map[string]int) *AsynqServer {
 	redisOpt := asynq.RedisClientOpt{
-		Addr: redisAddr,
+		Addr:     redisAddr,
+		Password: redisPassword,
 	}
 
 	// Default queues if not specified
@@ -85,7 +86,7 @@ func NewAsynqServer(redisAddr string, logger *zap.Logger, handler *tasks.TaskHan
 	}
 
 	// Setup dead-letter queue monitoring
-	SetupDeadLetterQueue(redisAddr, logger)
+	SetupDeadLetterQueue(redisAddr, redisPassword, logger)
 
 	return asynqServer
 }

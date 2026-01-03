@@ -17,9 +17,10 @@ type TaskEnqueueService struct {
 }
 
 // NewTaskEnqueueService creates a new task enqueue service
-func NewTaskEnqueueService(redisAddr string, logger *zap.Logger, planEnforcement *PlanEnforcementService) (*TaskEnqueueService, error) {
+func NewTaskEnqueueService(redisAddr string, redisPassword string, logger *zap.Logger, planEnforcement *PlanEnforcementService) (*TaskEnqueueService, error) {
 	redisOpt := asynq.RedisClientOpt{
-		Addr: redisAddr,
+		Addr:     redisAddr,
+		Password: redisPassword,
 	}
 
 	client := asynq.NewClient(redisOpt)

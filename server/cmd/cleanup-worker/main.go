@@ -91,7 +91,7 @@ func main() {
 	cleanupQueues := map[string]int{
 		tasks.QueueCleanup: 5, // Only process cleanup tasks
 	}
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, cleanupQueues)
+	server := workers.NewAsynqServer(config.Redis.Addr, config.Redis.Password, logger, taskHandler, taskPersistence, cleanupQueues)
 	// Only register cleanup task handler for cleanup worker
 	server.RegisterCleanupHandler()
 

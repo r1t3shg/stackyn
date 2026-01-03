@@ -128,7 +128,7 @@ func main() {
 	deployQueues := map[string]int{
 		tasks.QueueDeploy: 10, // Only process deploy tasks
 	}
-	server := workers.NewAsynqServer(config.Redis.Addr, logger, taskHandler, taskPersistence, deployQueues)
+	server := workers.NewAsynqServer(config.Redis.Addr, config.Redis.Password, logger, taskHandler, taskPersistence, deployQueues)
 	// Only register deploy task handler for deploy worker
 	server.RegisterDeployHandler()
 

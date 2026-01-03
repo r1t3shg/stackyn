@@ -78,7 +78,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
 	// Initialize task enqueue service for triggering builds/deployments
-	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, logger, planEnforcement)
+	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
 	if err != nil {
 		logger.Error("Failed to initialize task enqueue service", zap.Error(err))
 		// Continue without task enqueue - deployments will need to be triggered manually
