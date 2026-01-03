@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,8 +11,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
+	stackynerrors "stackyn/server/internal/errors"
 	"stackyn/server/internal/services"
+	"stackyn/server/internal/tasks"
 )
 
 // Mock data structures matching frontend types exactly
@@ -52,8 +59,8 @@ type UsageStats struct {
 }
 
 type Deployment struct {
-	ID          int         `json:"id"`
-	AppID       int         `json:"app_id"`
+	ID          interface{} `json:"id"` // UUID string from database
+	AppID       interface{} `json:"app_id"` // UUID string from database
 	Status      string      `json:"status"`
 	ImageName   interface{} `json:"image_name,omitempty"`
 	ContainerID interface{} `json:"container_id,omitempty"`
@@ -159,6 +166,16 @@ type Handlers struct {
 	planEnforcement   PlanEnforcementService
 	billingService    BillingService
 	constraintsService ConstraintsService
+	appRepo           *AppRepo
+	deploymentRepo    *DeploymentRepo
+	taskEnqueue       *services.TaskEnqueueService
+	wsHub             *services.Hub
+	deploymentService DeploymentService
+}
+
+// DeploymentService interface for deployment operations
+type DeploymentService interface {
+	VerifyDeployment(ctx context.Context, appID string) (*services.DeploymentVerificationResult, error)
 }
 
 // ConstraintsService interface for constraint enforcement
@@ -226,32 +243,38 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
 	return &Handlers{
 		logger:            logger,
 		logPersistence:   logPersistence,
+		wsHub:            wsHub,
 		containerLogs:      containerLogs,
 		planEnforcement:  planEnforcement,
 		billingService:    billingService,
 		constraintsService: constraintsService,
+		appRepo:           appRepo,
+		deploymentRepo:    deploymentRepo,
+		taskEnqueue:       taskEnqueue,
+		deploymentService: deploymentService,
 	}
 }
 
 // getUserIDFromContext extracts user ID from request context
-// TODO: Implement proper user extraction from JWT/auth context
 func (h *Handlers) getUserIDFromContext(r *http.Request) string {
-	// For now, return a placeholder
-	// In production, this would extract from JWT token or session
-	// Example: userID := r.Context().Value("user_id").(string)
-	return "user-1" // Placeholder
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		h.logger.Warn("User ID not found in context")
+		return ""
+	}
+	return userID
 }
 
 // getCurrentAppCount gets the current number of apps for a user
-// TODO: Query database when DB is connected
 func (h *Handlers) getCurrentAppCount(ctx context.Context, userID string) (int, error) {
-	// TODO: Query database for app count
-	// For now, return 0
-	return 0, nil
+	if h.appRepo == nil {
+		return 0, nil
+	}
+	return h.appRepo.GetAppCountByUserID(userID)
 }
 
 // Helper to write JSON response
@@ -263,96 +286,182 @@ func (h *Handlers) writeJSON(w http.ResponseWriter, status int, data interface{}
 	}
 }
 
-// Helper to write error response
+// ErrorResponse represents a standardized error response
+type ErrorResponse struct {
+	Error   ErrorDetail `json:"error"`
+	Message string      `json:"message,omitempty"` // Deprecated: use error.message
+}
+
+// ErrorDetail contains error code and message
+type ErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Details string `json:"details,omitempty"`
+}
+
+// Helper to write error response (legacy format for backward compatibility)
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	h.writeJSON(w, status, map[string]string{"error": message})
 }
 
-// GET /api/apps - List all apps
-func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
-	now := time.Now().Format(time.RFC3339)
-	apps := []App{
-		{
-			ID:        "1",
-			Name:      "My First App",
-			Slug:      "my-first-app",
-			Status:    "running",
-			URL:       "https://my-first-app.example.com",
-			RepoURL:   "https://github.com/user/repo",
-			Branch:    "main",
-			CreatedAt: now,
-			UpdatedAt: now,
-			Deployment: &AppDeployment{
-				ActiveDeploymentID: "dep_1",
-				LastDeployedAt:     now,
-				State:              "running",
-				ResourceLimits: &ResourceLimits{
-					MemoryMB: 512,
-					CPU:      1,
-					DiskGB:   10,
-				},
-				UsageStats: &UsageStats{
-					MemoryUsageMB:      256,
-					MemoryUsagePercent: 50.0,
-					DiskUsageGB:        5.0,
-					DiskUsagePercent:   50.0,
-					RestartCount:       0,
-				},
-			},
-		},
-		{
-			ID:        "2",
-			Name:      "My Second App",
-			Slug:      "my-second-app",
-			Status:    "deploying",
-			URL:       "https://my-second-app.example.com",
-			RepoURL:   "https://github.com/user/repo2",
-			Branch:    "develop",
-			CreatedAt: now,
-			UpdatedAt: now,
-			Deployment: &AppDeployment{
-				ActiveDeploymentID: "dep_2",
-				LastDeployedAt:     now,
-				State:              "building",
-			},
+// writeStackynError writes a StackynError in the standardized format
+func (h *Handlers) writeStackynError(w http.ResponseWriter, r *http.Request, status int, err *stackynerrors.StackynError) {
+	requestID := middleware.GetReqID(r.Context())
+	
+	// Log the error with context
+	h.logger.Error("Stackyn error",
+		zap.String("error_code", string(err.Code)),
+		zap.String("error_message", err.Message),
+		zap.String("error_details", err.Details),
+		zap.String("request_id", requestID),
+		zap.Error(err.Err),
+	)
+
+	response := ErrorResponse{
+		Error: ErrorDetail{
+			Code:    string(err.Code),
+			Message: err.Message,
+			Details: err.Details,
 		},
 	}
+	h.writeJSON(w, status, response)
+}
+
+// handleError processes an error and writes appropriate response
+func (h *Handlers) handleError(w http.ResponseWriter, r *http.Request, err error, defaultStatus int) {
+	requestID := middleware.GetReqID(r.Context())
+	
+	// Check if it's already a StackynError
+	if stackynErr, ok := stackynerrors.AsStackynError(err); ok {
+		status := defaultStatus
+		// Map error codes to HTTP status codes
+		switch stackynErr.Code {
+		case stackynerrors.ErrorCodeRepoNotFound,
+			stackynerrors.ErrorCodePlanLimitExceeded,
+			stackynerrors.ErrorCodeDeployLocked:
+			status = http.StatusBadRequest
+		case stackynerrors.ErrorCodeRepoPrivateUnsupported,
+			stackynerrors.ErrorCodeUnsupportedLanguage,
+			stackynerrors.ErrorCodeDockerfilePresent,
+			stackynerrors.ErrorCodeDockerComposePresent,
+			stackynerrors.ErrorCodeMonorepoDetected:
+			status = http.StatusUnprocessableEntity
+		case stackynerrors.ErrorCodeBuildFailed,
+			stackynerrors.ErrorCodeBuildTimeout,
+			stackynerrors.ErrorCodeAppCrashOnStart,
+			stackynerrors.ErrorCodePortNotListening,
+			stackynerrors.ErrorCodeHealthcheckFailed:
+			status = http.StatusUnprocessableEntity
+		case stackynerrors.ErrorCodeHostOutOfMemory,
+			stackynerrors.ErrorCodeBuildNodeUnavailable,
+			stackynerrors.ErrorCodeInternalPlatformError:
+			status = http.StatusServiceUnavailable
+		}
+		h.writeStackynError(w, r, status, stackynErr)
+		return
+	}
+
+	// Check for plan limit errors
+	if planErr, ok := GetPlanLimitError(err); ok {
+		stackynErr := stackynerrors.New(stackynerrors.ErrorCodePlanLimitExceeded, planErr.Message)
+		h.writeStackynError(w, r, http.StatusForbidden, stackynErr)
+		return
+	}
+
+	// Check for constraint errors
+	if constraintErr, ok := GetConstraintError(err); ok {
+		// Map constraint errors to appropriate error codes based on constraint name
+		var code stackynerrors.ErrorCode
+		switch constraintErr.Constraint {
+		case "repo_url", "invalid_repo_url":
+			code = stackynerrors.ErrorCodeRepoNotFound
+		case "private_repo":
+			code = stackynerrors.ErrorCodeRepoPrivateUnsupported
+		case "repo_size", "repo_too_large":
+			code = stackynerrors.ErrorCodeRepoTooLarge
+		case "monorepo":
+			code = stackynerrors.ErrorCodeMonorepoDetected
+		case "dockerfile", "no_dockerfile":
+			code = stackynerrors.ErrorCodeDockerfilePresent
+		case "docker_compose", "no_docker_compose":
+			code = stackynerrors.ErrorCodeDockerComposePresent
+		default:
+			code = stackynerrors.ErrorCodeInternalPlatformError
+		}
+		stackynErr := stackynerrors.New(code, constraintErr.Message)
+		h.writeStackynError(w, r, http.StatusBadRequest, stackynErr)
+		return
+	}
+
+	// Generic error fallback
+	h.logger.Error("Unhandled error",
+		zap.Error(err),
+		zap.String("request_id", requestID),
+	)
+	stackynErr := stackynerrors.Wrap(stackynerrors.ErrorCodeInternalPlatformError, err, "An unexpected error occurred")
+	h.writeStackynError(w, r, defaultStatus, stackynErr)
+}
+
+// GET /api/apps - List all apps for authenticated user
+func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context (set by AuthMiddleware)
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	// Query database for user's apps
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	apps, err := h.appRepo.GetAppsByUserID(userID)
+	if err != nil {
+		h.logger.Error("Failed to get apps", zap.Error(err), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve apps")
+		return
+	}
+
+	// Return empty array if no apps found
+	if apps == nil {
+		apps = []App{}
+	}
+
 	h.writeJSON(w, http.StatusOK, apps)
 }
 
 // GET /api/v1/apps/{id} - Get app by ID
 func (h *Handlers) GetAppByID(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	now := time.Now().Format(time.RFC3339)
+	appID := chi.URLParam(r, "id")
 	
-	app := App{
-		ID:        id,
-		Name:      "My App",
-		Slug:      "my-app",
-		Status:    "running",
-		URL:       "https://my-app.example.com",
-		RepoURL:   "https://github.com/user/repo",
-		Branch:    "main",
-		CreatedAt: now,
-		UpdatedAt: now,
-		Deployment: &AppDeployment{
-			ActiveDeploymentID: "dep_" + id,
-			LastDeployedAt:     now,
-			State:              "running",
-			ResourceLimits: &ResourceLimits{
-				MemoryMB: 512,
-				CPU:      1,
-				DiskGB:   10,
-			},
-			UsageStats: &UsageStats{
-				MemoryUsageMB:      256,
-				MemoryUsagePercent: 50.0,
-				DiskUsageGB:        5.0,
-				DiskUsagePercent:   50.0,
-				RestartCount:       0,
-			},
-		},
+	// Get user ID from context (set by AuthMiddleware)
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
 	}
+
+	// Query database for the app
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	app, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
+		return
+	}
+
 	h.writeJSON(w, http.StatusOK, app)
 }
 
@@ -398,37 +507,87 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	now := time.Now().Format(time.RFC3339)
-	appID := "3"
-	deploymentID := 3
-	
-	app := App{
-		ID:        appID,
-		Name:      req.Name,
-		Slug:      "new-app",
-		Status:    "deploying",
-		URL:       "https://new-app.example.com",
-		RepoURL:   req.RepoURL,
-		Branch:    req.Branch,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Deployment: &AppDeployment{
-			ActiveDeploymentID: "dep_" + appID,
-			LastDeployedAt:     now,
-			State:              "building",
-		},
+	// Create app in database
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
 	}
 
+	// Default branch to "main" if not provided
+	branch := req.Branch
+	if branch == "" {
+		branch = "main"
+	}
+
+	app, err := h.appRepo.CreateApp(userID, req.Name, req.RepoURL, branch)
+	if err != nil {
+		// Check for duplicate key violation (unique constraint on user_id + name)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			h.writeError(w, http.StatusConflict, fmt.Sprintf("An app with the name '%s' already exists", req.Name))
+			return
+		}
+		h.logger.Error("Failed to create app", zap.Error(err), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to create app")
+		return
+	}
+
+	// Generate build job ID
+	buildJobID := uuid.New().String()
+
+	// Enqueue build task to trigger deployment
+	requestID := middleware.GetReqID(r.Context())
+	if h.taskEnqueue != nil {
+		buildPayload := tasks.BuildTaskPayload{
+			AppID:      app.ID,
+			BuildJobID: buildJobID,
+			RepoURL:    req.RepoURL,
+			Branch:     branch,
+			UserID:     userID,
+		}
+
+		taskInfo, err := h.taskEnqueue.EnqueueBuildTask(r.Context(), buildPayload, userID)
+		if err != nil {
+			h.logger.Error("Failed to enqueue build task", 
+				zap.Error(err), 
+				zap.String("app_id", app.ID),
+				zap.String("request_id", requestID),
+				zap.String("user_id", userID),
+			)
+			// Log error but don't fail the app creation - user can manually redeploy
+			h.logger.Warn("App created but deployment not started", 
+				zap.String("app_id", app.ID),
+				zap.String("request_id", requestID),
+			)
+		} else {
+			h.logger.Info("Build task enqueued successfully",
+				zap.String("app_id", app.ID),
+				zap.String("build_job_id", buildJobID),
+				zap.String("task_id", taskInfo.ID),
+				zap.String("request_id", requestID),
+				zap.String("user_id", userID),
+			)
+		}
+	} else {
+		h.logger.Warn("Task enqueue service not available - deployment will not start automatically", 
+			zap.String("app_id", app.ID),
+			zap.String("request_id", requestID),
+		)
+	}
+
+	// Create a deployment response
+	now := time.Now().Format(time.RFC3339)
 	deployment := Deployment{
-		ID:        deploymentID,
-		AppID:     3,
-		Status:    "building",
+		ID:        0, // Will be set by deployment system
+		AppID:     0, // Will be set by deployment system
+		Status:    "pending",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	response := CreateAppResponse{
-		App:       app,
+		App:       *app,
 		Deployment: deployment,
 	}
 	h.writeJSON(w, http.StatusCreated, response)
@@ -436,17 +595,43 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/v1/apps/{id} - Delete app
 func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	h.logger.Info("Deleting app", zap.String("id", id))
+	appID := chi.URLParam(r, "id")
+	
+	// Get user ID from context
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+	
+	h.logger.Info("Deleting app", zap.String("app_id", appID), zap.String("user_id", userID))
+	
+	// Delete the app (verifies ownership)
+	err := h.appRepo.DeleteApp(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found or you don't have permission to delete it")
+			return
+		}
+		h.logger.Error("Failed to delete app", zap.Error(err), zap.String("app_id", appID), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete app")
+		return
+	}
+	
+	// Return 204 No Content on success
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // POST /api/v1/apps/{id}/redeploy - Redeploy app
 func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	appID := chi.URLParam(r, "id")
 	
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
 
 	// Check max concurrent builds limit
 	if h.planEnforcement != nil {
@@ -460,38 +645,72 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	now := time.Now().Format(time.RFC3339)
-	
-	appID, _ := strconv.Atoi(id)
-	deploymentID := appID * 10
-	
-	app := App{
-		ID:        id,
-		Name:      "My App",
-		Slug:      "my-app",
-		Status:    "deploying",
-		URL:       "https://my-app.example.com",
-		RepoURL:   "https://github.com/user/repo",
-		Branch:    "main",
-		CreatedAt: now,
-		UpdatedAt: now,
-		Deployment: &AppDeployment{
-			ActiveDeploymentID: "dep_" + id,
-			LastDeployedAt:     now,
-			State:              "building",
-		},
+	// Get app from database
+	app, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found or you don't have permission to redeploy it")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
+		return
 	}
 
+	// Generate new build job ID
+	buildJobID := uuid.New().String()
+
+	// Enqueue build task to trigger deployment
+	requestID := middleware.GetReqID(r.Context())
+	if h.taskEnqueue != nil {
+		buildPayload := tasks.BuildTaskPayload{
+			AppID:      app.ID,
+			BuildJobID: buildJobID,
+			RepoURL:    app.RepoURL,
+			Branch:     app.Branch,
+			UserID:     userID,
+		}
+
+		taskInfo, err := h.taskEnqueue.EnqueueBuildTask(r.Context(), buildPayload, userID)
+		if err != nil {
+			h.logger.Error("Failed to enqueue build task for redeploy", 
+				zap.Error(err), 
+				zap.String("app_id", appID),
+				zap.String("request_id", requestID),
+				zap.String("user_id", userID),
+			)
+			h.writeError(w, http.StatusInternalServerError, "Failed to start deployment")
+			return
+		}
+
+		h.logger.Info("Redeploy build task enqueued successfully",
+			zap.String("app_id", app.ID),
+			zap.String("build_job_id", buildJobID),
+			zap.String("task_id", taskInfo.ID),
+			zap.String("request_id", requestID),
+			zap.String("user_id", userID),
+		)
+	} else {
+		h.logger.Error("Task enqueue service not available - cannot redeploy", 
+			zap.String("app_id", appID),
+			zap.String("request_id", requestID),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Deployment service not available")
+		return
+	}
+
+	// Create deployment response
+	now := time.Now().Format(time.RFC3339)
 	deployment := Deployment{
-		ID:        deploymentID,
-		AppID:     appID,
+		ID:        0, // Will be set by deployment system
+		AppID:     0, // Will be set by deployment system
 		Status:    "building",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	response := CreateAppResponse{
-		App:       app,
+		App:       *app,
 		Deployment: deployment,
 	}
 	h.writeJSON(w, http.StatusOK, response)
@@ -500,30 +719,65 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/apps/{id}/deployments - Get deployments for app
 func (h *Handlers) GetAppDeployments(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	appID, _ := strconv.Atoi(id)
-	now := time.Now().Format(time.RFC3339)
+	appID := id // Use string ID directly
 	
-	deployments := []Deployment{
-		{
-			ID:        1,
-			AppID:     appID,
-			Status:    "running",
-			ImageName: map[string]interface{}{"String": "my-app:latest", "Valid": true},
-			ContainerID: map[string]interface{}{"String": "container-123", "Valid": true},
-			Subdomain: map[string]interface{}{"String": "my-app", "Valid": true},
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:        2,
-			AppID:     appID,
-			Status:    "failed",
-			ImageName: map[string]interface{}{"String": "my-app:v1", "Valid": true},
-			ErrorMessage: map[string]interface{}{"String": "Build failed", "Valid": true},
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
+	if h.deploymentRepo == nil {
+		h.logger.Error("Deployment repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "Deployment repository not available")
+		return
 	}
+	
+	deploymentsData, err := h.deploymentRepo.GetDeploymentsByAppID(appID)
+	if err != nil {
+		h.logger.Error("Failed to get deployments", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve deployments")
+		return
+	}
+	
+	// Convert to Deployment structs for response
+	deployments := make([]Deployment, 0, len(deploymentsData))
+	for _, d := range deploymentsData {
+		var status, createdAt, updatedAt string
+		if statusVal, ok := d["status"].(string); ok {
+			status = statusVal
+		}
+		if createdAtVal, ok := d["created_at"].(string); ok {
+			createdAt = createdAtVal
+		}
+		if updatedAtVal, ok := d["updated_at"].(string); ok {
+			updatedAt = updatedAtVal
+		}
+		
+		deployment := Deployment{
+			ID:        d["id"], // Keep as-is (UUID string)
+			AppID:     d["app_id"], // Keep as-is (UUID string)
+			Status:    status,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+		}
+		
+		if img, ok := d["image_name"].(map[string]interface{}); ok {
+			deployment.ImageName = img
+		}
+		if cid, ok := d["container_id"].(map[string]interface{}); ok {
+			deployment.ContainerID = cid
+		}
+		if sub, ok := d["subdomain"].(map[string]interface{}); ok {
+			deployment.Subdomain = sub
+		}
+		if buildLog, ok := d["build_log"].(map[string]interface{}); ok {
+			deployment.BuildLog = buildLog
+		}
+		if runtimeLog, ok := d["runtime_log"].(map[string]interface{}); ok {
+			deployment.RuntimeLog = runtimeLog
+		}
+		if errMsg, ok := d["error_message"].(map[string]interface{}); ok {
+			deployment.ErrorMessage = errMsg
+		}
+		
+		deployments = append(deployments, deployment)
+	}
+	
 	h.writeJSON(w, http.StatusOK, deployments)
 }
 
@@ -756,6 +1010,8 @@ func (h *Handlers) StreamRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /health - Health check
+// BroadcastBuildStatus removed - DB is single source of truth, no WebSocket broadcasting needed
+
 func (h *Handlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	response := HealthResponse{
 		Status: "ok",
@@ -819,7 +1075,65 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, profile)
 }
 
-// POST /api/webhooks/lemon-squeezy - Handle Lemon Squeezy webhook
+// GET /api/v1/apps/{id}/verify - Verify deployment status
+func (h *Handlers) VerifyDeployment(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "id")
+	
+	// Get user ID from context
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	// Verify app ownership
+	app, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found or you don't have permission to access it")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
+		return
+	}
+
+	// Verify deployment if service is available
+	if h.deploymentService == nil {
+		h.writeError(w, http.StatusServiceUnavailable, "Deployment service not available")
+		return
+	}
+
+	verification, err := h.deploymentService.VerifyDeployment(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("Failed to verify deployment", 
+			zap.Error(err), 
+			zap.String("app_id", appID),
+			zap.String("request_id", middleware.GetReqID(r.Context())),
+		)
+		// Return verification result even if there are errors
+		// This allows frontend to see what's wrong
+	}
+
+	response := map[string]interface{}{
+		"app_id":              appID,
+		"app_name":            app.Name,
+		"is_running":          verification.IsRunning,
+		"container_id":         verification.ContainerID,
+		"container_name":       verification.ContainerName,
+		"port":                 verification.Port,
+		"subdomain":            verification.Subdomain,
+		"url":                  verification.URL,
+		"traefik_configured":   verification.TraefikConfigured,
+		"health_check_passed":  verification.HealthCheckPassed,
+		"errors":               verification.Errors,
+		"success":              verification.IsRunning && verification.TraefikConfigured && len(verification.Errors) == 0,
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+	// POST /api/webhooks/lemon-squeezy - Handle Lemon Squeezy webhook
 func (h *Handlers) HandleLemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 	// Verify webhook signature (stub - should verify in production)
 	// Lemon Squeezy signs webhooks with a secret

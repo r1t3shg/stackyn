@@ -8,10 +8,18 @@ export default function LandingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const handleSignInClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handleSignInClick = (e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     if (user) {
-      window.location.href = 'https://console.staging.stackyn.com/';
+      // In local development, navigate to apps page. In production, redirect to console subdomain
+      const hostname = window.location.hostname;
+      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+      if (isLocal || import.meta.env.DEV) {
+        navigate('/apps');
+      } else {
+        window.location.href = 'https://console.staging.stackyn.com/';
+      }
     } else {
       navigate('/login');
     }
@@ -65,15 +73,27 @@ export default function LandingPage() {
             </div>
 
             {/* Desktop CTA - Right Side */}
-            <div className="hidden md:flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-3 relative z-10">
               {user ? (
                 <>
-                  <a
-                    href="https://console.staging.stackyn.com/"
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const hostname = window.location.hostname;
+                      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+                      if (isLocal || import.meta.env.DEV) {
+                        navigate('/apps');
+                      } else {
+                        window.location.href = 'https://console.staging.stackyn.com/';
+                      }
+                    }}
+                    style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"
                   >
                     Go to Console
-                  </a>
+                  </button>
                   <button
                     className="w-10 h-10 rounded-full bg-[var(--primary-muted)] flex items-center justify-center text-[var(--primary)] font-semibold hover:bg-[var(--elevated)] transition-colors"
                     aria-label="User menu"
@@ -157,12 +177,24 @@ export default function LandingPage() {
                 </a>
                 {user ? (
                   <>
-                    <a
-                      href="https://console.staging.stackyn.com/"
-                      className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center"
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const hostname = window.location.hostname;
+                        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+                        if (isLocal || import.meta.env.DEV) {
+                          navigate('/apps');
+                        } else {
+                          window.location.href = 'https://console.staging.stackyn.com/';
+                        }
+                      }}
+                      style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
+                      className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center w-full"
                     >
                       Go to Console
-                    </a>
+                    </button>
                   </>
                 ) : (
                   <a
@@ -188,7 +220,7 @@ export default function LandingPage() {
             </h1>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup"}
                 onClick={(e) => {
                   if (!user) {
                     e.preventDefault();
@@ -488,10 +520,10 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$0</div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/signup?plan=free"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup?plan=free"}
                 onClick={(e) => {
+                  e.preventDefault();
                   if (!user) {
-                    e.preventDefault();
                     navigate('/signup?plan=free');
                   } else {
                     handleSignInClick(e);
@@ -542,10 +574,10 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$5 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/signup?plan=starter"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup?plan=starter"}
                 onClick={(e) => {
+                  e.preventDefault();
                   if (!user) {
-                    e.preventDefault();
                     navigate('/signup?plan=starter');
                   } else {
                     handleSignInClick(e);
@@ -599,10 +631,10 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$15 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/signup?plan=builder"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup?plan=builder"}
                 onClick={(e) => {
+                  e.preventDefault();
                   if (!user) {
-                    e.preventDefault();
                     navigate('/signup?plan=builder');
                   } else {
                     handleSignInClick(e);
@@ -653,10 +685,10 @@ export default function LandingPage() {
                 <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$29 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
               </div>
               <a
-                href={user ? "https://console.staging.stackyn.com/" : "/signup?plan=pro"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup?plan=pro"}
                 onClick={(e) => {
+                  e.preventDefault();
                   if (!user) {
-                    e.preventDefault();
                     navigate('/signup?plan=pro');
                   } else {
                     handleSignInClick(e);
@@ -708,10 +740,10 @@ export default function LandingPage() {
               Start shipping, not configuring servers.
             </h2>
             <a
-              href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup"}
               onClick={(e) => {
+                e.preventDefault();
                 if (!user) {
-                  e.preventDefault();
                   navigate('/signup');
                 } else {
                   handleSignInClick(e);
@@ -784,12 +816,13 @@ export default function LandingPage() {
           </h2>
           <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6">
             <a
-            href={user ? "https://console.staging.stackyn.com/" : "/signup"}
+            href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/') : "/signup"}
             onClick={(e) => {
               if (!user) {
                 e.preventDefault();
                 navigate('/signup');
               } else {
+                e.preventDefault();
                 handleSignInClick(e);
               }
             }}

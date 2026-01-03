@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { appsApi } from '@/lib/api';
 import type { App, Deployment, EnvVar } from '@/lib/types';
+import { extractString } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import DeploymentCard from '@/components/DeploymentCard';
 
@@ -34,6 +35,35 @@ export default function AppDetailsPage() {
       loadEnvVars();
     }
   }, [appId]);
+
+  // Poll for status updates when app is building or deploying
+  useEffect(() => {
+    if (!appId || !app) {
+      return;
+    }
+
+    // Only poll if app is in a transitional state (not failed or stopped)
+    const isTransitioning = (app.status === 'pending' || 
+                            app.status === 'building' || 
+                            app.status === 'deploying') &&
+                           app.status !== 'failed' &&
+                           app.status !== 'stopped' &&
+                           (app.deployment && (app.deployment.state === 'pending' || 
+                                               app.deployment.state === 'building' || 
+                                               app.deployment.state === 'deploying'));
+
+    if (!isTransitioning) {
+      return;
+    }
+
+    // Poll every 2 seconds while building/deploying
+    const interval = setInterval(() => {
+      loadApp();
+      loadDeployments();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [appId, app]);
 
   const loadApp = async () => {
     try {
@@ -178,10 +208,65 @@ export default function AppDetailsPage() {
         </Link>
 
         <div className="bg-white rounded-lg shadow-md p-8 mb-6">
+          {/* Build Error Banner - Show prominently at the top */}
+          {(app.status === 'failed' || deployments.some(d => d.status === 'failed' && extractString(d.error_message))) && (
+            <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3 flex-1">
+                  <h3 className="text-sm font-medium text-red-800 mb-2">
+                    Build Failed
+                  </h3>
+                  {(() => {
+                    const failedDeployment = deployments.find(d => d.status === 'failed' && extractString(d.error_message));
+                    const errorMsg = failedDeployment ? extractString(failedDeployment.error_message) : 'Build process failed. Please check the deployment logs for details.';
+                    return (
+                      <div className="text-sm text-red-700">
+                        <p className="font-mono whitespace-pre-wrap break-words">{errorMsg}</p>
+                        {failedDeployment && (
+                          <Link
+                            href={`/apps/${appId}/deployments/${failedDeployment.id}`}
+                            className="mt-2 inline-block text-sm font-medium text-red-800 hover:text-red-900 underline"
+                          >
+                            View deployment details →
+                          </Link>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-start justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{app.name}</h1>
-              <StatusBadge status={app.status} />
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-900 mb-3">{app.name}</h1>
+              <div className="flex items-center gap-3 mb-2">
+                <StatusBadge status={app.status} />
+                {(app.status === 'building' || app.status === 'deploying' || app.status === 'pending') && (
+                  <span className="text-sm text-gray-600">Updating...</span>
+                )}
+              </div>
+              {app.status === 'running' && app.url && (
+                <div className="mt-2">
+                  <a
+                    href={app.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <span>Visit App</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
             </div>
             <div className="flex space-x-3">
               <button

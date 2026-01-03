@@ -43,10 +43,9 @@ func (c *TaskClient) EnqueueBuildTask(payload BuildTaskPayload, priority int) (*
 
 	// Configure task options
 	opts := []asynq.Option{
-		asynq.MaxRetry(3),                         // Retry up to 3 times
+		asynq.MaxRetry(0),                         // No retries - try once only
 		asynq.Timeout(30 * time.Minute),           // 30 minute timeout
 		asynq.Queue(getQueueByPriority(priority)), // Priority-based queue
-		// Exponential backoff is configured at server level
 	}
 
 	taskInfo, err := c.client.Enqueue(task, opts...)

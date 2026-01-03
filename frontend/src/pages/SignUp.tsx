@@ -10,11 +10,14 @@ export default function SignUp() {
   const [step, setStep] = useState<SignupStep>('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
   const navigate = useNavigate();
 
@@ -286,9 +289,65 @@ export default function SignUp() {
                   </p>
                 </div>
 
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Password <span className="text-[var(--text-muted)]">(optional)</span>
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (e.target.value && e.target.value.length < 8) {
+                        setPasswordError('Password must be at least 8 characters');
+                      } else if (e.target.value && confirmPassword && e.target.value !== confirmPassword) {
+                        setPasswordError('Passwords do not match');
+                      } else {
+                        setPasswordError(null);
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                    placeholder="Enter a password (optional)"
+                  />
+                  {passwordError && (
+                    <p className="mt-1 text-sm text-[var(--error)]">{passwordError}</p>
+                  )}
+                  <p className="mt-1 text-sm text-[var(--text-muted)]">
+                    Set a password to login without OTP in the future
+                  </p>
+                </div>
+
+                {password && (
+                  <div>
+                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                      Confirm Password
+                    </label>
+                    <input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (password && e.target.value !== password) {
+                          setPasswordError('Passwords do not match');
+                        } else {
+                          setPasswordError(null);
+                        }
+                      }}
+                      className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                      placeholder="Confirm your password"
+                    />
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  disabled={loading || otp.length !== 6}
+                  disabled={loading || otp.length !== 6 || !!passwordError}
                   className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Verifying...' : 'Verify code'}
@@ -312,6 +371,9 @@ export default function SignUp() {
                 onClick={() => {
                   setStep('email');
                   setOtp('');
+                  setPassword('');
+                  setConfirmPassword('');
+                  setPasswordError(null);
                 }}
                 className="w-full py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
               >

@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -20,25 +21,42 @@ type AsynqServer struct {
 }
 
 // NewAsynqServer creates a new Asynq server
-func NewAsynqServer(redisAddr string, logger *zap.Logger, handler *tasks.TaskHandler, persist *tasks.TaskStatePersistence) *AsynqServer {
+// queues specifies which queues this worker should listen to (map of queue name to weight)
+// If nil, defaults to all task-specific queues
+func NewAsynqServer(redisAddr string, logger *zap.Logger, handler *tasks.TaskHandler, persist *tasks.TaskStatePersistence, queues map[string]int) *AsynqServer {
 	redisOpt := asynq.RedisClientOpt{
 		Addr: redisAddr,
+	}
+
+	// Default queues if not specified
+	if queues == nil {
+		queues = map[string]int{
+			tasks.QueueBuild:   10, // Build tasks
+			tasks.QueueDeploy:  10, // Deploy tasks
+			tasks.QueueCleanup: 5,  // Cleanup tasks
+		}
 	}
 
 	// Configure server with dead-letter queue
 	config := asynq.Config{
 		Concurrency: 10, // Process 10 tasks concurrently
-		Queues: map[string]int{
-			tasks.QueueCritical: 6, // Higher priority
-			tasks.QueueDefault:  3,
-			tasks.QueueLow:      1,
-		},
-		StrictPriority: true, // Process critical queue first
+		Queues:      queues,
+		StrictPriority: false, // No strict priority needed with task-specific queues
 		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
-			logger.Error("Task processing error",
-				zap.String("task_type", task.Type()),
-				zap.Error(err),
-			)
+			// Check if error is "handler not found" - this shouldn't happen with task-specific queues
+			// but log as warning instead of error if it does
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "handler not found") {
+				logger.Warn("Task handler not found - this worker should not process this task type",
+					zap.String("task_type", task.Type()),
+					zap.Error(err),
+				)
+			} else {
+				logger.Error("Task processing error",
+					zap.String("task_type", task.Type()),
+					zap.Error(err),
+				)
+			}
 		}),
 		RetryDelayFunc: func(n int, err error, task *asynq.Task) time.Duration {
 			// Exponential backoff with jitter
@@ -72,15 +90,26 @@ func NewAsynqServer(redisAddr string, logger *zap.Logger, handler *tasks.TaskHan
 	return asynqServer
 }
 
-// RegisterHandlers registers task handlers with middleware
+// RegisterHandlers registers all task handlers with middleware
+// This is a convenience method that registers all handlers
 func (s *AsynqServer) RegisterHandlers() {
-	// Register build task handler with persistence middleware
+	s.RegisterBuildHandler()
+	s.RegisterDeployHandler()
+	s.RegisterCleanupHandler()
+}
+
+// RegisterBuildHandler registers only the build task handler
+func (s *AsynqServer) RegisterBuildHandler() {
 	s.mux.HandleFunc(tasks.TypeBuildTask, s.withPersistence(s.handler.HandleBuildTask))
-	
-	// Register deploy task handler with persistence middleware
+}
+
+// RegisterDeployHandler registers only the deploy task handler
+func (s *AsynqServer) RegisterDeployHandler() {
 	s.mux.HandleFunc(tasks.TypeDeployTask, s.withPersistence(s.handler.HandleDeployTask))
-	
-	// Register cleanup task handler with persistence middleware
+}
+
+// RegisterCleanupHandler registers only the cleanup task handler
+func (s *AsynqServer) RegisterCleanupHandler() {
 	s.mux.HandleFunc(tasks.TypeCleanupTask, s.withPersistence(s.handler.HandleCleanupTask))
 }
 

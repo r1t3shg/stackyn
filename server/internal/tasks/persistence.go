@@ -81,10 +81,8 @@ func (p *TaskStatePersistence) OnTaskCompleted(ctx context.Context, taskID strin
 
 // OnTaskFailed updates task state when task fails
 func (p *TaskStatePersistence) OnTaskFailed(ctx context.Context, taskID string, retryCount int, err error) error {
+	// Always mark as failed - no retries
 	status := "failed"
-	if retryCount < 3 { // Will retry
-		status = "retrying"
-	}
 	
 	errorMsg := ""
 	if err != nil {
