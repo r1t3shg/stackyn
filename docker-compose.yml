@@ -304,6 +304,7 @@ services:
       # HTTPS router for main domain (with SSL) - explicit domain match
       - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       # HTTP router for console subdomain (redirects to HTTPS) - explicit domain match
@@ -314,6 +315,7 @@ services:
       # HTTPS router for console subdomain (with SSL) - explicit domain match
       - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
       - "traefik.http.routers.console.entrypoints=websecure"
+      - "traefik.http.routers.console.service=frontend"
       - "traefik.http.routers.console.tls=true"
       - "traefik.http.routers.console.tls.certresolver=letsencrypt"
       # Service configuration
