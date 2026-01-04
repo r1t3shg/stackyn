@@ -346,13 +346,13 @@ export default function AppDetailsPage() {
                     <span>Building...</span>
                   </div>
                 )}
-                {/* Show error message if app failed */}
-                {app.status === 'failed' && (
+                {/* Show error message if app failed or in error state */}
+                {(app.status === 'failed' || app.status === 'error') && (
                   <div className="flex items-center gap-2 text-sm text-[var(--error)]">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span>Application failed to start</span>
+                    <span>{app.status === 'error' ? 'Application not accessible' : 'Application failed to start'}</span>
                   </div>
                 )}
                 {/* Show error message if deployment failed */}
@@ -934,17 +934,31 @@ export default function AppDetailsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="flex-1">
-                <div className="font-medium text-[var(--error)] mb-2">Application Failed to Start</div>
+                <div className="font-medium text-[var(--error)] mb-2">
+                  {app.status === 'error' ? 'Application Not Accessible' : 'Application Failed to Start'}
+                </div>
                 {deployments.length > 0 && deployments[0].error_message && extractString(deployments[0].error_message) && (
-                  <div className="bg-[var(--surface)] rounded border border-[var(--border-subtle)] p-3 mb-2 font-mono text-sm text-[var(--text-primary)]">
+                  <div className="bg-[var(--surface)] rounded border border-[var(--border-subtle)] p-3 mb-2 font-mono text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
                     {extractString(deployments[0].error_message)}
                   </div>
                 )}
                 <div className="text-sm text-[var(--text-secondary)] mb-3">
-                  The application container crashed during startup. Check the build logs and runtime logs tabs for detailed error information.
+                  {app.status === 'error' ? (
+                    <>
+                      The application container is running but cannot be accessed through its URL. This could be due to SSL certificate issues, routing problems, or the application not responding correctly.
+                    </>
+                  ) : (
+                    <>
+                      The application container crashed during startup. Check the build logs and runtime logs tabs for detailed error information.
+                    </>
+                  )}
                 </div>
                 <div className="text-sm text-[var(--text-secondary)] mb-3">
-                  <strong>Common causes:</strong> Missing configuration files, environment variables not set, incorrect port binding, application startup errors, or missing dependencies.
+                  <strong>Common causes:</strong> {
+                    app.status === 'error' 
+                      ? 'SSL certificate not issued, Traefik routing misconfigured, application not listening on expected port, DNS issues, or container health check failures.'
+                      : 'Missing configuration files, environment variables not set, incorrect port binding, application startup errors, or missing dependencies.'
+                  }
                 </div>
                 <button
                   onClick={handleRedeploy}

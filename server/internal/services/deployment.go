@@ -32,6 +32,11 @@ type DeploymentService struct {
 	crashCallback  CrashCallback          // Optional: callback for crash events
 }
 
+// GetDockerClient returns the Docker client (for use by other services)
+func (s *DeploymentService) GetDockerClient() *client.Client {
+	return s.client
+}
+
 // RuntimeLogPersistence interface for persisting runtime logs
 // Accepts interface{} to allow different entry types
 type RuntimeLogPersistence interface {
@@ -237,6 +242,8 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 		// Use same app-scoped context
 		go s.streamAndPersistRuntimeLogs(monitorCtx, createResp.ID, opts.AppID, opts.DeploymentID)
 	}
+
+	// Step 7: Return URL for health monitoring (will be started by task handler)
 
 	s.logger.Info("Container deployed successfully",
 		zap.String("container_id", createResp.ID),

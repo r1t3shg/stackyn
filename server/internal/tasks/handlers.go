@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
@@ -89,6 +90,7 @@ type DeploymentService interface {
 	DeployContainer(ctx context.Context, opts services.DeploymentOptions) (*services.DeploymentResult, error)
 	DeployWithDockerCompose(ctx context.Context, opts services.DeploymentOptions) (*services.DeploymentResult, error)
 	RollbackDeployment(ctx context.Context, appID, previousImageName, previousImageTag string) error
+	GetDockerClient() *client.Client
 	Close() error
 }
 
@@ -789,6 +791,7 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 	)
 
 	// Update deployment status in database
+	var dbDeploymentID string
 	if h.deploymentRepo != nil {
 		// Try to create deployment record (if it doesn't exist) or update existing one
 		// For now, we'll try to find deployment by matching container name pattern or create new
@@ -801,7 +804,7 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		// Try to create deployment - if deployment ID format allows lookup, we could update instead
 		// For simplicity, always create new deployment record
 		// Use subdomain from deployOpts (already defined above)
-		deploymentID, err := h.deploymentRepo.CreateDeployment(
+		dbDeploymentID, err = h.deploymentRepo.CreateDeployment(
 			payload.AppID,
 			payload.BuildJobID,
 			deployResult.Status,
@@ -819,7 +822,7 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 			)
 		} else {
 			h.logger.Info("Deployment record created in database",
-				zap.String("db_deployment_id", deploymentID),
+				zap.String("db_deployment_id", dbDeploymentID),
 				zap.String("app_id", payload.AppID),
 				zap.String("deployment_id", payload.DeploymentID),
 			)
@@ -839,6 +842,7 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 			appURL = fmt.Sprintf("https://%s", deployOpts.Subdomain)
 		}
 		
+		// First, set status to "running" (will be updated to "error" if health check fails)
 		if err := h.appRepo.UpdateApp(payload.AppID, "running", appURL); err != nil {
 			h.logger.Warn("Failed to update app status and URL",
 				zap.Error(err),
@@ -852,6 +856,15 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 				zap.String("status", "running"),
 				zap.String("url", appURL),
 			)
+
+			// Wait a bit for container to fully start and Traefik to configure
+			// Then run initial health check (use DB deployment ID for health check)
+			if dbDeploymentID != "" {
+				go func() {
+					time.Sleep(15 * time.Second) // Wait 15 seconds for container to be ready
+					h.performHealthCheck(context.Background(), payload.AppID, dbDeploymentID, deployResult.ContainerID, appURL)
+				}()
+			}
 		}
 	} else if h.appRepo == nil {
 		h.logger.Warn("App repository not available - app status not updated")
