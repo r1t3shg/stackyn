@@ -246,9 +246,9 @@ jobs:
           # Build and deploy
           echo "🔨 Building and deploying containers..."
           
-          # Stop and remove existing containers, networks, and volumes
+          # Stop and remove existing containers and networks (preserve volumes for data persistence)
           echo "🛑 Stopping existing containers..."
-          docker compose down --remove-orphans -v || true  # Remove volumes and orphaned containers
+          docker compose down --remove-orphans || true  # Don't remove volumes to preserve SSL certificates and data
           
           # Wait a moment for ports to be released
           sleep 3
@@ -302,6 +302,11 @@ jobs:
             docker compose build --no-cache 2>&1 | tail -n 100
             exit 1
           fi
+          
+          # Initialize acme.json if it doesn't exist (for SSL certificates)
+          echo "🔐 Initializing SSL certificate storage..."
+          docker volume inspect stackyn_traefik_data >/dev/null 2>&1 || docker volume create stackyn_traefik_data
+          docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "if [ ! -f /letsencrypt/acme.json ]; then touch /letsencrypt/acme.json && chmod 600 /letsencrypt/acme.json && echo '{}' > /letsencrypt/acme.json; fi" || true
           
           echo "Starting containers..."
           docker compose up -d --remove-orphans

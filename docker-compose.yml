@@ -60,14 +60,19 @@ services:
       - "--providers.docker.network=stackyn-network"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      # Let's Encrypt ACME configuration
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      # Skip ACME for localhost domains (Let's Encrypt doesn't support localhost)
       # Temporarily using staging to bypass rate limit - switch back to production after 2026-01-05
       # Production: https://acme-v02.api.letsencrypt.org/directory
       - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      # ACME configuration improvements
+      - "--certificatesresolvers.letsencrypt.acme.keytype=RSA4096"
+      # Logging for debugging SSL certificate issues
+      - "--log.level=INFO"
+      - "--accesslog=true"
     ports:
       - "80:80"
       - "443:443"
@@ -78,6 +83,12 @@ services:
     networks:
       - stackyn-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # API Server
   api:
