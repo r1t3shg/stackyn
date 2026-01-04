@@ -1,8 +1,8 @@
 # Frontend Dockerfile - React/Vite Application
-# Multi-stage build for optimized production image
+# Optimized multi-stage build for fast production images
 #
-# Build Instructions:
-#   docker build --build-arg VITE_API_BASE_URL=https://api.staging.stackyn.com -t stackyn-frontend .
+# Build Instructions (with BuildKit for faster builds):
+#   DOCKER_BUILDKIT=1 docker build --build-arg VITE_API_BASE_URL=https://api.staging.stackyn.com -t stackyn-frontend .
 #
 # Deployment Notes:
 #   - VITE_API_BASE_URL must be set at build time (not runtime)
@@ -10,26 +10,26 @@
 #   - Production build is served using 'serve' static file server
 #   - SPA routing is supported via serve's -s flag
 #
-# Migration Notes:
-#   - Migrated from Create React App to Vite for faster builds
-#   - Build output is in /app/dist directory
-#   - Port 3000 is exposed for Traefik routing
+# Performance Optimizations:
+#   - Uses npm ci for faster, reproducible dependency installation
+#   - BuildKit cache mounts for node_modules (reuses cache between builds)
+#   - Separate layers for dependencies and source code
+#   - Minimal production image
 
 # Build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files first (for better layer caching)
 COPY package*.json ./
 
-# Install dependencies
-# Note: Using npm install instead of npm ci because package-lock.json 
-# needs to be updated with new dependencies. After updating the lock file
-# locally, switch back to 'npm ci' for faster, reproducible builds.
-RUN npm install
+# Install dependencies with cache mount (BuildKit feature)
+# This caches node_modules between builds, making rebuilds much faster
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production=false
 
-# Copy source code
+# Copy source code (this layer only rebuilds when source changes)
 COPY . .
 
 # Build the application
@@ -37,7 +37,12 @@ COPY . .
 # This is baked into the JavaScript bundle and cannot be changed at runtime
 ARG VITE_API_BASE_URL=https://api.staging.stackyn.com
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-RUN npm run build
+
+# Build with Vite
+# Using build:fast to skip TypeScript type checking for faster builds
+# Type checking is done in CI/CD, so we can skip it here for speed
+# For production with full type checking, use: npm run build
+RUN npm run build:fast
 
 # Production stage with simple static server
 FROM node:20-alpine

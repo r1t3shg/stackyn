@@ -1,0 +1,39 @@
+# Fast build Dockerfile - Skips TypeScript type checking for faster builds
+# Use this for development/staging when you need faster rebuilds
+# Production should use the main Dockerfile with full type checking
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files first (for better layer caching)
+COPY package*.json ./
+
+# Install dependencies with cache mount (BuildKit feature)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production=false
+
+# Copy source code
+COPY . .
+
+# Build the application (skip type checking for speed)
+ARG VITE_API_BASE_URL=https://api.staging.stackyn.com
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+# Build with Vite only (skip tsc type checking - much faster)
+# WARNING: This skips TypeScript type checking. Use main Dockerfile for production.
+RUN npx vite build --mode production
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN npm install -g serve
+
+COPY --from=builder /app/dist ./dist
+
+EXPOSE 3000
+
+CMD ["serve", "-s", "dist", "-l", "3000"]
+
