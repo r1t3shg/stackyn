@@ -65,10 +65,9 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      # Temporarily using staging due to rate limit - switch to production after 2026-01-05 04:40 UTC
-      # Rate limit expires: 2026-01-05 04:39:57 UTC (staging.stackyn.com)
+      # Production Let's Encrypt CA server
       # Production: https://acme-v02.api.letsencrypt.org/directory
-      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
       # ACME configuration improvements
       - "--certificatesresolvers.letsencrypt.acme.keytype=RSA4096"
       # Logging for debugging SSL certificate issues
@@ -308,6 +307,7 @@ services:
       # HTTPS router for main domain (with SSL) - explicit domain match
       - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       # HTTP router for console subdomain (redirects to HTTPS) - explicit domain match
@@ -318,6 +318,7 @@ services:
       # HTTPS router for console subdomain (with SSL) - explicit domain match
       - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
       - "traefik.http.routers.console.entrypoints=websecure"
+      - "traefik.http.routers.console.service=frontend"
       - "traefik.http.routers.console.tls=true"
       - "traefik.http.routers.console.tls.certresolver=letsencrypt"
       # Redirect middlewares
