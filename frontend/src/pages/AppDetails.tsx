@@ -346,6 +346,15 @@ export default function AppDetailsPage() {
                     <span>Building...</span>
                   </div>
                 )}
+                {/* Show error message if app failed */}
+                {app.status === 'failed' && (
+                  <div className="flex items-center gap-2 text-sm text-[var(--error)]">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Application failed to start</span>
+                  </div>
+                )}
                 {/* Show error message if deployment failed */}
                 {deployments.length > 0 && deployments[0].status === 'failed' && deployments[0].error_message && (
                   <div className="flex items-center gap-2 text-sm text-[var(--error)]">
@@ -917,19 +926,33 @@ export default function AppDetailsPage() {
           )}
         </div>
 
-        {/* Helpful Hints */}
+        {/* Error Message Section */}
         {(app.status === 'failed' || app.status === 'error') && (
-          <div className="mt-6 bg-[var(--warning)]/10 rounded-lg border border-[var(--warning)] p-4">
+          <div className="mt-6 bg-[var(--error)]/10 rounded-lg border border-[var(--error)] p-4">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-[var(--warning)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              <svg className="w-5 h-5 text-[var(--error)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <div>
-                <div className="font-medium text-[var(--text-primary)] mb-1">App deployment failed</div>
-                <div className="text-sm text-[var(--text-secondary)]">
-                  Check the Logs tab for error details. Common issues include missing Dockerfile, build errors, or configuration problems. 
-                  After fixing the issue, use the Redeploy button to try again.
+              <div className="flex-1">
+                <div className="font-medium text-[var(--error)] mb-2">Application Failed to Start</div>
+                {deployments.length > 0 && deployments[0].error_message && extractString(deployments[0].error_message) && (
+                  <div className="bg-[var(--surface)] rounded border border-[var(--border-subtle)] p-3 mb-2 font-mono text-sm text-[var(--text-primary)]">
+                    {extractString(deployments[0].error_message)}
+                  </div>
+                )}
+                <div className="text-sm text-[var(--text-secondary)] mb-3">
+                  The application container crashed during startup. Check the build logs and runtime logs tabs for detailed error information.
                 </div>
+                <div className="text-sm text-[var(--text-secondary)] mb-3">
+                  <strong>Common causes:</strong> Missing configuration files, environment variables not set, incorrect port binding, application startup errors, or missing dependencies.
+                </div>
+                <button
+                  onClick={handleRedeploy}
+                  disabled={actionLoading !== null}
+                  className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading === 'redeploy' ? 'Redeploying...' : 'Redeploy App'}
+                </button>
               </div>
             </div>
           </div>

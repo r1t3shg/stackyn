@@ -19,12 +19,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// CrashCallback is a function that gets called when a container crashes
+// Parameters: appID, deploymentID, containerID, exitCode, error message
+type CrashCallback func(appID, deploymentID, containerID string, exitCode int, errorMsg string)
+
 // DeploymentService handles container deployment operations
 type DeploymentService struct {
 	client         *client.Client
 	logger         *zap.Logger
 	logPersistence RuntimeLogPersistence // Optional: for persisting runtime logs
 	networkName    string                 // Docker network name (e.g., "stackyn-network")
+	crashCallback  CrashCallback          // Optional: callback for crash events
 }
 
 // RuntimeLogPersistence interface for persisting runtime logs
@@ -53,7 +58,13 @@ func NewDeploymentService(dockerHost string, logger *zap.Logger, logPersistence 
 		logger:         logger,
 		logPersistence: logPersistence,
 		networkName:    networkName,
+		crashCallback:  nil,
 	}, nil
+}
+
+// SetCrashCallback sets the callback function for container crash events
+func (s *DeploymentService) SetCrashCallback(callback CrashCallback) {
+	s.crashCallback = callback
 }
 
 // Close closes the Docker client
@@ -679,15 +690,47 @@ func (s *DeploymentService) monitorContainerCrash(ctx context.Context, container
 					logReader.Close()
 				}
 
+				// Build error message from logs and container state
+				errorMsg := containerJSON.State.Error
+				if errorMsg == "" && logs != "" {
+					// Extract last meaningful error line from logs
+					lines := strings.Split(logs, "\n")
+					for i := len(lines) - 1; i >= 0; i-- {
+						line := strings.TrimSpace(lines[i])
+						if line != "" && (strings.Contains(line, "error") || strings.Contains(line, "Error") || strings.Contains(line, "ERROR") || strings.Contains(line, "failed") || strings.Contains(line, "Failed")) {
+							errorMsg = line
+							break
+						}
+					}
+					if errorMsg == "" && len(lines) > 0 {
+						// Use last non-empty line
+						for i := len(lines) - 1; i >= 0; i-- {
+							line := strings.TrimSpace(lines[i])
+							if line != "" {
+								errorMsg = line
+								break
+							}
+						}
+					}
+				}
+				if errorMsg == "" {
+					errorMsg = fmt.Sprintf("Container exited with status %s (exit code %d)", containerJSON.State.Status, containerJSON.State.ExitCode)
+				}
+
 				s.logger.Error("Container crashed",
 					zap.String("container_id", containerID),
 					zap.String("app_id", appID),
 					zap.String("deployment_id", deploymentID),
 					zap.String("status", containerJSON.State.Status),
 					zap.Int("exit_code", containerJSON.State.ExitCode),
-					zap.String("error", containerJSON.State.Error),
+					zap.String("error", errorMsg),
 					zap.String("logs", logs),
 				)
+
+				// Call crash callback if set (to update database)
+				if s.crashCallback != nil {
+					s.crashCallback(appID, deploymentID, containerID, containerJSON.State.ExitCode, errorMsg)
+				}
 
 				// Update last status to avoid duplicate logging
 				lastStatus = containerJSON.State.Status

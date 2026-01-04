@@ -102,6 +102,40 @@ func main() {
 	// Initialize app repository for updating app status and URL
 	appRepo := api.NewAppRepo(dbPool, logger)
 
+	// Set crash callback to update database when containers crash
+	// This must be after repositories are initialized
+	deploymentService.SetCrashCallback(func(appID, deploymentID, containerID string, exitCode int, errorMsg string) {
+		logger.Info("Container crash detected, updating database",
+			zap.String("app_id", appID),
+			zap.String("deployment_id", deploymentID),
+			zap.String("container_id", containerID),
+			zap.Int("exit_code", exitCode),
+			zap.String("error", errorMsg),
+		)
+
+		// Update deployment status to failed
+		if deploymentRepo != nil {
+			err := deploymentRepo.UpdateDeployment(deploymentID, "failed", "", containerID, "", errorMsg)
+			if err != nil {
+				logger.Error("Failed to update deployment status to failed",
+					zap.Error(err),
+					zap.String("deployment_id", deploymentID),
+				)
+			}
+		}
+
+		// Update app status to failed
+		if appRepo != nil {
+			err := appRepo.UpdateApp(appID, "failed", "")
+			if err != nil {
+				logger.Error("Failed to update app status to failed",
+					zap.Error(err),
+					zap.String("app_id", appID),
+				)
+			}
+		}
+	})
+
 	// Initialize task handler with deployment service and repository
 	taskHandler := tasks.NewTaskHandler(
 		logger,
