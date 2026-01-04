@@ -65,7 +65,9 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       # Skip ACME for localhost domains (Let's Encrypt doesn't support localhost)
-      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+      # Temporarily using staging to bypass rate limit - switch back to production after 2026-01-05
+      # Production: https://acme-v02.api.letsencrypt.org/directory
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
     ports:
       - "80:80"
       - "443:443"
