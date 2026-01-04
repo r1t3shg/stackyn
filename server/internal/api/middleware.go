@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"stackyn/server/internal/services"
 )
@@ -91,10 +93,31 @@ func AuthMiddleware(jwtService *services.JWTService, userRepo *UserRepo, logger 
 
 			user, err := userRepo.GetUserByEmail(email)
 			if err != nil {
-				logger.Warn("User not found for Firebase token", zap.String("email", email), zap.Error(err))
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"User not found"}`))
-				return
+				// If user doesn't exist, create them automatically from Firebase token
+				if errors.Is(err, pgx.ErrNoRows) {
+					logger.Info("Creating new user from Firebase token", zap.String("email", email))
+					
+					// Extract full name from Firebase token if available
+					fullName := ""
+					if name, ok := firebaseClaims["name"].(string); ok && name != "" {
+						fullName = name
+					}
+					
+					// Create user without password (Firebase handles authentication)
+					user, err = userRepo.CreateUser(email, fullName, "", "")
+					if err != nil {
+						logger.Error("Failed to create user from Firebase token", zap.String("email", email), zap.Error(err))
+						w.WriteHeader(http.StatusInternalServerError)
+						w.Write([]byte(`{"error":"Failed to create user account"}`))
+						return
+					}
+					logger.Info("Created new user from Firebase token", zap.String("user_id", user.ID), zap.String("email", email))
+				} else {
+					logger.Warn("Failed to get user for Firebase token", zap.String("email", email), zap.Error(err))
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(`{"error":"Authentication service error"}`))
+					return
+				}
 			}
 
 			// Add user info to context
