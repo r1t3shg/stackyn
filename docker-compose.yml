@@ -282,10 +282,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${FRONTEND_API_URL:-https://api.staging.stackyn.com}
-      # Enable BuildKit for faster builds with cache mounts
-      # This significantly speeds up rebuilds by caching node_modules
-      cache_from:
-        - stackyn-frontend:latest
     container_name: stackyn-frontend
     ports:
       - "3000:3000"

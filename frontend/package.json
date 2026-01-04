@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:fast": "vite build --mode production",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings 0"
