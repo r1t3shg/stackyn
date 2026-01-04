@@ -328,22 +328,44 @@ RUN mkdir -p /cnb/process && \
     echo 'done' >> /cnb/process/web && \
     echo '# Find Python executable' >> /cnb/process/web && \
     echo 'PYTHON=""' >> /cnb/process/web && \
-    echo '# Check Paketo Python layer first' >> /cnb/process/web && \
+    echo '# Check Paketo Python layer first (multiple possible locations)' >> /cnb/process/web && \
     echo 'if [ -f /layers/paketo-buildpacks_cpython/python/bin/python3 ]; then' >> /cnb/process/web && \
     echo '  PYTHON="/layers/paketo-buildpacks_cpython/python/bin/python3"' >> /cnb/process/web && \
     echo 'elif [ -f /layers/paketo-buildpacks_cpython/python/bin/python ]; then' >> /cnb/process/web && \
     echo '  PYTHON="/layers/paketo-buildpacks_cpython/python/bin/python"' >> /cnb/process/web && \
-    echo 'elif command -v python3 >/dev/null 2>&1; then' >> /cnb/process/web && \
-    echo '  PYTHON="python3"' >> /cnb/process/web && \
-    echo 'elif command -v python >/dev/null 2>&1; then' >> /cnb/process/web && \
-    echo '  PYTHON="python"' >> /cnb/process/web && \
-    echo 'else' >> /cnb/process/web && \
+    echo 'elif [ -d /layers/paketo-buildpacks_cpython ]; then' >> /cnb/process/web && \
+    echo '  # Search for python in any subdirectory' >> /cnb/process/web && \
+    echo '  PYTHON=$(find /layers/paketo-buildpacks_cpython -name python3 -type f 2>/dev/null | head -1)' >> /cnb/process/web && \
+    echo '  [ -z "$PYTHON" ] && PYTHON=$(find /layers/paketo-buildpacks_cpython -name python -type f 2>/dev/null | head -1)' >> /cnb/process/web && \
+    echo '  [ -n "$PYTHON" ] && [ -x "$PYTHON" ] || PYTHON=""' >> /cnb/process/web && \
+    echo 'fi' >> /cnb/process/web && \
+    echo '# Check system Python if Paketo Python not found' >> /cnb/process/web && \
+    echo 'if [ -z "$PYTHON" ]; then' >> /cnb/process/web && \
+    echo '  if command -v python3 >/dev/null 2>&1; then' >> /cnb/process/web && \
+    echo '    PYTHON="python3"' >> /cnb/process/web && \
+    echo '  elif command -v python >/dev/null 2>&1; then' >> /cnb/process/web && \
+    echo '    PYTHON="python"' >> /cnb/process/web && \
+    echo '  fi' >> /cnb/process/web && \
+    echo 'fi' >> /cnb/process/web && \
+    echo '# Final check - if still no Python, show error with debug info' >> /cnb/process/web && \
+    echo 'if [ -z "$PYTHON" ]; then' >> /cnb/process/web && \
     echo '  echo "ERROR: Python executable not found"' >> /cnb/process/web && \
+    echo '  echo "Debug: Checking Python locations..."' >> /cnb/process/web && \
+    echo '  [ -d /layers/paketo-buildpacks_cpython ] && echo "  - /layers/paketo-buildpacks_cpython exists" || echo "  - /layers/paketo-buildpacks_cpython not found"' >> /cnb/process/web && \
+    echo '  [ -d /layers ] && find /layers -name "*python*" -type d 2>/dev/null | head -5 || echo "  - No Python layers found"' >> /cnb/process/web && \
     echo '  exit 1' >> /cnb/process/web && \
     echo 'fi' >> /cnb/process/web && \
     echo '# Add Python bin to PATH' >> /cnb/process/web && \
-    echo 'if [ -d /layers/paketo-buildpacks_cpython/python/bin ]; then' >> /cnb/process/web && \
+    echo 'if [ -n "$PYTHON" ] && [ "$PYTHON" != "python3" ] && [ "$PYTHON" != "python" ]; then' >> /cnb/process/web && \
+    echo '  # Extract directory from Python path and add to PATH' >> /cnb/process/web && \
+    echo '  PYTHON_DIR=$(dirname "$PYTHON")' >> /cnb/process/web && \
+    echo '  export PATH="$PYTHON_DIR:$PATH"' >> /cnb/process/web && \
+    echo 'elif [ -d /layers/paketo-buildpacks_cpython/python/bin ]; then' >> /cnb/process/web && \
     echo '  export PATH="/layers/paketo-buildpacks_cpython/python/bin:$PATH"' >> /cnb/process/web && \
+    echo 'elif [ -d /layers/paketo-buildpacks_cpython ]; then' >> /cnb/process/web && \
+    echo '  # Find any bin directory in cpython layer' >> /cnb/process/web && \
+    echo '  PYTHON_BIN=$(find /layers/paketo-buildpacks_cpython -type d -name bin 2>/dev/null | head -1)' >> /cnb/process/web && \
+    echo '  [ -n "$PYTHON_BIN" ] && export PATH="$PYTHON_BIN:$PATH"' >> /cnb/process/web && \
     echo 'fi' >> /cnb/process/web && \
     echo '# Add pip-installed packages to PATH' >> /cnb/process/web && \
     echo 'if [ -d /layers/paketo-buildpacks_pip-install/packages ]; then' >> /cnb/process/web && \
