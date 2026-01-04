@@ -43,7 +43,7 @@ jobs:
         working-directory: ./frontend
         run: npm run build
         env:
-          VITE_API_BASE_URL: ${{ secrets.FRONTEND_API_URL || 'https://api.staging.stackyn.com' }}
+          VITE_API_BASE_URL: ${{ secrets.FRONTEND_API_URL || 'https://api.dev.stackyn.com' }}
 
       # Backend: Build verification
       - name: Setup Go
@@ -208,9 +208,9 @@ jobs:
                 grep "^APP_BASE_DOMAIN=" env.example >> .env
                 echo "✅ Added APP_BASE_DOMAIN to .env"
               else
-                # Add default value
-                echo "APP_BASE_DOMAIN=staging.stackyn.com" >> .env
-                echo "✅ Added APP_BASE_DOMAIN=staging.stackyn.com to .env"
+                # Add default value (use dev.stackyn.com as default)
+                echo "APP_BASE_DOMAIN=dev.stackyn.com" >> .env
+                echo "✅ Added APP_BASE_DOMAIN=dev.stackyn.com to .env"
               fi
             fi
           fi
@@ -246,9 +246,14 @@ jobs:
           # Build and deploy
           echo "🔨 Building and deploying containers..."
           
-          # Stop and remove existing containers and networks (preserve volumes for data persistence)
-          echo "🛑 Stopping existing containers..."
-          docker compose down --remove-orphans || true  # Don't remove volumes to preserve SSL certificates and data
+          # CRITICAL: Preserve SSL certificates by ensuring traefik_data volume is not removed
+          echo "🔐 Protecting SSL certificates..."
+          docker volume inspect stackyn_traefik_data >/dev/null 2>&1 && echo "✅ SSL certificate volume exists and will be preserved" || echo "⚠️  SSL certificate volume not found (will be created)"
+          
+          # Stop and remove existing containers and networks (EXPLICITLY preserve volumes)
+          # Using --volumes flag would remove volumes - we DO NOT want that for SSL certificates
+          echo "🛑 Stopping existing containers (preserving volumes for SSL certificates and data)..."
+          docker compose down --remove-orphans || true  # NO --volumes flag to preserve SSL certificates
           
           # Wait a moment for ports to be released
           sleep 3
@@ -286,8 +291,20 @@ jobs:
           fi
           
           # Remove any dangling containers that might be using the port
-          echo "🧹 Cleaning up dangling containers..."
-          docker ps -a --filter "name=stackyn" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
+          # IMPORTANT: Do NOT remove containers that might be using the traefik_data volume
+          echo "🧹 Cleaning up dangling containers (preserving SSL certificate volume)..."
+          docker ps -a --filter "name=stackyn" --format "{{.ID}} {{.Names}}" | grep -v "traefik" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+          
+          # Explicitly ensure traefik_data volume is not removed
+          echo "🔐 Verifying SSL certificate volume is safe..."
+          if docker volume inspect stackyn_traefik_data >/dev/null 2>&1; then
+            CERT_SIZE=$(docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "stat -c%s /letsencrypt/acme.json 2>/dev/null || echo 0")
+            if [ "$CERT_SIZE" -gt 100 ]; then
+              echo "✅ SSL certificates found in volume ($CERT_SIZE bytes) - will be preserved"
+            else
+              echo "⚠️  SSL certificate file is small or empty ($CERT_SIZE bytes) - will be recreated if needed"
+            fi
+          fi
           
           # Wait again for cleanup to complete
           sleep 2
@@ -304,12 +321,43 @@ jobs:
           fi
           
           # Initialize acme.json if it doesn't exist (for SSL certificates)
-          echo "🔐 Initializing SSL certificate storage..."
+          # This will NOT overwrite existing certificates - only creates if missing
+          echo "🔐 Ensuring SSL certificate storage is ready..."
           docker volume inspect stackyn_traefik_data >/dev/null 2>&1 || docker volume create stackyn_traefik_data
-          docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "if [ ! -f /letsencrypt/acme.json ]; then touch /letsencrypt/acme.json && chmod 600 /letsencrypt/acme.json && echo '{}' > /letsencrypt/acme.json; fi" || true
+          # Only initialize acme.json if it doesn't exist or is empty (preserve existing certificates)
+          docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "
+            if [ ! -f /letsencrypt/acme.json ]; then
+              echo 'Creating new acme.json file...'
+              touch /letsencrypt/acme.json
+              chmod 600 /letsencrypt/acme.json
+              echo '{}' > /letsencrypt/acme.json
+            else
+              CERT_SIZE=\$(stat -c%s /letsencrypt/acme.json 2>/dev/null || echo 0)
+              if [ \$CERT_SIZE -lt 100 ]; then
+                echo 'acme.json exists but is too small, initializing...'
+                echo '{}' > /letsencrypt/acme.json
+                chmod 600 /letsencrypt/acme.json
+              else
+                echo 'Existing acme.json found (\$CERT_SIZE bytes) - preserving certificates'
+              fi
+            fi
+          " || true
           
-          echo "Starting containers..."
+          echo "Starting containers (SSL certificates will be preserved)..."
           docker compose up -d --remove-orphans
+          
+          # Verify SSL certificate volume is still intact after deployment
+          echo "🔐 Verifying SSL certificates after deployment..."
+          if docker volume inspect stackyn_traefik_data >/dev/null 2>&1; then
+            CERT_SIZE=$(docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "stat -c%s /letsencrypt/acme.json 2>/dev/null || echo 0")
+            if [ "$CERT_SIZE" -gt 100 ]; then
+              echo "✅ SSL certificates preserved successfully ($CERT_SIZE bytes)"
+            else
+              echo "⚠️  SSL certificate file is small - certificates may need to be regenerated"
+            fi
+          else
+            echo "❌ ERROR: SSL certificate volume was removed! This should not happen."
+          fi
           
           # Wait for services to be healthy
           echo "⏳ Waiting for services to start..."
@@ -332,7 +380,7 @@ jobs:
           # Verify API is responding
           echo "🔍 Verifying API health..."
           sleep 10  # Wait for API to be ready
-          API_URL="https://${API_DOMAIN:-api.staging.stackyn.com}/health"
+          API_URL="https://${API_DOMAIN:-api.dev.stackyn.com}/health"
           if curl -f -s "$API_URL" > /dev/null 2>&1; then
             echo "✅ API health check passed"
           else
@@ -348,8 +396,8 @@ jobs:
           echo ""
           echo "✅ Deployment completed successfully!"
           echo "🌐 Access your application at:"
-          echo "   - Landing: https://${FRONTEND_DOMAIN:-staging.stackyn.com}"
-          echo "   - API: https://${API_DOMAIN:-api.staging.stackyn.com}"
+          echo "   - Landing: https://${FRONTEND_DOMAIN:-dev.stackyn.com}"
+          echo "   - API: https://${API_DOMAIN:-api.dev.stackyn.com}"
           echo ""
           echo "💡 Note: SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT

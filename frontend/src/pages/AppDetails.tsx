@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { appsApi, deploymentsApi } from '@/lib/api';
 import type { App, Deployment, EnvVar, DeploymentLogs } from '@/lib/types';
@@ -17,6 +17,7 @@ export default function AppDetailsPage() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [logs, setLogs] = useState<DeploymentLogs | null>(null);
+  const [buildLogs, setBuildLogs] = useState<DeploymentLogs | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +46,40 @@ export default function AppDetailsPage() {
 
     return () => clearInterval(interval);
   }, [appId, deployments]);
+
+  const loadBuildLogs = useCallback(async (deploymentId: number) => {
+    try {
+      const data = await deploymentsApi.getLogs(deploymentId);
+      setBuildLogs(data);
+    } catch (err) {
+      console.error('Error loading build logs:', err);
+    }
+  }, []);
+
+  // Poll for build logs during deployment
+  useEffect(() => {
+    // Find the active deployment that's building or pending
+    const activeBuildingDeployment = deployments.find(d => 
+      (d.status === 'building' || d.status === 'pending') &&
+      d.id.toString() === app?.deployment?.active_deployment_id?.replace('dep_', '')
+    );
+
+    if (!activeBuildingDeployment) {
+      // Clear build logs if no active building deployment
+      setBuildLogs(null);
+      return;
+    }
+
+    // Load build logs immediately
+    loadBuildLogs(activeBuildingDeployment.id);
+
+    // Poll for build logs every 2 seconds while building
+    const interval = setInterval(() => {
+      loadBuildLogs(activeBuildingDeployment.id);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [appId, deployments, app?.deployment?.active_deployment_id, loadBuildLogs]);
 
   useEffect(() => {
     if (appId) {
@@ -402,6 +437,54 @@ export default function AppDetailsPage() {
             </div>
           </div>
         </div>
+
+        {/* Build Logs Section - Show during deployment */}
+        {(() => {
+          const activeBuildingDeployment = deployments.find(d => 
+            (d.status === 'building' || d.status === 'pending') &&
+            d.id.toString() === app?.deployment?.active_deployment_id?.replace('dep_', '')
+          );
+
+          if (!activeBuildingDeployment) {
+            return null;
+          }
+
+          return (
+            <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--primary)]"></div>
+                  <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+                    Build Logs - Deployment #{activeBuildingDeployment.id}
+                  </h2>
+                  <StatusBadge status={activeBuildingDeployment.status} />
+                </div>
+              </div>
+              
+              {buildLogs && extractString(buildLogs.build_log) ? (
+                <LogsViewer logs={extractString(buildLogs.build_log)} title="Build Logs" />
+              ) : buildLogs && buildLogs.build_log === null ? (
+                <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
+                  <p className="text-sm text-[var(--text-muted)]">Build logs will appear here as the build progresses...</p>
+                </div>
+              ) : (
+                <div className="bg-[var(--elevated)] rounded-lg p-4 border border-[var(--border-subtle)]">
+                  <div className="flex items-center gap-2">
+                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--primary)]"></div>
+                    <p className="text-sm text-[var(--text-muted)]">Loading build logs...</p>
+                  </div>
+                </div>
+              )}
+
+              {buildLogs?.error_message && extractString(buildLogs.error_message) && (
+                <div className="mt-4 p-4 bg-[var(--error)]/10 border border-[var(--error)] rounded-lg">
+                  <h3 className="text-sm font-medium text-[var(--error)] mb-2">Build Error</h3>
+                  <p className="text-sm text-[var(--error)]">{extractString(buildLogs.error_message)}</p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Tabs */}
         <div className="mb-6">
