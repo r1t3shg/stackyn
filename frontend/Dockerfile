@@ -55,4 +55,4 @@ EXPOSE 3000
 
 # Start serve with SPA routing support
 # Listen on 0.0.0.0 to allow Traefik to connect
-CMD ["serve", "-s", "dist", "-l", "tcp://0.0.0.0:3000"]
+CMD ["serve", "-s", "dist", "-l", "3000"]
