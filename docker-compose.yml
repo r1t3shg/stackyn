@@ -65,10 +65,10 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@stackyn.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      # Using production Let's Encrypt (switched from staging)
-      # If rate limit errors occur, switch back to staging temporarily:
-      # Staging: https://acme-staging-v02.api.letsencrypt.org/directory
-      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+      # Temporarily using staging due to rate limit - switch to production after 2026-01-05 04:40 UTC
+      # Rate limit expires: 2026-01-05 04:39:57 UTC (staging.stackyn.com)
+      # Production: https://acme-v02.api.letsencrypt.org/directory
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
       # ACME configuration improvements
       - "--certificatesresolvers.letsencrypt.acme.keytype=RSA4096"
       # Logging for debugging SSL certificate issues
