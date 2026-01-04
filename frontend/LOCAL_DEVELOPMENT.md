@@ -115,7 +115,7 @@ If you see CORS errors, make sure you're using the Vite proxy (leave `VITE_API_B
 - Run `npm run dev`
 
 ### Production/Staging
-- Set `VITE_API_BASE_URL=https://api.staging.stackyn.com` at build time
+- Set `VITE_API_BASE_URL=https://api.dev.stackyn.com` at build time
 - Run `npm run build`
 
 The API URL is determined at build time for production builds, but can be overridden at runtime in development mode.

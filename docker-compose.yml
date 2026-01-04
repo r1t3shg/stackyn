@@ -146,12 +146,12 @@ services:
       - "traefik.http.routers.api-localhost.service=api"
       - "traefik.http.routers.api-localhost.tls=false"
       # HTTP router for production (redirects to HTTPS) - only matches production domain
-      - "traefik.http.routers.api-http.rule=Host(`${API_DOMAIN:-api.staging.stackyn.com}`)"
+      - "traefik.http.routers.api-http.rule=Host(`${API_DOMAIN:-api.dev.stackyn.com}`)"
       - "traefik.http.routers.api-http.entrypoints=web"
       - "traefik.http.routers.api-http.middlewares=api-redirect"
       - "traefik.http.routers.api-http.tls=false"
       # HTTPS router (main router with SSL) - only for production domain (explicit match, no regex)
-      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN:-api.staging.stackyn.com}`)"
+      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN:-api.dev.stackyn.com}`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls=true"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
@@ -183,7 +183,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
-      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-dev.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -223,7 +223,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
-      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-dev.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -260,7 +260,7 @@ services:
       DOCKER_TLS_ENABLED: false
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
-      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
+      APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-dev.stackyn.com}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
@@ -279,7 +279,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${FRONTEND_API_URL:-https://api.staging.stackyn.com}
+        VITE_API_BASE_URL: ${FRONTEND_API_URL:-https://api.dev.stackyn.com}
     container_name: stackyn-frontend
     ports:
       - "3000:3000"
@@ -307,23 +307,23 @@ services:
       - "traefik.http.routers.frontend-localhost.service=frontend"
       - "traefik.http.routers.frontend-localhost.tls=false"
       # HTTP router for production main domain (redirects to HTTPS) - explicit domain match
-      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-dev.stackyn.com}`)"
       - "traefik.http.routers.frontend-http.entrypoints=web"
       - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
       - "traefik.http.routers.frontend-http.tls=false"
       # HTTPS router for main domain (with SSL) - explicit domain match
-      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-dev.stackyn.com}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       # HTTP router for console subdomain (redirects to HTTPS) - explicit domain match
-      - "traefik.http.routers.console-http.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      - "traefik.http.routers.console-http.rule=Host(`${CONSOLE_DOMAIN:-console.dev.stackyn.com}`)"
       - "traefik.http.routers.console-http.entrypoints=web"
       - "traefik.http.routers.console-http.middlewares=console-redirect"
       - "traefik.http.routers.console-http.tls=false"
       # HTTPS router for console subdomain (with SSL) - explicit domain match
-      - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.staging.stackyn.com}`)"
+      - "traefik.http.routers.console.rule=Host(`${CONSOLE_DOMAIN:-console.dev.stackyn.com}`)"
       - "traefik.http.routers.console.entrypoints=websecure"
       - "traefik.http.routers.console.service=frontend"
       - "traefik.http.routers.console.tls=true"

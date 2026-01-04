@@ -23,8 +23,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
 			// Allow specific origins
 			allowedOrigins := []string{
-				"https://staging.stackyn.com",
-				"https://console.staging.stackyn.com",
+				"https://dev.stackyn.com",
+				"https://console.dev.stackyn.com",
 				"http://localhost:3000",
 				"http://localhost:3001",
 				"http://localhost:5173",
@@ -37,8 +37,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 				}
 			}
 			
-			// Allow any staging.stackyn.com subdomain
-			if strings.HasSuffix(origin, ".staging.stackyn.com") || origin == "https://staging.stackyn.com" {
+			// Allow any dev.stackyn.com subdomain
+			if strings.HasSuffix(origin, ".dev.stackyn.com") || origin == "https://dev.stackyn.com" {
 				return true
 			}
 			
