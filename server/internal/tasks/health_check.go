@@ -57,9 +57,9 @@ func (h *TaskHandler) performHealthCheck(ctx context.Context, appID, deploymentI
 		}
 	})
 
-	// Perform initial health check after a delay (allow container to start)
+	// Perform initial health check after a delay (allow container to start and SSL cert to be issued)
 	go func() {
-		time.Sleep(15 * time.Second) // Wait 15 seconds for container to be ready
+		time.Sleep(60 * time.Second) // Wait 60 seconds for container and SSL cert to be ready (Let's Encrypt takes time)
 		
 		err := healthService.CheckAppAccessibility(ctx, appID, deploymentID, url, containerID)
 		if err != nil {

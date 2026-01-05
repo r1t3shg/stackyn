@@ -859,9 +859,10 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 
 			// Wait a bit for container to fully start and Traefik to configure
 			// Then run initial health check (use DB deployment ID for health check)
+			// Give extra time for SSL certificate issuance (Let's Encrypt can take 1-2 minutes)
 			if dbDeploymentID != "" {
 				go func() {
-					time.Sleep(15 * time.Second) // Wait 15 seconds for container to be ready
+					time.Sleep(60 * time.Second) // Wait 60 seconds for container and SSL cert to be ready
 					h.performHealthCheck(context.Background(), payload.AppID, dbDeploymentID, deployResult.ContainerID, appURL)
 				}()
 			}

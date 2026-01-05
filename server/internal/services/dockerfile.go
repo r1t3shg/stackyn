@@ -215,6 +215,38 @@ RUN mkdir -p /cnb/process /tmp && \
 
 # Copy the script from builder and ensure it's executable
 COPY --from=builder /cnb/process/web /cnb/process/web
+
+# Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
+RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+
+# Create port forwarding wrapper script
+# This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
+RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
+    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo '# Start the app in background' >> /cnb/process/web-wrapper && \
+    echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
+    echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
+    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
+    echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    break' >> /cnb/process/web-wrapper && \
+    echo '  fi' >> /cnb/process/web-wrapper && \
+    echo 'done' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
+    echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
+    echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo 'fi' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
+    echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web-wrapper
+
 # Create ESM loader file to handle directory and file imports without extensions in ES modules
 RUN echo 'import { dirname } from "path";' > /tmp/esm-loader.mjs && \
     echo 'import { existsSync, statSync } from "fs";' >> /tmp/esm-loader.mjs && \
@@ -263,9 +295,9 @@ USER cnb
 # Default to 3000 if PORT is not set
 EXPOSE ${PORT:-3000}
 
-# Use the web process from Paketo Buildpacks
+# Use the wrapper script that handles port forwarding
 # Use shell form to ensure proper execution
-CMD ["/bin/sh", "/cnb/process/web"]
+CMD ["/bin/sh", "/cnb/process/web-wrapper"]
 `
 }
 
@@ -432,8 +464,39 @@ COPY --from=builder --chown=cnb:cnb /layers /layers
 
 # Copy the script from builder and ensure it's executable
 COPY --from=builder /cnb/process/web /cnb/process/web
+
+# Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
 USER root
-RUN chmod +x /cnb/process/web && \
+RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+
+# Create port forwarding wrapper script
+# This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
+RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
+    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo '# Start the app in background' >> /cnb/process/web-wrapper && \
+    echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
+    echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
+    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
+    echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    break' >> /cnb/process/web-wrapper && \
+    echo '  fi' >> /cnb/process/web-wrapper && \
+    echo 'done' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
+    echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
+    echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo 'fi' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
+    echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web && \
     chown -R cnb:cnb /cnb/process
 USER cnb
 
@@ -441,9 +504,9 @@ USER cnb
 # Default to 8000 if PORT is not set
 EXPOSE ${PORT:-8000}
 
-# Use the web process from Paketo Buildpacks
+# Use the wrapper script that handles port forwarding
 # Use shell form to ensure proper execution
-CMD ["/bin/sh", "/cnb/process/web"]
+CMD ["/bin/sh", "/cnb/process/web-wrapper"]
 `
 }
 
@@ -550,8 +613,39 @@ COPY --from=builder --chown=cnb:cnb /layers /layers
 
 # Copy the script from builder and ensure it's executable
 COPY --from=builder /cnb/process/web /cnb/process/web
+
+# Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
 USER root
-RUN chmod +x /cnb/process/web && \
+RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+
+# Create port forwarding wrapper script
+# This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
+RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
+    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo '# Start the app in background' >> /cnb/process/web-wrapper && \
+    echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
+    echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
+    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
+    echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    break' >> /cnb/process/web-wrapper && \
+    echo '  fi' >> /cnb/process/web-wrapper && \
+    echo 'done' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
+    echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
+    echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo 'fi' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
+    echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web && \
     chown -R cnb:cnb /cnb/process
 USER cnb
 
@@ -559,9 +653,9 @@ USER cnb
 # Default to 8080 if PORT is not set
 EXPOSE ${PORT:-8080}
 
-# Use the web process from Paketo Buildpacks
+# Use the wrapper script that handles port forwarding
 # Use shell form to ensure proper execution
-CMD ["/bin/sh", "/cnb/process/web"]
+CMD ["/bin/sh", "/cnb/process/web-wrapper"]
 `
 }
 
@@ -604,12 +698,48 @@ COPY --from=builder --chown=cnb:cnb /workspace /workspace
 COPY --from=builder --chown=cnb:cnb /layers /layers
 COPY --from=builder --chown=cnb:cnb /platform /platform
 
+# Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
+# Note: /cnb/process/web is created by Paketo Buildpacks lifecycle, so we don't need to copy it
+USER root
+RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+
+# Create port forwarding wrapper script
+# This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
+RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
+    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo '# Start the app in background' >> /cnb/process/web-wrapper && \
+    echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
+    echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
+    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
+    echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    break' >> /cnb/process/web-wrapper && \
+    echo '  fi' >> /cnb/process/web-wrapper && \
+    echo 'done' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
+    echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
+    echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo 'fi' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
+    echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
+    chmod +x /cnb/process/web-wrapper && \
+    mkdir -p /cnb/process && \
+    chown -R cnb:cnb /cnb/process
+USER cnb
+
 # Expose dynamic PORT (Paketo Buildpacks set PORT env var at runtime)
 # Default to 8080 if PORT is not set
 EXPOSE ${PORT:-8080}
 
-# Use the web process from Paketo Buildpacks
+# Use the wrapper script that handles port forwarding
 # The PORT environment variable will be set by the platform
-CMD ["/cnb/process/web"]
+CMD ["/bin/sh", "/cnb/process/web-wrapper"]
 `
 }

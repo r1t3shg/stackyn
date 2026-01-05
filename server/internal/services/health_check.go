@@ -247,9 +247,13 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 			insecureResp, insecureErr := insecureClient.Do(req)
 			if insecureErr == nil {
 				insecureResp.Body.Close()
-				// App is reachable but certificate is invalid/not issued
-				return false, fmt.Sprintf("SSL certificate issue: certificate not valid or not issued yet. Application is running but cannot be accessed securely.")
+				// App is reachable but certificate is invalid/not issued yet
+				// This is a temporary state - Let's Encrypt certificates take 1-2 minutes to issue
+				// Don't treat this as a failure - the app is running, just waiting for cert
+				// Return true with a note that cert is pending
+				return true, "" // App is running, cert will be issued soon
 			}
+			// App not reachable even with insecure connection - real error
 			return false, fmt.Sprintf("SSL certificate issue: certificate not valid or not issued yet (%v)", err)
 		}
 		// Check for connection/timeout errors
