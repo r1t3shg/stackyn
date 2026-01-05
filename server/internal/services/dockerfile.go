@@ -223,7 +223,8 @@ RUN mkdir -p /cnb/process /tmp && \
 COPY --from=builder /cnb/process/web /cnb/process/web
 
 # Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
-RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+# Install wget for Docker health checks
+RUN apt-get update && apt-get install -y socat wget && rm -rf /var/lib/apt/lists/*
 
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
