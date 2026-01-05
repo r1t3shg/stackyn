@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/docker/docker/client"
 	"go.uber.org/zap"
 	"stackyn/server/internal/services"
 )
