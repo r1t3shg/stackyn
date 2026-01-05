@@ -222,26 +222,34 @@ RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
 RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
-    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo 'set +e' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Starting app with port forwarding wrapper..."' >> /cnb/process/web-wrapper && \
     echo '# Start the app in background' >> /cnb/process/web-wrapper && \
     echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
     echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
-    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
-    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: App started with PID $APP_PID, waiting for it to bind to a port..."' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start and bind to a port' >> /cnb/process/web-wrapper && \
+    echo 'sleep 5' >> /cnb/process/web-wrapper && \
     echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
     echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
-    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -qE ":$port\\b" || netstat -tln 2>/dev/null | grep -qE ":$port\\b"; then' >> /cnb/process/web-wrapper && \
     echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    echo "Stackyn: Detected app listening on port $port"' >> /cnb/process/web-wrapper && \
     echo '    break' >> /cnb/process/web-wrapper && \
     echo '  fi' >> /cnb/process/web-wrapper && \
     echo 'done' >> /cnb/process/web-wrapper && \
-    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected (most common case)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Using port $APP_PORT for app"' >> /cnb/process/web-wrapper && \
     echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
     echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
     echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
     echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo '  SOCAT_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Port forwarding active (socat PID $SOCAT_PID)"' >> /cnb/process/web-wrapper && \
+    echo 'else' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: App is already on port 8080, no forwarding needed"' >> /cnb/process/web-wrapper && \
     echo 'fi' >> /cnb/process/web-wrapper && \
     echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
     echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
@@ -472,26 +480,34 @@ RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
 RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
-    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo 'set +e' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Starting app with port forwarding wrapper..."' >> /cnb/process/web-wrapper && \
     echo '# Start the app in background' >> /cnb/process/web-wrapper && \
     echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
     echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
-    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
-    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: App started with PID $APP_PID, waiting for it to bind to a port..."' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start and bind to a port' >> /cnb/process/web-wrapper && \
+    echo 'sleep 5' >> /cnb/process/web-wrapper && \
     echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
     echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
-    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -qE ":$port\\b" || netstat -tln 2>/dev/null | grep -qE ":$port\\b"; then' >> /cnb/process/web-wrapper && \
     echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    echo "Stackyn: Detected app listening on port $port"' >> /cnb/process/web-wrapper && \
     echo '    break' >> /cnb/process/web-wrapper && \
     echo '  fi' >> /cnb/process/web-wrapper && \
     echo 'done' >> /cnb/process/web-wrapper && \
-    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected (most common case)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Using port $APP_PORT for app"' >> /cnb/process/web-wrapper && \
     echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
     echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
     echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
     echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo '  SOCAT_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Port forwarding active (socat PID $SOCAT_PID)"' >> /cnb/process/web-wrapper && \
+    echo 'else' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: App is already on port 8080, no forwarding needed"' >> /cnb/process/web-wrapper && \
     echo 'fi' >> /cnb/process/web-wrapper && \
     echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
     echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
@@ -621,26 +637,34 @@ RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
 RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
-    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo 'set +e' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Starting app with port forwarding wrapper..."' >> /cnb/process/web-wrapper && \
     echo '# Start the app in background' >> /cnb/process/web-wrapper && \
     echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
     echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
-    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
-    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: App started with PID $APP_PID, waiting for it to bind to a port..."' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start and bind to a port' >> /cnb/process/web-wrapper && \
+    echo 'sleep 5' >> /cnb/process/web-wrapper && \
     echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
     echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
-    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -qE ":$port\\b" || netstat -tln 2>/dev/null | grep -qE ":$port\\b"; then' >> /cnb/process/web-wrapper && \
     echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    echo "Stackyn: Detected app listening on port $port"' >> /cnb/process/web-wrapper && \
     echo '    break' >> /cnb/process/web-wrapper && \
     echo '  fi' >> /cnb/process/web-wrapper && \
     echo 'done' >> /cnb/process/web-wrapper && \
-    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected (most common case)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Using port $APP_PORT for app"' >> /cnb/process/web-wrapper && \
     echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
     echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
     echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
     echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo '  SOCAT_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Port forwarding active (socat PID $SOCAT_PID)"' >> /cnb/process/web-wrapper && \
+    echo 'else' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: App is already on port 8080, no forwarding needed"' >> /cnb/process/web-wrapper && \
     echo 'fi' >> /cnb/process/web-wrapper && \
     echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
     echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
@@ -706,26 +730,34 @@ RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
 RUN echo '#!/bin/sh' > /cnb/process/web-wrapper && \
-    echo 'set -e' >> /cnb/process/web-wrapper && \
+    echo 'set +e' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Starting app with port forwarding wrapper..."' >> /cnb/process/web-wrapper && \
     echo '# Start the app in background' >> /cnb/process/web-wrapper && \
     echo '/cnb/process/web &' >> /cnb/process/web-wrapper && \
     echo 'APP_PID=$!' >> /cnb/process/web-wrapper && \
-    echo '# Wait for app to start' >> /cnb/process/web-wrapper && \
-    echo 'sleep 3' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: App started with PID $APP_PID, waiting for it to bind to a port..."' >> /cnb/process/web-wrapper && \
+    echo '# Wait for app to start and bind to a port' >> /cnb/process/web-wrapper && \
+    echo 'sleep 5' >> /cnb/process/web-wrapper && \
     echo '# Detect which port the app is listening on (check common ports: 80, 3000, 5000, 8000)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=""' >> /cnb/process/web-wrapper && \
     echo 'for port in 80 3000 5000 8000; do' >> /cnb/process/web-wrapper && \
-    echo '  if ss -tln 2>/dev/null | grep -q ":$port " || netstat -tln 2>/dev/null | grep -q ":$port "; then' >> /cnb/process/web-wrapper && \
+    echo '  if ss -tln 2>/dev/null | grep -qE ":$port\\b" || netstat -tln 2>/dev/null | grep -qE ":$port\\b"; then' >> /cnb/process/web-wrapper && \
     echo '    APP_PORT=$port' >> /cnb/process/web-wrapper && \
+    echo '    echo "Stackyn: Detected app listening on port $port"' >> /cnb/process/web-wrapper && \
     echo '    break' >> /cnb/process/web-wrapper && \
     echo '  fi' >> /cnb/process/web-wrapper && \
     echo 'done' >> /cnb/process/web-wrapper && \
-    echo '# Default to port 80 if not detected' >> /cnb/process/web-wrapper && \
+    echo '# Default to port 80 if not detected (most common case)' >> /cnb/process/web-wrapper && \
     echo 'APP_PORT=${APP_PORT:-80}' >> /cnb/process/web-wrapper && \
+    echo 'echo "Stackyn: Using port $APP_PORT for app"' >> /cnb/process/web-wrapper && \
     echo '# Forward port 8080 to the app port if different' >> /cnb/process/web-wrapper && \
     echo 'if [ "$APP_PORT" != "8080" ]; then' >> /cnb/process/web-wrapper && \
     echo '  echo "Stackyn: Forwarding port 8080 to app port $APP_PORT"' >> /cnb/process/web-wrapper && \
     echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /cnb/process/web-wrapper && \
+    echo '  SOCAT_PID=$!' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: Port forwarding active (socat PID $SOCAT_PID)"' >> /cnb/process/web-wrapper && \
+    echo 'else' >> /cnb/process/web-wrapper && \
+    echo '  echo "Stackyn: App is already on port 8080, no forwarding needed"' >> /cnb/process/web-wrapper && \
     echo 'fi' >> /cnb/process/web-wrapper && \
     echo '# Wait for app process (socat will exit if app dies)' >> /cnb/process/web-wrapper && \
     echo 'wait $APP_PID' >> /cnb/process/web-wrapper && \
