@@ -160,9 +160,22 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 	containerName := s.generateContainerName(opts.AppID, opts.DeploymentID)
 	
 	// Prepare environment variables
+	// CRITICAL: PORT=8080 is ALWAYS injected first to override any user-provided PORT
+	// This ensures all containers use Stackyn's standard port (8080) for routing
 	envVars := make([]string, 0, len(opts.EnvVars)+1)
-	envVars = append(envVars, fmt.Sprintf("PORT=%d", opts.Port))
+	envVars = append(envVars, fmt.Sprintf("PORT=%d", opts.Port)) // Always 8080 - injected first
+	
+	// Add user environment variables (PORT from user will be overridden by our PORT above)
 	for k, v := range opts.EnvVars {
+		// Skip user's PORT env var since we've already set it to 8080
+		if strings.ToUpper(k) == "PORT" {
+			s.logger.Debug("Overriding user PORT environment variable",
+				zap.String("user_port", v),
+				zap.Int("stackyn_port", opts.Port),
+				zap.String("app_id", opts.AppID),
+			)
+			continue
+		}
 		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
 
