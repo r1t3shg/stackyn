@@ -129,9 +129,12 @@ RUN mkdir -p /cnb/process && \
     echo '  export PATH="/layers/paketo-buildpacks_node-engine/node/bin:$PATH"' >> /cnb/process/web && \
     echo '  export NODE_HOME="${NODE_HOME:-/layers/paketo-buildpacks_node-engine/node}"' >> /cnb/process/web && \
     echo 'fi' >> /cnb/process/web && \
-    echo '# Set NODE_PATH to include Paketo-installed node_modules' >> /cnb/process/web && \
+    echo '# Set NODE_PATH to include Paketo-installed node_modules (check both npm and yarn)' >> /cnb/process/web && \
     echo 'if [ -d /layers/paketo-buildpacks_npm-install/launch-modules/node_modules ]; then' >> /cnb/process/web && \
     echo '  export NODE_PATH="/layers/paketo-buildpacks_npm-install/launch-modules/node_modules${NODE_PATH:+:}$NODE_PATH"' >> /cnb/process/web && \
+    echo 'fi' >> /cnb/process/web && \
+    echo 'if [ -d /layers/paketo-buildpacks_yarn-install/launch-modules/node_modules ]; then' >> /cnb/process/web && \
+    echo '  export NODE_PATH="/layers/paketo-buildpacks_yarn-install/launch-modules/node_modules${NODE_PATH:+:}$NODE_PATH"' >> /cnb/process/web && \
     echo 'fi' >> /cnb/process/web && \
     echo '# Try server.js first (most common), then start.sh, then other files' >> /cnb/process/web && \
     echo '# Check if package.json has "type": "module" OR if server.js uses ES module syntax' >> /cnb/process/web && \
@@ -209,8 +212,11 @@ USER root
 RUN mkdir -p /cnb/process /tmp && \
     # Create symlink to node_modules so Node.js can find packages for ES modules
     # NODE_PATH doesn't work for ES module imports, so we need node_modules in workspace
+    # Check both npm-install and yarn-install buildpacks
     if [ -d /layers/paketo-buildpacks_npm-install/launch-modules/node_modules ]; then \
         ln -sf /layers/paketo-buildpacks_npm-install/launch-modules/node_modules /workspace/node_modules; \
+    elif [ -d /layers/paketo-buildpacks_yarn-install/launch-modules/node_modules ]; then \
+        ln -sf /layers/paketo-buildpacks_yarn-install/launch-modules/node_modules /workspace/node_modules; \
     fi
 
 # Copy the script from builder and ensure it's executable
