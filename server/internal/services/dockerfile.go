@@ -860,120 +860,102 @@ func (g *DockerfileGenerator) enhanceExistingDockerfile(dockerfilePath string, r
 
 // addWgetToAptInstall adds wget and socat to apt-get install commands
 func (g *DockerfileGenerator) addWgetToAptInstall(content string) string {
+	hasWget := strings.Contains(content, "wget")
+	hasSocat := strings.Contains(content, "socat")
+	
+	// If both already present, return as-is
+	if hasWget && hasSocat {
+		return content
+	}
+	
 	lines := strings.Split(content, "\n")
-	result := make([]string, 0, len(lines)+5)
-	inAptBlock := false
-	aptBlockStart := -1
-	hasWget := false
-	hasSocat := false
-
-	for i, line := range lines {
+	result := make([]string, 0, len(lines))
+	modified := false
+	
+	// Find the apt-get install line and add packages to it
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		
-		// Detect start of apt-get install block
+		// Look for apt-get install line (could be in RUN or continuation)
 		if strings.Contains(trimmed, "apt-get install") {
-			inAptBlock = true
-			aptBlockStart = i
-			hasWget = strings.Contains(trimmed, "wget")
-			hasSocat = strings.Contains(trimmed, "socat")
-			result = append(result, line)
-			continue
-		}
-		
-		// Track if we're still in apt-get install block (multi-line)
-		if inAptBlock {
-			// Check for packages in continuation lines
-			if strings.HasSuffix(line, "\\") || (strings.Contains(trimmed, "netcat") || 
-				strings.Contains(trimmed, "curl") || strings.Contains(trimmed, "git") ||
-				strings.Contains(trimmed, "build-essential") || strings.Contains(trimmed, "--no-install-recommends")) {
-				if strings.Contains(trimmed, "wget") {
-					hasWget = true
+			// Check if packages need to be added
+			if (!hasWget || !hasSocat) && 
+				!strings.Contains(line, "socat") && 
+				!strings.Contains(line, "wget") {
+				
+				// Add packages after --no-install-recommends or after -y flag
+				packagesToAdd := []string{}
+				if !hasSocat {
+					packagesToAdd = append(packagesToAdd, "socat")
 				}
-				if strings.Contains(trimmed, "socat") {
-					hasSocat = true
+				if !hasWget {
+					packagesToAdd = append(packagesToAdd, "wget")
 				}
-				result = append(result, line)
-				continue
-			}
-			
-			// End of apt-get block (found && or rm -rf or end of RUN)
-			if strings.HasPrefix(trimmed, "&&") || strings.HasPrefix(trimmed, "rm -rf") || 
-				!strings.HasPrefix(trimmed, "    ") && !strings.HasPrefix(trimmed, "\t") {
-				// Add missing packages before closing the block
-				if !hasWget || !hasSocat {
-					// Find the last package line and add missing ones
-					for j := len(result) - 1; j >= aptBlockStart; j-- {
-						if strings.Contains(result[j], "apt-get install") || 
-							strings.HasSuffix(result[j], "\\") ||
-							strings.Contains(result[j], "netcat") ||
-							strings.Contains(result[j], "curl") {
-							// Insert packages before this line ends
-							if strings.HasSuffix(result[j], "\\") {
-								// Add to continuation
-								packages := []string{}
-								if !hasSocat {
-									packages = append(packages, "socat")
-								}
-								if !hasWget {
-									packages = append(packages, "wget")
-								}
-								if len(packages) > 0 {
-									result[j] = result[j] + " \\"
-									indent := strings.Repeat(" ", 4)
-									for _, pkg := range packages {
-										result = insertAt(result, j+1, indent+pkg+" \\")
-										j++
-									}
-								}
-							} else if strings.Contains(result[j], "apt-get install -y") {
-								// Single line, add packages
-								pkgList := ""
-								if !hasSocat {
-									pkgList += "socat "
-								}
-								if !hasWget {
-									pkgList += "wget "
-								}
-								if pkgList != "" {
-									// Add after -y flag
-									result[j] = strings.Replace(result[j], 
-										"apt-get install -y", 
-										"apt-get install -y "+strings.TrimSpace(pkgList), 1)
-								}
-							}
-							break
+				
+				if len(packagesToAdd) > 0 {
+					// Pattern: apt-get install -y --no-install-recommends netcat && ...
+					if strings.Contains(trimmed, "--no-install-recommends") && strings.Contains(trimmed, "netcat") {
+						// Replace "netcat" with "netcat socat wget"
+						line = strings.Replace(line, "netcat", "netcat "+strings.Join(packagesToAdd, " "), 1)
+						modified = true
+					} else if strings.Contains(trimmed, "--no-install-recommends") {
+						// Insert packages after --no-install-recommends, before && or \
+						if strings.Contains(trimmed, "&&") {
+							line = strings.Replace(line, "--no-install-recommends &&", "--no-install-recommends "+strings.Join(packagesToAdd, " ")+" &&", 1)
+							modified = true
+						} else if strings.HasSuffix(line, "\\") {
+							line = strings.TrimSuffix(line, "\\") + " " + strings.Join(packagesToAdd, " ") + " \\"
+							modified = true
+						} else {
+							line = strings.Replace(line, "--no-install-recommends", "--no-install-recommends "+strings.Join(packagesToAdd, " "), 1)
+							modified = true
+						}
+					} else if strings.Contains(trimmed, "apt-get install -y") {
+						// Simple case: add after -y flag
+						if strings.Contains(trimmed, "&&") {
+							line = strings.Replace(line, "apt-get install -y &&", "apt-get install -y "+strings.Join(packagesToAdd, " ")+" &&", 1)
+							modified = true
+						} else {
+							line = strings.Replace(line, "apt-get install -y", "apt-get install -y "+strings.Join(packagesToAdd, " "), 1)
+							modified = true
 						}
 					}
 				}
-				inAptBlock = false
-				result = append(result, line)
-				continue
+			}
+		}
+		
+		result = append(result, line)
+	}
+	
+	// If no modification made in multi-line parsing, use simple replacement
+	if !modified {
+		enhanced := strings.Join(result, "\n")
+		// Simple pattern replacement
+		if !hasWget || !hasSocat {
+			packagesToAdd := []string{}
+			if !hasSocat {
+				packagesToAdd = append(packagesToAdd, "socat")
+			}
+			if !hasWget {
+				packagesToAdd = append(packagesToAdd, "wget")
 			}
 			
-			result = append(result, line)
-		} else {
-			result = append(result, line)
+			if len(packagesToAdd) > 0 {
+				pkgStr := strings.Join(packagesToAdd, " ")
+				// Replace common patterns
+				enhanced = strings.ReplaceAll(enhanced,
+					"--no-install-recommends netcat &&",
+					"--no-install-recommends netcat "+pkgStr+" &&")
+				enhanced = strings.ReplaceAll(enhanced,
+					"--no-install-recommends netcat \\",
+					"--no-install-recommends netcat "+pkgStr+" \\")
+				return enhanced
+			}
 		}
+		return enhanced
 	}
-
-	// Fallback: simple string replacement if multi-line parsing didn't work
-	enhanced := strings.Join(result, "\n")
-	if strings.Contains(enhanced, "apt-get install") && !strings.Contains(enhanced, "wget") {
-		// Simple replacement: add wget and socat after -y flag
-		enhanced = strings.ReplaceAll(enhanced, 
-			"apt-get install -y --no-install-recommends", 
-			"apt-get install -y --no-install-recommends socat wget")
-		enhanced = strings.ReplaceAll(enhanced, 
-			"apt-get install -y", 
-			"apt-get install -y socat wget")
-		// But only if they're not already there
-		if strings.Count(enhanced, "wget") > strings.Count(content, "wget")+1 {
-			// We added too many, revert and use original approach
-			enhanced = strings.Join(result, "\n")
-		}
-	}
-
-	return enhanced
+	
+	return strings.Join(result, "\n")
 }
 
 // insertAt inserts a string at the given index in a slice
