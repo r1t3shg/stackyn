@@ -967,7 +967,7 @@ func insertAt(slice []string, index int, value string) []string {
 	return result
 }
 
-// fixPoetryVersion fixes old Poetry versions
+// fixPoetryVersion fixes old Poetry versions and deprecated flags
 func (g *DockerfileGenerator) fixPoetryVersion(content string) string {
 	// Replace poetry==1.1 or poetry==1.0 with just poetry (latest)
 	lines := strings.Split(content, "\n")
@@ -982,6 +982,12 @@ func (g *DockerfileGenerator) fixPoetryVersion(content string) string {
 			line = strings.ReplaceAll(line, "poetry==1.2", "poetry")
 			line = strings.ReplaceAll(line, "poetry==1.3", "poetry")
 		}
+		
+		// Fix deprecated --no-dev flag (replaced with --without dev in Poetry 2.0+)
+		if strings.Contains(line, "poetry install") && strings.Contains(line, "--no-dev") {
+			line = strings.ReplaceAll(line, "--no-dev", "--without dev")
+		}
+		
 		// Ensure poetry config virtualenvs.create false is set
 		if strings.Contains(line, "poetry install") && !strings.Contains(content, "poetry config virtualenvs.create false") {
 			// Add config before install if not present
