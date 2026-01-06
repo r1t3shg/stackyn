@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -25,8 +26,9 @@ func (g *DockerfileGenerator) GenerateDockerfile(repoPath string, runtime Runtim
 	// Check if Dockerfile already exists
 	dockerfilePath := filepath.Join(repoPath, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); err == nil {
-		g.logger.Info("Dockerfile already exists, skipping generation", zap.String("path", dockerfilePath))
-		return nil
+		g.logger.Info("Dockerfile already exists, enhancing it for Stackyn compatibility", zap.String("path", dockerfilePath))
+		// Enhance the existing Dockerfile instead of skipping
+		return g.enhanceExistingDockerfile(dockerfilePath, runtime)
 	}
 
 	var content string
@@ -481,8 +483,9 @@ COPY --from=builder --chown=cnb:cnb /layers /layers
 COPY --from=builder /cnb/process/web /cnb/process/web
 
 # Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
+# Install wget for Docker health checks
 USER root
-RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y socat wget && rm -rf /var/lib/apt/lists/*
 
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
@@ -638,8 +641,9 @@ COPY --from=builder --chown=cnb:cnb /layers /layers
 COPY --from=builder /cnb/process/web /cnb/process/web
 
 # Install socat for port forwarding (allows apps to listen on any port, we forward to 8080)
+# Install wget for Docker health checks
 USER root
-RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y socat wget && rm -rf /var/lib/apt/lists/*
 
 # Create port forwarding wrapper script
 # This forwards port 8080 to the app's actual port so apps work regardless of hardcoded port
@@ -781,4 +785,368 @@ EXPOSE ${PORT:-8080}
 # The PORT environment variable will be set by the platform
 CMD ["/bin/sh", "/cnb/process/web-wrapper"]
 `
+}
+
+// enhanceExistingDockerfile enhances a user-provided Dockerfile for Stackyn compatibility
+func (g *DockerfileGenerator) enhanceExistingDockerfile(dockerfilePath string, runtime Runtime) error {
+	// Read the existing Dockerfile
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read Dockerfile: %w", err)
+	}
+
+	originalContent := string(content)
+	enhanced := originalContent
+	modified := false
+
+	// 1. Add wget and socat to apt-get install commands (for health checks and port forwarding)
+	needsWget := strings.Contains(enhanced, "apt-get install") && !strings.Contains(enhanced, "wget")
+	needsSocat := strings.Contains(enhanced, "apt-get install") && !strings.Contains(enhanced, "socat")
+	if needsWget || needsSocat {
+		enhanced = g.addWgetToAptInstall(enhanced)
+		modified = true
+		if needsWget {
+			g.logger.Info("Added wget to Dockerfile for health checks")
+		}
+		if needsSocat {
+			g.logger.Info("Added socat to Dockerfile for port forwarding")
+		}
+	}
+
+	// 2. Fix Poetry version issues (upgrade old versions)
+	if runtime == RuntimePython && strings.Contains(enhanced, "poetry") {
+		enhanced = g.fixPoetryVersion(enhanced)
+		modified = true
+		g.logger.Info("Fixed Poetry version in Dockerfile")
+	}
+
+	// 3. Add PORT environment variable if not present
+	if !strings.Contains(enhanced, "ENV PORT") && !strings.Contains(enhanced, "export PORT") {
+		enhanced = g.addPortEnvVar(enhanced)
+		modified = true
+		g.logger.Info("Added PORT environment variable to Dockerfile")
+	}
+
+	// 4. Add port forwarding wrapper for Python apps using Poetry
+	if runtime == RuntimePython && strings.Contains(enhanced, "poetry") && strings.Contains(enhanced, "uvicorn") {
+		if !strings.Contains(enhanced, "socat") && !strings.Contains(enhanced, "web-wrapper") {
+			enhanced = g.addPortForwardingWrapper(enhanced)
+			modified = true
+			g.logger.Info("Added port forwarding wrapper for Poetry-based Python app")
+		}
+	}
+
+	// 5. Add socat for port forwarding if using hardcoded ports
+	if (strings.Contains(enhanced, "EXPOSE 8000") || strings.Contains(enhanced, "EXPOSE 3000") || 
+		strings.Contains(enhanced, "EXPOSE 5000") || strings.Contains(enhanced, "EXPOSE 80")) &&
+		!strings.Contains(enhanced, "socat") {
+		enhanced = g.addSocatForPortForwarding(enhanced)
+		modified = true
+		g.logger.Info("Added socat for port forwarding")
+	}
+
+	if modified {
+		// Write the enhanced Dockerfile
+		if err := os.WriteFile(dockerfilePath, []byte(enhanced), 0644); err != nil {
+			return fmt.Errorf("failed to write enhanced Dockerfile: %w", err)
+		}
+		g.logger.Info("Enhanced Dockerfile for Stackyn compatibility", zap.String("path", dockerfilePath))
+	} else {
+		g.logger.Info("Dockerfile already compatible with Stackyn, no changes needed")
+	}
+
+	return nil
+}
+
+// addWgetToAptInstall adds wget and socat to apt-get install commands
+func (g *DockerfileGenerator) addWgetToAptInstall(content string) string {
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines)+5)
+	inAptBlock := false
+	aptBlockStart := -1
+	hasWget := false
+	hasSocat := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		
+		// Detect start of apt-get install block
+		if strings.Contains(trimmed, "apt-get install") {
+			inAptBlock = true
+			aptBlockStart = i
+			hasWget = strings.Contains(trimmed, "wget")
+			hasSocat = strings.Contains(trimmed, "socat")
+			result = append(result, line)
+			continue
+		}
+		
+		// Track if we're still in apt-get install block (multi-line)
+		if inAptBlock {
+			// Check for packages in continuation lines
+			if strings.HasSuffix(line, "\\") || (strings.Contains(trimmed, "netcat") || 
+				strings.Contains(trimmed, "curl") || strings.Contains(trimmed, "git") ||
+				strings.Contains(trimmed, "build-essential") || strings.Contains(trimmed, "--no-install-recommends")) {
+				if strings.Contains(trimmed, "wget") {
+					hasWget = true
+				}
+				if strings.Contains(trimmed, "socat") {
+					hasSocat = true
+				}
+				result = append(result, line)
+				continue
+			}
+			
+			// End of apt-get block (found && or rm -rf or end of RUN)
+			if strings.HasPrefix(trimmed, "&&") || strings.HasPrefix(trimmed, "rm -rf") || 
+				!strings.HasPrefix(trimmed, "    ") && !strings.HasPrefix(trimmed, "\t") {
+				// Add missing packages before closing the block
+				if !hasWget || !hasSocat {
+					// Find the last package line and add missing ones
+					for j := len(result) - 1; j >= aptBlockStart; j-- {
+						if strings.Contains(result[j], "apt-get install") || 
+							strings.HasSuffix(result[j], "\\") ||
+							strings.Contains(result[j], "netcat") ||
+							strings.Contains(result[j], "curl") {
+							// Insert packages before this line ends
+							if strings.HasSuffix(result[j], "\\") {
+								// Add to continuation
+								packages := []string{}
+								if !hasSocat {
+									packages = append(packages, "socat")
+								}
+								if !hasWget {
+									packages = append(packages, "wget")
+								}
+								if len(packages) > 0 {
+									result[j] = result[j] + " \\"
+									indent := strings.Repeat(" ", 4)
+									for _, pkg := range packages {
+										result = insertAt(result, j+1, indent+pkg+" \\")
+										j++
+									}
+								}
+							} else if strings.Contains(result[j], "apt-get install -y") {
+								// Single line, add packages
+								pkgList := ""
+								if !hasSocat {
+									pkgList += "socat "
+								}
+								if !hasWget {
+									pkgList += "wget "
+								}
+								if pkgList != "" {
+									// Add after -y flag
+									result[j] = strings.Replace(result[j], 
+										"apt-get install -y", 
+										"apt-get install -y "+strings.TrimSpace(pkgList), 1)
+								}
+							}
+							break
+						}
+					}
+				}
+				inAptBlock = false
+				result = append(result, line)
+				continue
+			}
+			
+			result = append(result, line)
+		} else {
+			result = append(result, line)
+		}
+	}
+
+	// Fallback: simple string replacement if multi-line parsing didn't work
+	enhanced := strings.Join(result, "\n")
+	if strings.Contains(enhanced, "apt-get install") && !strings.Contains(enhanced, "wget") {
+		// Simple replacement: add wget and socat after -y flag
+		enhanced = strings.ReplaceAll(enhanced, 
+			"apt-get install -y --no-install-recommends", 
+			"apt-get install -y --no-install-recommends socat wget")
+		enhanced = strings.ReplaceAll(enhanced, 
+			"apt-get install -y", 
+			"apt-get install -y socat wget")
+		// But only if they're not already there
+		if strings.Count(enhanced, "wget") > strings.Count(content, "wget")+1 {
+			// We added too many, revert and use original approach
+			enhanced = strings.Join(result, "\n")
+		}
+	}
+
+	return enhanced
+}
+
+// insertAt inserts a string at the given index in a slice
+func insertAt(slice []string, index int, value string) []string {
+	result := make([]string, 0, len(slice)+1)
+	result = append(result, slice[:index]...)
+	result = append(result, value)
+	result = append(result, slice[index:]...)
+	return result
+}
+
+// fixPoetryVersion fixes old Poetry versions
+func (g *DockerfileGenerator) fixPoetryVersion(content string) string {
+	// Replace poetry==1.1 or poetry==1.0 with just poetry (latest)
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines))
+	
+	for _, line := range lines {
+		// Fix old Poetry versions
+		if strings.Contains(line, "poetry==1.0") || strings.Contains(line, "poetry==1.1") || 
+			strings.Contains(line, "poetry==1.2") || strings.Contains(line, "poetry==1.3") {
+			line = strings.ReplaceAll(line, "poetry==1.0", "poetry")
+			line = strings.ReplaceAll(line, "poetry==1.1", "poetry")
+			line = strings.ReplaceAll(line, "poetry==1.2", "poetry")
+			line = strings.ReplaceAll(line, "poetry==1.3", "poetry")
+		}
+		// Ensure poetry config virtualenvs.create false is set
+		if strings.Contains(line, "poetry install") && !strings.Contains(content, "poetry config virtualenvs.create false") {
+			// Add config before install if not present
+			if strings.Contains(line, "RUN") && strings.Contains(line, "poetry install") {
+				// Split the RUN command and add config
+				parts := strings.Split(line, "poetry install")
+				if len(parts) == 2 {
+					line = parts[0] + "poetry config virtualenvs.create false && poetry install" + parts[1]
+				}
+			}
+		}
+		result = append(result, line)
+	}
+	
+	return strings.Join(result, "\n")
+}
+
+// addPortEnvVar adds PORT environment variable
+func (g *DockerfileGenerator) addPortEnvVar(content string) string {
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines)+2)
+	
+	// Find a good place to add ENV PORT (after other ENV vars or after FROM)
+	insertIndex := 0
+	for i, line := range lines {
+		result = append(result, line)
+		// Insert after FROM or after first ENV
+		if strings.HasPrefix(strings.TrimSpace(line), "FROM") {
+			insertIndex = i + 1
+		} else if insertIndex == 0 && strings.HasPrefix(strings.TrimSpace(line), "ENV") {
+			insertIndex = i + 1
+		}
+	}
+	
+	// Insert ENV PORT after FROM or first ENV
+	if insertIndex > 0 && insertIndex < len(result) {
+		newResult := make([]string, 0, len(result)+2)
+		newResult = append(newResult, result[:insertIndex]...)
+		newResult = append(newResult, "", "ENV PORT=8080")
+		newResult = append(newResult, result[insertIndex:]...)
+		return strings.Join(newResult, "\n")
+	}
+	
+	// Fallback: add at the beginning after FROM
+	if len(result) > 0 {
+		newResult := make([]string, 0, len(result)+2)
+		newResult = append(newResult, result[0])
+		newResult = append(newResult, "", "ENV PORT=8080")
+		newResult = append(newResult, result[1:]...)
+		return strings.Join(newResult, "\n")
+	}
+	
+	return content
+}
+
+// addSocatForPortForwarding adds socat installation
+func (g *DockerfileGenerator) addSocatForPortForwarding(content string) string {
+	// Add socat to apt-get install if present (addWgetToAptInstall also adds socat)
+	if strings.Contains(content, "apt-get install") {
+		enhanced := g.addWgetToAptInstall(content)
+		// Ensure socat is added
+		if !strings.Contains(enhanced, "socat") {
+			enhanced = strings.ReplaceAll(enhanced, 
+				"apt-get install -y", 
+				"apt-get install -y socat")
+		}
+		return enhanced
+	}
+	
+	// If no apt-get, add a RUN command to install socat
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines)+5)
+	
+	// Find where to insert (after WORKDIR or before CMD)
+	insertIndex := len(lines)
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "CMD") || strings.HasPrefix(strings.TrimSpace(line), "ENTRYPOINT") {
+			insertIndex = i
+			break
+		}
+	}
+	
+	// Build result
+	for i, line := range lines {
+		result = append(result, line)
+		if i == insertIndex-1 && i < len(lines)-1 {
+			// Insert socat installation
+			result = append(result, "")
+			result = append(result, "# Install socat for port forwarding (added by Stackyn)")
+			result = append(result, "RUN apt-get update && apt-get install -y socat && rm -rf /var/lib/apt/lists/*")
+		}
+	}
+	
+	return strings.Join(result, "\n")
+}
+
+// addPortForwardingWrapper adds a port forwarding wrapper for Python apps
+func (g *DockerfileGenerator) addPortForwardingWrapper(content string) string {
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines)+30)
+	
+	// Find CMD line
+	cmdIndex := -1
+	var originalCMD string
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "CMD") {
+			cmdIndex = i
+			originalCMD = line
+			break
+		}
+	}
+	
+	if cmdIndex == -1 {
+		// No CMD found, just return original
+		return content
+	}
+	
+	// Build result with wrapper
+	for i, line := range lines {
+		if i == cmdIndex {
+			// Replace CMD with wrapper script creation and new CMD
+			result = append(result, "")
+			result = append(result, "# Port forwarding wrapper (added by Stackyn)")
+			result = append(result, "RUN echo '#!/bin/sh' > /entrypoint.sh && \\")
+			result = append(result, "    echo 'set +e' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'APP_PORT=${APP_PORT:-8000}' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'echo \"Stackyn: Starting app on port $APP_PORT...\"' >> /entrypoint.sh && \\")
+			
+			// Extract the actual command from CMD
+			cmdContent := strings.TrimSpace(strings.TrimPrefix(originalCMD, "CMD"))
+			cmdContent = strings.Trim(cmdContent, "[]\"'")
+			
+			// Add the original command to wrapper
+			result = append(result, fmt.Sprintf("    echo '%s &' >> /entrypoint.sh && \\", cmdContent))
+			result = append(result, "    echo 'APP_PID=$!' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'sleep 3' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'if [ \"$PORT\" != \"$APP_PORT\" ]; then' >> /entrypoint.sh && \\")
+			result = append(result, "    echo '  socat TCP-LISTEN:8080,fork,reuseaddr TCP:localhost:$APP_PORT &' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'fi' >> /entrypoint.sh && \\")
+			result = append(result, "    echo 'wait $APP_PID' >> /entrypoint.sh && \\")
+			result = append(result, "    chmod +x /entrypoint.sh")
+			result = append(result, "")
+			result = append(result, "CMD [\"/entrypoint.sh\"]")
+		} else {
+			result = append(result, line)
+		}
+	}
+	
+	return strings.Join(result, "\n")
 }
