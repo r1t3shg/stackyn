@@ -8,12 +8,44 @@ import (
 	"go.uber.org/zap"
 )
 
+// PlanRepository interface for plan data access
+type PlanRepository interface {
+	GetPlanByID(ctx context.Context, planID string) (*PlanData, error)
+	GetPlanByName(ctx context.Context, planName string) (*PlanData, error)
+	GetDefaultPlan(ctx context.Context) (*PlanData, error)
+}
+
+// SubscriptionRepository interface for subscription data access
+type SubscriptionRepository interface {
+	GetSubscriptionByUserID(ctx context.Context, userID string) (*SubscriptionData, error)
+}
+
+// UserPlanRepository interface for getting user's plan_id
+type UserPlanRepository interface {
+	GetUserPlanID(ctx context.Context, userID string) (string, error)
+}
+
+// PlanData represents plan information for plan enforcement
+type PlanData struct {
+	ID             string
+	Name           string
+	MaxRAMMB       int
+	MaxApps        int
+	PriorityBuilds bool
+}
+
+// SubscriptionData represents subscription information
+type SubscriptionData struct {
+	Plan   string
+	Status string
+}
+
 // PlanEnforcementService enforces plan-based limits
 type PlanEnforcementService struct {
-	logger *zap.Logger
-	// TODO: Add database repository when DB is connected
-	// userRepo UserRepository
-	// planRepo PlanRepository
+	logger            *zap.Logger
+	planRepo          PlanRepository
+	subscriptionRepo  SubscriptionRepository
+	userPlanRepo      UserPlanRepository
 	
 	// In-memory tracking for concurrent builds and RAM usage
 	// In production, this should be in Redis or database
@@ -32,6 +64,25 @@ func NewPlanEnforcementService(logger *zap.Logger) *PlanEnforcementService {
 	}
 }
 
+// NewPlanEnforcementServiceWithRepos creates a new plan enforcement service with repositories
+func NewPlanEnforcementServiceWithRepos(logger *zap.Logger, planRepo PlanRepository, subscriptionRepo SubscriptionRepository, userPlanRepo UserPlanRepository) *PlanEnforcementService {
+	return &PlanEnforcementService{
+		logger:          logger,
+		planRepo:        planRepo,
+		subscriptionRepo: subscriptionRepo,
+		userPlanRepo:    userPlanRepo,
+		buildCounts:     make(map[string]int),
+		ramUsage:        make(map[string]int),
+	}
+}
+
+// SetRepositories sets the repositories after service creation
+func (s *PlanEnforcementService) SetRepositories(planRepo PlanRepository, subscriptionRepo SubscriptionRepository, userPlanRepo UserPlanRepository) {
+	s.planRepo = planRepo
+	s.subscriptionRepo = subscriptionRepo
+	s.userPlanRepo = userPlanRepo
+}
+
 // PlanLimits represents the limits for a plan
 type PlanLimits struct {
 	MaxApps            int
@@ -41,39 +92,97 @@ type PlanLimits struct {
 }
 
 // GetPlanLimits gets the limits for a user's plan
-// TODO: Fetch from database when DB is connected
-// This should integrate with BillingService to get the user's current plan
 func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID string) (*PlanLimits, error) {
-	// TODO: Query database for user's plan
-	// In production, this would be:
-	// 1. Get subscription from BillingService
-	// 2. Get plan details from plans table based on subscription.Plan
-	// 3. Return plan limits
-	// 
-	// Example:
-	// billingService := s.billingService // Would need to inject this
-	// subscription, err := billingService.GetSubscription(ctx, userID)
-	// if err != nil {
-	//     return nil, err
-	// }
-	// plan, err := s.planRepo.GetByName(ctx, subscription.Plan)
-	// if err != nil {
-	//     return nil, err
-	// }
-	// return &PlanLimits{
-	//     MaxApps: plan.MaxApps,
-	//     MaxRAMMB: plan.MaxRAMMB,
-	//     MaxConcurrentBuilds: plan.MaxConcurrentBuilds,
-	//     QueuePriority: plan.QueuePriority,
-	// }, nil
+	// If repositories are not set, fall back to default free plan limits
+	if s.planRepo == nil {
+		s.logger.Debug("Plan repository not set, using default free plan limits", zap.String("user_id", userID))
+		return &PlanLimits{
+			MaxApps:            3,
+			MaxRAMMB:           1024, // 1 GB
+			MaxConcurrentBuilds: 1,
+			QueuePriority:      1, // Low priority
+		}, nil
+	}
 
-	// Default plan limits (free tier)
+	// Try to get plan from subscription first
+	var plan *PlanData
+	if s.subscriptionRepo != nil {
+		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+		if err == nil && sub != nil && sub.Status == "active" {
+			// Get plan by name from subscription
+			plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
+			if err == nil && plan != nil {
+				s.logger.Debug("Retrieved plan from subscription",
+					zap.String("user_id", userID),
+					zap.String("plan_name", plan.Name),
+				)
+				return s.planDataToLimits(plan), nil
+			}
+		}
+	}
+
+	// If no subscription, try to get plan_id from user table
+	if plan == nil && s.userPlanRepo != nil {
+		planID, err := s.userPlanRepo.GetUserPlanID(ctx, userID)
+		if err == nil && planID != "" {
+			// Get plan by ID
+			plan, err = s.planRepo.GetPlanByID(ctx, planID)
+			if err == nil && plan != nil {
+				s.logger.Debug("Retrieved plan from user plan_id",
+					zap.String("user_id", userID),
+					zap.String("plan_name", plan.Name),
+				)
+				return s.planDataToLimits(plan), nil
+			}
+		}
+	}
+
+	// If still no plan, get default free plan
+	if plan == nil {
+		defaultPlan, err := s.planRepo.GetDefaultPlan(ctx)
+		if err == nil && defaultPlan != nil {
+			plan = defaultPlan
+			s.logger.Debug("Using default free plan",
+				zap.String("user_id", userID),
+				zap.String("plan_name", plan.Name),
+			)
+			return s.planDataToLimits(plan), nil
+		}
+	}
+
+	// Fall back to hardcoded default free plan limits
+	s.logger.Warn("Failed to retrieve plan, using hardcoded default limits", zap.String("user_id", userID))
 	return &PlanLimits{
 		MaxApps:            3,
 		MaxRAMMB:           1024, // 1 GB
 		MaxConcurrentBuilds: 1,
 		QueuePriority:      1, // Low priority
 	}, nil
+}
+
+// planDataToLimits converts PlanData to PlanLimits
+func (s *PlanEnforcementService) planDataToLimits(plan *PlanData) *PlanLimits {
+	queuePriority := 1 // Default low priority
+	if plan.PriorityBuilds {
+		queuePriority = 10 // High priority
+	}
+
+	maxApps := plan.MaxApps
+	if maxApps == 0 {
+		maxApps = 3 // Default
+	}
+
+	maxRAMMB := plan.MaxRAMMB
+	if maxRAMMB == 0 {
+		maxRAMMB = 1024 // Default 1 GB
+	}
+
+	return &PlanLimits{
+		MaxApps:            maxApps,
+		MaxRAMMB:           maxRAMMB,
+		MaxConcurrentBuilds: 1, // Can be made configurable per plan later
+		QueuePriority:      queuePriority,
+	}
 }
 
 // CheckMaxApps checks if user has reached max apps limit

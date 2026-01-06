@@ -64,6 +64,11 @@ export default function DeploymentDetailsPage() {
   const loadLogs = async () => {
     try {
       const data = await deploymentsApi.getLogs(deploymentId);
+      console.log('Loaded deployment logs:', { 
+        hasBuildLog: !!data.build_log, 
+        buildLogLength: data.build_log?.length || 0,
+        status: data.status 
+      });
       setLogs(data);
       // Auto-enable refresh if deployment is in progress
       if (deployment?.status === 'building' || deployment?.status === 'pending') {
@@ -71,6 +76,8 @@ export default function DeploymentDetailsPage() {
       }
     } catch (err) {
       console.error('Error loading logs:', err);
+      // Set logs to null on error so we show appropriate message
+      setLogs(null);
     }
   };
 
@@ -187,8 +194,8 @@ export default function DeploymentDetailsPage() {
             )}
           </div>
           
-          {logs && extractString(logs.build_log) ? (
-            <LogsViewer logs={extractString(logs.build_log)} />
+          {logs && logs.build_log && extractString(logs.build_log) ? (
+            <LogsViewer logs={extractString(logs.build_log)!} />
           ) : (
             <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8 text-center">
               <p className="text-[var(--text-secondary)]">
@@ -196,6 +203,11 @@ export default function DeploymentDetailsPage() {
                   ? 'Build logs will appear here as the deployment progresses...'
                   : 'No build logs available yet'}
               </p>
+              {logs && logs.build_log && !extractString(logs.build_log) && (
+                <p className="text-[var(--text-muted)] text-xs mt-2">
+                  Build log exists but is empty or invalid
+                </p>
+              )}
             </div>
           )}
         </div>

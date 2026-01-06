@@ -108,7 +108,7 @@ func (r *UserRepo) GetUserByEmail(email string) (*User, error) {
 	return &user, nil
 }
 
-// CreateUser creates a new user
+// CreateUser creates a new user and assigns default free plan
 func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string) (*User, error) {
 	ctx := context.Background()
 	var user User
@@ -116,9 +116,20 @@ func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string)
 	if passwordHash != "" {
 		hash = sql.NullString{String: passwordHash, Valid: true}
 	}
+	
+	// Get default free plan ID
+	var planID sql.NullString
 	err := r.pool.QueryRow(ctx,
-		"INSERT INTO users (email, full_name, company_name, password_hash) VALUES ($1, $2, $3, $4) RETURNING id, email, full_name, company_name, password_hash",
-		email, fullName, companyName, hash,
+		"SELECT id FROM plans WHERE name = 'free' LIMIT 1",
+	).Scan(&planID)
+	if err != nil {
+		r.logger.Warn("Failed to get free plan ID, creating user without plan", zap.Error(err))
+		planID = sql.NullString{Valid: false}
+	}
+	
+	err = r.pool.QueryRow(ctx,
+		"INSERT INTO users (email, full_name, company_name, password_hash, plan_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, company_name, password_hash",
+		email, fullName, companyName, hash, planID,
 	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &hash)
 	if err != nil {
 		r.logger.Error("Failed to create user", zap.Error(err), zap.String("email", email))
@@ -641,5 +652,360 @@ func (r *DeploymentRepo) GetDeploymentByID(deploymentID string) (map[string]inte
 	}
 
 	return deployment, nil
+}
+
+// PlanRepo implements plan repository using database
+type PlanRepo struct {
+	pool   *pgxpool.Pool
+	logger *zap.Logger
+}
+
+// NewPlanRepo creates a new plan repository
+func NewPlanRepo(pool *pgxpool.Pool, logger *zap.Logger) *PlanRepo {
+	return &PlanRepo{
+		pool:   pool,
+		logger: logger,
+	}
+}
+
+// Plan represents a plan from the database
+type Plan struct {
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	DisplayName      string    `json:"display_name"`
+	Price            int       `json:"price"`
+	MaxRAMMB         int       `json:"max_ram_mb"`
+	MaxDiskMB        int       `json:"max_disk_mb"`
+	MaxApps          int       `json:"max_apps"`
+	AlwaysOn         bool      `json:"always_on"`
+	AutoDeploy       bool      `json:"auto_deploy"`
+	HealthChecks     bool      `json:"health_checks"`
+	Logs             bool      `json:"logs"`
+	ZeroDowntime     bool      `json:"zero_downtime"`
+	Workers          bool      `json:"workers"`
+	PriorityBuilds   bool      `json:"priority_builds"`
+	ManualDeployOnly bool      `json:"manual_deploy_only"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// GetPlanByID retrieves a plan by ID
+func (r *PlanRepo) GetPlanByID(ctx context.Context, planID string) (*Plan, error) {
+	var plan Plan
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, display_name, price, max_ram_mb, max_disk_mb, max_apps,
+		        always_on, auto_deploy, health_checks, logs, zero_downtime,
+		        workers, priority_builds, manual_deploy_only, created_at, updated_at
+		 FROM plans
+		 WHERE id = $1`,
+		planID,
+	).Scan(
+		&plan.ID, &plan.Name, &plan.DisplayName, &plan.Price,
+		&plan.MaxRAMMB, &plan.MaxDiskMB, &plan.MaxApps,
+		&plan.AlwaysOn, &plan.AutoDeploy, &plan.HealthChecks, &plan.Logs,
+		&plan.ZeroDowntime, &plan.Workers, &plan.PriorityBuilds,
+		&plan.ManualDeployOnly, &plan.CreatedAt, &plan.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get plan by ID", zap.Error(err), zap.String("plan_id", planID))
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// GetPlanByName retrieves a plan by name
+func (r *PlanRepo) GetPlanByName(ctx context.Context, planName string) (*Plan, error) {
+	var plan Plan
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, display_name, price, max_ram_mb, max_disk_mb, max_apps,
+		        always_on, auto_deploy, health_checks, logs, zero_downtime,
+		        workers, priority_builds, manual_deploy_only, created_at, updated_at
+		 FROM plans
+		 WHERE name = $1`,
+		planName,
+	).Scan(
+		&plan.ID, &plan.Name, &plan.DisplayName, &plan.Price,
+		&plan.MaxRAMMB, &plan.MaxDiskMB, &plan.MaxApps,
+		&plan.AlwaysOn, &plan.AutoDeploy, &plan.HealthChecks, &plan.Logs,
+		&plan.ZeroDowntime, &plan.Workers, &plan.PriorityBuilds,
+		&plan.ManualDeployOnly, &plan.CreatedAt, &plan.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get plan by name", zap.Error(err), zap.String("plan_name", planName))
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// GetDefaultPlan retrieves the default (free) plan
+func (r *PlanRepo) GetDefaultPlan(ctx context.Context) (*Plan, error) {
+	return r.GetPlanByName(ctx, "free")
+}
+
+// SubscriptionRepo implements subscription repository using database
+type SubscriptionRepo struct {
+	pool   *pgxpool.Pool
+	logger *zap.Logger
+}
+
+// NewSubscriptionRepo creates a new subscription repository
+func NewSubscriptionRepo(pool *pgxpool.Pool, logger *zap.Logger) *SubscriptionRepo {
+	return &SubscriptionRepo{
+		pool:   pool,
+		logger: logger,
+	}
+}
+
+// Subscription represents a subscription from the database
+type Subscription struct {
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	SubscriptionID string    `json:"subscription_id"` // External subscription ID (e.g., Lemon Squeezy)
+	Plan           string    `json:"plan"`            // Plan name
+	Status         string    `json:"status"`          // active, inactive, canceled, expired, past_due, trialing
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// GetSubscriptionByUserID retrieves a subscription for a user
+func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error) {
+	var sub Subscription
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, subscription_id, plan, status, created_at, updated_at
+		 FROM subscriptions
+		 WHERE user_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &sub.SubscriptionID, &sub.Plan, &sub.Status,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get subscription", zap.Error(err), zap.String("user_id", userID))
+		return nil, err
+	}
+	return &sub, nil
+}
+
+// CreateSubscription creates a new subscription
+func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, subscriptionID, plan, status string) (*Subscription, error) {
+	var sub Subscription
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO subscriptions (user_id, subscription_id, plan, status)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, user_id, subscription_id, plan, status, created_at, updated_at`,
+		userID, subscriptionID, plan, status,
+	).Scan(
+		&sub.ID, &sub.UserID, &sub.SubscriptionID, &sub.Plan, &sub.Status,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	if err != nil {
+		r.logger.Error("Failed to create subscription", zap.Error(err), zap.String("user_id", userID))
+		return nil, err
+	}
+	return &sub, nil
+}
+
+// UpdateSubscription updates a subscription
+func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE subscriptions
+		 SET plan = COALESCE(NULLIF($2, ''), plan),
+		     status = COALESCE(NULLIF($3, ''), status),
+		     updated_at = NOW()
+		 WHERE id = $1`,
+		subscriptionID, plan, status,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update subscription", zap.Error(err), zap.String("subscription_id", subscriptionID))
+		return err
+	}
+	return nil
+}
+
+// UpdateSubscriptionByUserID updates a user's subscription
+func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userID, plan, status string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE subscriptions
+		 SET plan = COALESCE(NULLIF($2, ''), plan),
+		     status = COALESCE(NULLIF($3, ''), status),
+		     updated_at = NOW()
+		 WHERE user_id = $1`,
+		userID, plan, status,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update subscription by user ID", zap.Error(err), zap.String("user_id", userID))
+		return err
+	}
+	return nil
+}
+
+// UserPlanRepo implements user plan repository for getting plan_id from users table
+type UserPlanRepo struct {
+	pool   *pgxpool.Pool
+	logger *zap.Logger
+}
+
+// NewUserPlanRepo creates a new user plan repository
+func NewUserPlanRepo(pool *pgxpool.Pool, logger *zap.Logger) *UserPlanRepo {
+	return &UserPlanRepo{
+		pool:   pool,
+		logger: logger,
+	}
+}
+
+// GetUserPlanID retrieves the plan_id for a user
+func (r *UserPlanRepo) GetUserPlanID(ctx context.Context, userID string) (string, error) {
+	var planID sql.NullString
+	err := r.pool.QueryRow(ctx,
+		"SELECT plan_id FROM users WHERE id = $1",
+		userID,
+	).Scan(&planID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get user plan_id", zap.Error(err), zap.String("user_id", userID))
+		return "", err
+	}
+	if !planID.Valid {
+		return "", nil // No plan assigned
+	}
+	return planID.String, nil
+}
+
+// UpdateUserPlanID updates a user's plan_id
+func (r *UserPlanRepo) UpdateUserPlanID(ctx context.Context, userID, planID string) error {
+	var planIDPtr interface{}
+	if planID != "" {
+		planIDPtr = planID
+	} else {
+		planIDPtr = nil
+	}
+	_, err := r.pool.Exec(ctx,
+		"UPDATE users SET plan_id = $1, updated_at = NOW() WHERE id = $2",
+		planIDPtr, userID,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update user plan_id", zap.Error(err), zap.String("user_id", userID), zap.String("plan_id", planID))
+		return err
+	}
+	return nil
+}
+
+// EnvVarRepo implements environment variables repository using database
+type EnvVarRepo struct {
+	pool   *pgxpool.Pool
+	logger *zap.Logger
+}
+
+// NewEnvVarRepo creates a new environment variables repository
+func NewEnvVarRepo(pool *pgxpool.Pool, logger *zap.Logger) *EnvVarRepo {
+	return &EnvVarRepo{
+		pool:   pool,
+		logger: logger,
+	}
+}
+
+// GetEnvVarsByAppID retrieves all environment variables for an app
+func (r *EnvVarRepo) GetEnvVarsByAppID(ctx context.Context, appID string) ([]*EnvVar, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, app_id, key, value, created_at, updated_at 
+		 FROM env_vars 
+		 WHERE app_id = $1 
+		 ORDER BY created_at DESC`,
+		appID,
+	)
+	if err != nil {
+		r.logger.Error("Failed to get env vars", zap.Error(err), zap.String("app_id", appID))
+		return nil, err
+	}
+	defer rows.Close()
+
+	var envVars []*EnvVar
+	for rows.Next() {
+		var envVar EnvVar
+		var createdAt, updatedAt time.Time
+		err := rows.Scan(
+			&envVar.ID,
+			&envVar.AppID,
+			&envVar.Key,
+			&envVar.Value,
+			&createdAt,
+			&updatedAt,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan env var", zap.Error(err))
+			continue
+		}
+		envVar.CreatedAt = createdAt.Format(time.RFC3339)
+		envVar.UpdatedAt = updatedAt.Format(time.RFC3339)
+		envVars = append(envVars, &envVar)
+	}
+
+	if err := rows.Err(); err != nil {
+		r.logger.Error("Error iterating env vars", zap.Error(err))
+		return nil, err
+	}
+
+	return envVars, nil
+}
+
+// CreateEnvVar creates a new environment variable
+func (r *EnvVarRepo) CreateEnvVar(ctx context.Context, appID, key, value string) (*EnvVar, error) {
+	var envVar EnvVar
+	var createdAt, updatedAt time.Time
+	
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO env_vars (app_id, key, value) 
+		 VALUES ($1, $2, $3) 
+		 ON CONFLICT (app_id, key) 
+		 DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+		 RETURNING id, app_id, key, value, created_at, updated_at`,
+		appID, key, value,
+	).Scan(
+		&envVar.ID,
+		&envVar.AppID,
+		&envVar.Key,
+		&envVar.Value,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		r.logger.Error("Failed to create env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
+		return nil, err
+	}
+	
+	envVar.CreatedAt = createdAt.Format(time.RFC3339)
+	envVar.UpdatedAt = updatedAt.Format(time.RFC3339)
+	return &envVar, nil
+}
+
+// DeleteEnvVar deletes an environment variable by app ID and key
+func (r *EnvVarRepo) DeleteEnvVar(ctx context.Context, appID, key string) error {
+	result, err := r.pool.Exec(ctx,
+		"DELETE FROM env_vars WHERE app_id = $1 AND key = $2",
+		appID, key,
+	)
+	if err != nil {
+		r.logger.Error("Failed to delete env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
+		return err
+	}
+	
+	if result.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	
+	return nil
 }
 

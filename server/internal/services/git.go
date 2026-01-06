@@ -128,8 +128,9 @@ func (s *GitService) Clone(ctx context.Context, opts CloneOptions) (*CloneResult
 	}
 
 	// Clean up existing directory if it exists
+	// This ensures we always get fresh code, even if a previous clone with the same unique ID exists
 	if _, err := os.Stat(clonePath); err == nil {
-		s.logger.Warn("Clone directory already exists, removing", zap.String("path", clonePath))
+		s.logger.Warn("Clone directory already exists, removing to ensure fresh clone", zap.String("path", clonePath))
 		if err := os.RemoveAll(clonePath); err != nil {
 			return nil, fmt.Errorf("failed to remove existing directory: %w", err)
 		}
@@ -170,7 +171,7 @@ func (s *GitService) Clone(ctx context.Context, opts CloneOptions) (*CloneResult
 		zap.String("unique_id", opts.UniqueID),
 	)
 
-	// Clone repository
+	// Clone repository - PlainClone always fetches from remote, ensuring we get the latest code from the branch
 	repo, err := git.PlainClone(clonePath, false, gitCloneOpts)
 	if err != nil {
 		// Check for specific error types
@@ -211,6 +212,52 @@ func (s *GitService) Cleanup(clonePath string) error {
 		return fmt.Errorf("failed to remove clone directory: %w", err)
 	}
 	s.logger.Info("Cleaned up clone directory", zap.String("path", clonePath))
+	return nil
+}
+
+// CleanupAppRepos removes all cloned repositories for an app
+// This searches for directories matching patterns like {repoName}-{buildJobID} or {repoName}
+// where buildJobID might contain the app ID or be associated with the app
+func (s *GitService) CleanupAppRepos(ctx context.Context, repoURL string) error {
+	// Extract repo name from URL
+	httpsURL := s.normalizeGitHubURL(repoURL)
+	repoName := s.extractRepoName(httpsURL)
+	
+	// Pattern to match: repoName-* or just repoName
+	pattern := filepath.Join(s.cloneDir, repoName+"*")
+	
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		s.logger.Warn("Failed to find clone directories to cleanup", zap.Error(err), zap.String("pattern", pattern))
+		return err
+	}
+	
+	cleanedCount := 0
+	for _, match := range matches {
+		// Check if it's a directory
+		if info, err := os.Stat(match); err == nil && info.IsDir() {
+			if err := os.RemoveAll(match); err != nil {
+				s.logger.Warn("Failed to cleanup clone directory", 
+					zap.Error(err), 
+					zap.String("path", match),
+					zap.String("repo_url", repoURL),
+				)
+			} else {
+				s.logger.Info("Cleaned up clone directory for app",
+					zap.String("path", match),
+					zap.String("repo_url", repoURL),
+				)
+				cleanedCount++
+			}
+		}
+	}
+	
+	s.logger.Info("Completed cleanup of cloned repositories for app",
+		zap.String("repo_url", repoURL),
+		zap.String("repo_name", repoName),
+		zap.Int("cleaned_count", cleanedCount),
+	)
+	
 	return nil
 }
 

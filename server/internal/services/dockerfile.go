@@ -973,7 +973,7 @@ func (g *DockerfileGenerator) fixPoetryVersion(content string) string {
 	lines := strings.Split(content, "\n")
 	result := make([]string, 0, len(lines))
 	
-	for _, line := range lines {
+	for i, line := range lines {
 		// Fix old Poetry versions
 		if strings.Contains(line, "poetry==1.0") || strings.Contains(line, "poetry==1.1") || 
 			strings.Contains(line, "poetry==1.2") || strings.Contains(line, "poetry==1.3") {
@@ -986,6 +986,41 @@ func (g *DockerfileGenerator) fixPoetryVersion(content string) string {
 		// Fix deprecated --no-dev flag (replaced with --without dev in Poetry 2.0+)
 		if strings.Contains(line, "poetry install") && strings.Contains(line, "--no-dev") {
 			line = strings.ReplaceAll(line, "--no-dev", "--without dev")
+		}
+		
+		// Check if source code has been copied before this line
+		sourceCopiedBefore := false
+		for j := 0; j < i; j++ {
+			prevLine := strings.TrimSpace(lines[j])
+			// Check for COPY commands that copy source code (not just dependency files)
+			if strings.HasPrefix(prevLine, "COPY") {
+				// If it copies more than just poetry files, source is copied
+				if !strings.Contains(prevLine, "poetry.lock") && 
+				   !strings.Contains(prevLine, "pyproject.toml") &&
+				   !strings.Contains(prevLine, "requirements.txt") &&
+				   !strings.Contains(prevLine, "Pipfile") {
+					sourceCopiedBefore = true
+					break
+				}
+				// Also check for COPY . which copies everything
+				if strings.Contains(prevLine, "COPY .") || strings.Contains(prevLine, "COPY *") {
+					sourceCopiedBefore = true
+					break
+				}
+			}
+		}
+		
+		// Add --no-root if poetry install runs before source code is copied
+		if strings.Contains(line, "poetry install") && !strings.Contains(line, "--no-root") && !sourceCopiedBefore {
+			// Insert --no-root before any existing flags
+			if strings.Contains(line, "--without dev") || strings.Contains(line, "--without") {
+				line = strings.ReplaceAll(line, "poetry install", "poetry install --no-root")
+			} else if strings.Contains(line, "--only main") {
+				line = strings.ReplaceAll(line, "poetry install", "poetry install --no-root")
+			} else {
+				// Add after poetry install
+				line = strings.ReplaceAll(line, "poetry install", "poetry install --no-root")
+			}
 		}
 		
 		// Ensure poetry config virtualenvs.create false is set

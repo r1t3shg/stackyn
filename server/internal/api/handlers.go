@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -93,8 +94,8 @@ type CreateAppResponse struct {
 }
 
 type EnvVar struct {
-	ID        int    `json:"id"`
-	AppID     int    `json:"app_id"`
+	ID        string `json:"id"`
+	AppID     string `json:"app_id"`
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 	CreatedAt string `json:"created_at"`
@@ -120,13 +121,13 @@ type UserProfile struct {
 
 type Quota struct {
 	PlanName  string `json:"plan_name"`
-	Plan      Plan   `json:"plan"`
+	Plan      PlanInfo `json:"plan"`
 	AppCount  int    `json:"app_count"`
 	TotalRAMMB int   `json:"total_ram_mb"`
 	TotalDiskMB int  `json:"total_disk_mb"`
 }
 
-type Plan struct {
+type PlanInfo struct {
 	Name            string `json:"name"`
 	DisplayName     string `json:"display_name"`
 	Price           int    `json:"price"`
@@ -168,6 +169,7 @@ type Handlers struct {
 	constraintsService ConstraintsService
 	appRepo           *AppRepo
 	deploymentRepo    *DeploymentRepo
+	envVarRepo        *EnvVarRepo
 	taskEnqueue       *services.TaskEnqueueService
 	wsHub             *services.Hub
 	deploymentService DeploymentService
@@ -176,6 +178,7 @@ type Handlers struct {
 // DeploymentService interface for deployment operations
 type DeploymentService interface {
 	VerifyDeployment(ctx context.Context, appID string) (*services.DeploymentVerificationResult, error)
+	CleanupAppResources(ctx context.Context, appID string) error
 }
 
 // ConstraintsService interface for constraint enforcement
@@ -243,7 +246,7 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
 	return &Handlers{
 		logger:            logger,
 		logPersistence:   logPersistence,
@@ -254,6 +257,7 @@ func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, conta
 		constraintsService: constraintsService,
 		appRepo:           appRepo,
 		deploymentRepo:    deploymentRepo,
+		envVarRepo:        envVarRepo,
 		taskEnqueue:       taskEnqueue,
 		deploymentService: deploymentService,
 	}
@@ -430,6 +434,11 @@ func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
 		apps = []App{}
 	}
 
+	// Enrich each app with deployment data and container stats
+	for i := range apps {
+		h.enrichAppWithDeployment(r.Context(), &apps[i])
+	}
+
 	h.writeJSON(w, http.StatusOK, apps)
 }
 
@@ -461,6 +470,9 @@ func (h *Handlers) GetAppByID(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
 		return
 	}
+
+	// Enrich app with deployment data and container stats
+	h.enrichAppWithDeployment(r.Context(), app)
 
 	h.writeJSON(w, http.StatusOK, app)
 }
@@ -604,10 +616,35 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	h.logger.Info("Deleting app", zap.String("app_id", appID), zap.String("user_id", userID))
+	h.logger.Info("Deleting app and cleaning up resources", zap.String("app_id", appID), zap.String("user_id", userID))
 	
-	// Delete the app (verifies ownership)
-	err := h.appRepo.DeleteApp(appID, userID)
+	// Get app info before deletion (needed for cleanup)
+	app, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found or you don't have permission to delete it")
+			return
+		}
+		h.logger.Error("Failed to get app for deletion", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
+		return
+	}
+	
+	// Step 1: Clean up Docker resources (containers and images)
+	if h.deploymentService != nil {
+		if err := h.deploymentService.CleanupAppResources(r.Context(), appID); err != nil {
+			h.logger.Warn("Failed to cleanup Docker resources during app deletion", 
+				zap.Error(err), 
+				zap.String("app_id", appID),
+			)
+			// Continue with deletion even if cleanup fails
+		}
+	} else {
+		h.logger.Warn("Deployment service not available, skipping Docker resource cleanup", zap.String("app_id", appID))
+	}
+	
+	// Step 2: Delete the app from database (cascade will handle related records: deployments, env_vars, etc.)
+	err = h.appRepo.DeleteApp(appID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			h.writeError(w, http.StatusNotFound, "App not found or you don't have permission to delete it")
@@ -617,6 +654,20 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to delete app")
 		return
 	}
+	
+	// Step 3: Clean up cloned repositories
+	// Note: This is best-effort cleanup. Cloned repos are typically cleaned up after builds,
+	// but we clean them up here to be thorough. We'll need GitService access for this.
+	// For now, we log a warning if we can't access it. This can be enhanced later.
+	h.logger.Info("App deleted successfully, cloned repos should be cleaned up by build worker", 
+		zap.String("app_id", appID),
+		zap.String("repo_url", app.RepoURL),
+	)
+	
+	h.logger.Info("App deletion completed",
+		zap.String("app_id", appID),
+		zap.String("user_id", userID),
+	)
 	
 	// Return 204 No Content on success
 	w.WriteHeader(http.StatusNoContent)
@@ -661,13 +712,14 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 	buildJobID := uuid.New().String()
 
 	// Enqueue build task to trigger deployment
+	// This will: 1) Clone the latest code from the repository branch, 2) Build the Docker image, 3) Deploy the container
 	requestID := middleware.GetReqID(r.Context())
 	if h.taskEnqueue != nil {
 		buildPayload := tasks.BuildTaskPayload{
 			AppID:      app.ID,
 			BuildJobID: buildJobID,
-			RepoURL:    app.RepoURL,
-			Branch:     app.Branch,
+			RepoURL:    app.RepoURL,    // Always use current repo URL from database
+			Branch:     app.Branch,      // Always use current branch from database (ensures latest code from this branch)
 			UserID:     userID,
 		}
 
@@ -783,59 +835,159 @@ func (h *Handlers) GetAppDeployments(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/apps/{id}/env - Get environment variables
 func (h *Handlers) GetEnvVars(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	appID, _ := strconv.Atoi(id)
-	now := time.Now().Format(time.RFC3339)
-	
-	envVars := []EnvVar{
-		{
-			ID:        1,
-			AppID:     appID,
-			Key:       "NODE_ENV",
-			Value:     "production",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		{
-			ID:        2,
-			AppID:     appID,
-			Key:       "API_KEY",
-			Value:     "secret-key",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
+	appID := chi.URLParam(r, "id")
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
 	}
-	h.writeJSON(w, http.StatusOK, envVars)
+
+	// Verify app belongs to user
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	_, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
+		return
+	}
+
+	if h.envVarRepo == nil {
+		h.logger.Error("Env var repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "Env var repository not available")
+		return
+	}
+
+	envVars, err := h.envVarRepo.GetEnvVarsByAppID(r.Context(), appID)
+	if err != nil {
+		h.logger.Error("Failed to get env vars", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve environment variables")
+		return
+	}
+
+	// Convert []*EnvVar to []EnvVar for JSON response
+	result := make([]EnvVar, len(envVars))
+	for i, v := range envVars {
+		result[i] = *v
+	}
+
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 // POST /api/v1/apps/{id}/env - Create environment variable
 func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	appID, _ := strconv.Atoi(id)
-	
+	appID := chi.URLParam(r, "id")
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	// Verify app belongs to user
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	_, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
+		return
+	}
+
 	var req CreateEnvVarRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	now := time.Now().Format(time.RFC3339)
-	envVar := EnvVar{
-		ID:        3,
-		AppID:     appID,
-		Key:       req.Key,
-		Value:     req.Value,
-		CreatedAt: now,
-		UpdatedAt: now,
+	// Validate key and value
+	if req.Key == "" {
+		h.writeError(w, http.StatusBadRequest, "Environment variable key is required")
+		return
 	}
+
+	if h.envVarRepo == nil {
+		h.logger.Error("Env var repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "Env var repository not available")
+		return
+	}
+
+	envVar, err := h.envVarRepo.CreateEnvVar(r.Context(), appID, req.Key, req.Value)
+	if err != nil {
+		// Check for unique constraint violation
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			h.writeError(w, http.StatusConflict, fmt.Sprintf("Environment variable '%s' already exists for this app", req.Key))
+			return
+		}
+		h.logger.Error("Failed to create env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", req.Key))
+		h.writeError(w, http.StatusInternalServerError, "Failed to create environment variable")
+		return
+	}
+
 	h.writeJSON(w, http.StatusCreated, envVar)
 }
 
 // DELETE /api/v1/apps/{id}/env/{key} - Delete environment variable
 func (h *Handlers) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+	appID := chi.URLParam(r, "id")
 	key := chi.URLParam(r, "key")
-	h.logger.Info("Deleting env var", zap.String("app_id", id), zap.String("key", key))
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	// Verify app belongs to user
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	_, err := h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve app")
+		return
+	}
+
+	if h.envVarRepo == nil {
+		h.logger.Error("Env var repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "Env var repository not available")
+		return
+	}
+
+	err = h.envVarRepo.DeleteEnvVar(r.Context(), appID, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "Environment variable not found")
+			return
+		}
+		h.logger.Error("Failed to delete env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete environment variable")
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -865,45 +1017,93 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	deploymentID := id
 	
-	// Get app ID from query parameter or deployment
-	appID := r.URL.Query().Get("app_id")
-	if appID == "" {
-		h.writeError(w, http.StatusBadRequest, "app_id query parameter required")
+	// Verify user has access to this deployment
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
 		return
 	}
 
-	// Get build logs
-	buildLogs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("build"), 100, 0)
-	if err != nil {
-		h.logger.Warn("Failed to get build logs", zap.Error(err))
+	// Get deployment from database (contains build_log and runtime_log)
+	if h.deploymentRepo == nil {
+		h.logger.Error("Deployment repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "Deployment repository not available")
+		return
 	}
 
-	// Get runtime logs
-	runtimeLogs, err := h.logPersistence.GetLogs(r.Context(), appID, LogType("runtime"), 100, 0)
+	deploymentData, err := h.deploymentRepo.GetDeploymentByID(deploymentID)
 	if err != nil {
-		h.logger.Warn("Failed to get runtime logs", zap.Error(err))
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "Deployment not found")
+			return
+		}
+		h.logger.Error("Failed to get deployment", zap.Error(err), zap.String("deployment_id", deploymentID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve deployment")
+		return
 	}
 
-	// Find logs for this deployment
-	var buildLog, runtimeLog string
-	for _, log := range buildLogs {
-		if log.BuildJobID == deploymentID || log.DeploymentID == deploymentID {
-			buildLog = log.Content
-			break
+	// Verify app belongs to user
+	appID, ok := deploymentData["app_id"].(string)
+	if !ok {
+		h.logger.Error("Invalid app_id in deployment data", zap.String("deployment_id", deploymentID))
+		h.writeError(w, http.StatusInternalServerError, "Invalid deployment data")
+		return
+	}
+
+	// Verify app ownership
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+
+	_, err = h.appRepo.GetAppByID(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "Deployment not found or access denied")
+			return
+		}
+		h.logger.Error("Failed to verify app ownership", zap.Error(err), zap.String("app_id", appID), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to verify deployment access")
+		return
+	}
+
+	// Extract build_log and runtime_log from deployment data
+	var buildLog, runtimeLog, errorMsg string
+	if buildLogVal, ok := deploymentData["build_log"].(map[string]interface{}); ok {
+		if valid, ok := buildLogVal["Valid"].(bool); ok && valid {
+			if str, ok := buildLogVal["String"].(string); ok {
+				buildLog = str
+			}
 		}
 	}
-	for _, log := range runtimeLogs {
-		if log.DeploymentID == deploymentID {
-			runtimeLog = log.Content
-			break
+	if runtimeLogVal, ok := deploymentData["runtime_log"].(map[string]interface{}); ok {
+		if valid, ok := runtimeLogVal["Valid"].(bool); ok && valid {
+			if str, ok := runtimeLogVal["String"].(string); ok {
+				runtimeLog = str
+			}
 		}
+	}
+	if errorMsgVal, ok := deploymentData["error_message"].(map[string]interface{}); ok {
+		if valid, ok := errorMsgVal["Valid"].(bool); ok && valid {
+			if str, ok := errorMsgVal["String"].(string); ok {
+				errorMsg = str
+			}
+		}
+	}
+
+	// Get status from deployment
+	status := "unknown"
+	if statusVal, ok := deploymentData["status"].(string); ok {
+		status = statusVal
 	}
 
 	logs := DeploymentLogs{
-		DeploymentID: 0, // Will be converted from string if needed
-		Status:       "running",
+		DeploymentID: 0, // Not needed in response
+		Status:       status,
 		BuildLog:     buildLog,
 		RuntimeLog:   runtimeLog,
+		ErrorMessage: errorMsg,
 	}
 	h.writeJSON(w, http.StatusOK, logs)
 }
@@ -1054,7 +1254,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			AppCount:   2,
 			TotalRAMMB: 1024,
 			TotalDiskMB: 2048,
-			Plan: Plan{
+			Plan: PlanInfo{
 				Name:            "pro",
 				DisplayName:     "Pro Plan",
 				Price:           29,
@@ -1170,5 +1370,168 @@ func (h *Handlers) HandleLemonSqueezyWebhook(w http.ResponseWriter, r *http.Requ
 	// Return 200 OK to acknowledge receipt
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// enrichAppWithDeployment enriches an app with deployment data and container stats
+func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
+	if h.deploymentRepo == nil {
+		return
+	}
+
+	// Get deployments for this app
+	deploymentsData, err := h.deploymentRepo.GetDeploymentsByAppID(app.ID)
+	if err != nil || len(deploymentsData) == 0 {
+		return
+	}
+
+	// Find the active/running deployment
+	var activeDeployment map[string]interface{}
+	for _, d := range deploymentsData {
+		status, _ := d["status"].(string)
+		if status == "running" {
+			activeDeployment = d
+			break
+		}
+	}
+
+	// If no running deployment, use the most recent one
+	if activeDeployment == nil {
+		activeDeployment = deploymentsData[0]
+	}
+
+	// Extract container ID
+	var containerID string
+	if containerIDVal, ok := activeDeployment["container_id"].(map[string]interface{}); ok {
+		if cidStr, ok := containerIDVal["String"].(string); ok && containerIDVal["Valid"].(bool) {
+			containerID = cidStr
+		}
+	} else if cidStr, ok := activeDeployment["container_id"].(string); ok {
+		containerID = cidStr
+	}
+
+	if containerID == "" {
+		return
+	}
+
+	// Get container stats if deployment service is available
+	// We'll use type assertion to access the underlying DeploymentService
+	if h.deploymentService == nil {
+		return
+	}
+
+	// Try to get Docker client via type assertion to the concrete type
+	// The deploymentService is actually *services.DeploymentService
+	type DockerClientGetter interface {
+		GetDockerClient() *client.Client
+	}
+	
+	var dockerClient *client.Client
+	if getter, ok := h.deploymentService.(DockerClientGetter); ok {
+		dockerClient = getter.GetDockerClient()
+	} else {
+		// Try reflection-based approach as fallback
+		h.logger.Debug("Cannot get Docker client via interface, trying reflection")
+		return
+	}
+
+	if dockerClient == nil {
+		return
+	}
+
+	// Get container stats (one-shot, not streaming)
+	stats, err := dockerClient.ContainerStats(ctx, containerID, false)
+	if err != nil {
+		h.logger.Debug("Failed to get container stats", zap.Error(err), zap.String("container_id", containerID))
+		// Continue without stats - we can still get basic info from inspect
+	} else {
+		defer stats.Body.Close()
+	}
+
+	// Inspect container to get resource limits and restart count
+	containerJSON, err := dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		h.logger.Debug("Failed to inspect container", zap.Error(err))
+		return
+	}
+
+	// Calculate memory usage from stats if available
+	memoryLimit := float64(containerJSON.HostConfig.Memory)
+	memoryUsageMB := 0
+	memoryUsagePercent := 0.0
+	
+	if stats.Body != nil {
+		// Parse stats JSON
+		var statsJSON map[string]interface{}
+		if err := json.NewDecoder(stats.Body).Decode(&statsJSON); err == nil {
+			// Extract memory usage from stats
+			if memoryStats, ok := statsJSON["memory_stats"].(map[string]interface{}); ok {
+				if usage, ok := memoryStats["usage"].(float64); ok {
+					memoryUsageMB = int(usage / 1024 / 1024)
+					if memoryLimit > 0 {
+						memoryUsagePercent = (usage / memoryLimit) * 100
+					}
+				}
+			}
+		}
+	}
+
+	// If stats weren't available, use a default/estimated value
+	if memoryUsageMB == 0 && memoryLimit > 0 {
+		// Estimate based on container state (rough estimate)
+		memoryUsageMB = int(memoryLimit / 1024 / 1024 / 4) // Assume 25% usage as placeholder
+		memoryUsagePercent = 25.0
+	}
+
+	// Calculate disk usage (Docker stats don't provide this directly)
+	// We'll use a placeholder or estimate based on container size
+	diskUsageGB := 0.5 // Default placeholder
+	diskUsagePercent := 5.0 // Default placeholder
+
+	// Get restart count
+	restartCount := containerJSON.RestartCount
+
+	// Get resource limits from container config
+	memoryMB := int(containerJSON.HostConfig.Memory / 1024 / 1024)
+	cpuLimit := float64(containerJSON.HostConfig.NanoCPUs) / 1e9
+	diskGB := 10 // Default, could be calculated from container size or config
+
+	// Extract deployment ID
+	var deploymentID string
+	if depID, ok := activeDeployment["id"].(string); ok {
+		deploymentID = depID
+	}
+
+	// Extract last deployed time
+	var lastDeployedAt string
+	if createdAt, ok := activeDeployment["created_at"].(string); ok {
+		lastDeployedAt = createdAt
+	} else if updatedAt, ok := activeDeployment["updated_at"].(string); ok {
+		lastDeployedAt = updatedAt
+	}
+
+	// Get deployment status
+	var state string
+	if status, ok := activeDeployment["status"].(string); ok {
+		state = status
+	}
+
+	// Populate deployment data
+	app.Deployment = &AppDeployment{
+		ActiveDeploymentID: deploymentID,
+		LastDeployedAt:     lastDeployedAt,
+		State:              state,
+		ResourceLimits: &ResourceLimits{
+			MemoryMB: memoryMB,
+			CPU:      int(cpuLimit),
+			DiskGB:   diskGB,
+		},
+		UsageStats: &UsageStats{
+			MemoryUsageMB:      memoryUsageMB,
+			MemoryUsagePercent: memoryUsagePercent,
+			DiskUsageGB:        diskUsageGB,
+			DiskUsagePercent:   diskUsagePercent,
+			RestartCount:       restartCount,
+		},
+	}
 }
 

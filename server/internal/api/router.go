@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,32 @@ import (
 	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 )
+
+// Wrapper types for adapter compatibility
+
+type planRepoInterfaceWrapper struct {
+	repo *PlanRepo
+}
+
+func (w *planRepoInterfaceWrapper) GetPlanByID(ctx context.Context, planID string) (interface{}, error) {
+	return w.repo.GetPlanByID(ctx, planID)
+}
+
+func (w *planRepoInterfaceWrapper) GetPlanByName(ctx context.Context, planName string) (interface{}, error) {
+	return w.repo.GetPlanByName(ctx, planName)
+}
+
+func (w *planRepoInterfaceWrapper) GetDefaultPlan(ctx context.Context) (interface{}, error) {
+	return w.repo.GetDefaultPlan(ctx)
+}
+
+type subscriptionRepoInterfaceWrapper struct {
+	repo *SubscriptionRepo
+}
+
+func (w *subscriptionRepoInterfaceWrapper) GetSubscriptionByUserID(ctx context.Context, userID string) (interface{}, error) {
+	return w.repo.GetSubscriptionByUserID(ctx, userID)
+}
 
 // Router sets up the HTTP router with all routes and middleware
 func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.Handler {
@@ -90,6 +117,19 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	userRepo := NewUserRepo(pool, logger)
 	appRepo := NewAppRepo(pool, logger)
 	
+	// Initialize plan-related repositories
+	planRepo := NewPlanRepo(pool, logger)
+	subscriptionRepo := NewSubscriptionRepo(pool, logger)
+	userPlanRepo := NewUserPlanRepo(pool, logger)
+	
+	// Create adapters for plan enforcement service
+	// Use type assertion wrappers to match adapter interface
+	planRepoAdapter := services.NewPlanRepoAdapter(&planRepoInterfaceWrapper{repo: planRepo}, logger)
+	subscriptionRepoAdapter := services.NewSubscriptionRepoAdapter(&subscriptionRepoInterfaceWrapper{repo: subscriptionRepo}, logger)
+	
+	// Wire up plan enforcement service with repositories
+	planEnforcement.SetRepositories(planRepoAdapter, subscriptionRepoAdapter, userPlanRepo)
+	
 	// Initialize OTP service
 	otpService := services.NewOTPService(logger, otpRepo, emailService)
 	
@@ -98,6 +138,9 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	
 	// Initialize deployment repository
 	deploymentRepo := NewDeploymentRepo(pool, logger)
+
+	// Initialize environment variables repository
+	envVarRepo := NewEnvVarRepo(pool, logger)
 
 	// Initialize deployment service for verification (optional - can be nil)
 	// Note: Deployment service requires Docker client, which may not be available in API server
@@ -112,9 +155,9 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// 	deploymentService = deploymentSvc
 	// }
 
-	// Initialize handlers with appRepo, deploymentRepo and task enqueue service
+	// Initialize handlers with appRepo, deploymentRepo, envVarRepo and task enqueue service
 	// WebSocket removed - DB is single source of truth
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, appRepo, deploymentRepo, taskEnqueue, nil, nil)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, appRepo, deploymentRepo, envVarRepo, taskEnqueue, nil, nil)
 
 	// Initialize auth handlers
 	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo)

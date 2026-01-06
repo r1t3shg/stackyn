@@ -6,7 +6,7 @@ import StatusBadge from '@/components/StatusBadge';
 import LogsViewer from '@/components/LogsViewer';
 import { extractString } from '@/lib/types';
 
-type Tab = 'overview' | 'deployments' | 'logs' | 'metrics' | 'settings';
+type Tab = 'overview' | 'deployments' | 'metrics' | 'settings';
 
 export default function AppDetailsPage() {
   const params = useParams<{ id: string }>();
@@ -26,7 +26,6 @@ export default function AppDetailsPage() {
   const [addingEnvVar, setAddingEnvVar] = useState(false);
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
   // Poll for app/deployment status updates (DB is single source of truth)
   useEffect(() => {
     // Only poll if app is in building/deploying state
@@ -89,18 +88,17 @@ export default function AppDetailsPage() {
     }
   }, [appId]);
 
+  // Load runtime logs automatically when app is loaded
   useEffect(() => {
-    if (activeTab === 'logs' && app?.deployment?.active_deployment_id) {
+    if (app?.deployment?.active_deployment_id) {
       loadLogs();
       // Auto-refresh logs every 5 seconds
       const interval = setInterval(() => {
-        if (autoRefresh) {
-          loadLogs();
-        }
+        loadLogs();
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, app?.deployment?.active_deployment_id, autoRefresh]);
+  }, [app?.deployment?.active_deployment_id]);
 
   // Refresh app data periodically when viewing metrics tab to get fresh usage stats
   useEffect(() => {
@@ -447,6 +445,41 @@ export default function AppDetailsPage() {
           </div>
         </div>
 
+        {/* Runtime Logs Section */}
+        <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-[var(--text-primary)]">Runtime Logs</h2>
+            <button
+              onClick={loadLogs}
+              className="px-3 py-1 text-sm bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] rounded transition-colors flex items-center gap-2"
+              title="Refresh logs"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
+          {logs ? (
+            <div>
+              {extractString(logs.runtime_log) ? (
+                <LogsViewer logs={extractString(logs.runtime_log)} title="" />
+              ) : (
+                <div className="text-center py-8 text-[var(--text-muted)] bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)]">
+                  <p>No runtime logs available yet. Logs will appear here once the application starts.</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[var(--text-muted)] bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)]">
+              <div className="flex items-center justify-center gap-2">
+                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--primary)]"></div>
+                <p>Loading logs...</p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Build Logs Section - Show during deployment */}
         {(() => {
           const activeBuildingDeployment = deployments.find(d => 
@@ -499,7 +532,7 @@ export default function AppDetailsPage() {
         <div className="mb-6">
           <div className="border-b border-[var(--border-subtle)]">
             <nav className="flex space-x-8 overflow-x-auto">
-              {(['overview', 'deployments', 'logs', 'metrics', 'settings'] as Tab[]).map((tab) => (
+              {(['overview', 'deployments', 'metrics', 'settings'] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -638,49 +671,6 @@ export default function AppDetailsPage() {
                         </Link>
                       );
                     })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Logs Tab */}
-          {activeTab === 'logs' && (
-            <div className="space-y-4">
-              <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-[var(--text-primary)]">Application Logs</h2>
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                      <input
-                        type="checkbox"
-                        checked={autoRefresh}
-                        onChange={(e) => setAutoRefresh(e.target.checked)}
-                        className="rounded"
-                      />
-                      Auto-refresh
-                    </label>
-                    <button
-                      onClick={loadLogs}
-                      className="px-3 py-1 text-sm bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] rounded transition-colors"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-                {logs ? (
-                  <div>
-                    {extractString(logs.runtime_log) ? (
-                      <LogsViewer logs={extractString(logs.runtime_log)} title="Runtime Logs" />
-                    ) : (
-                      <div className="text-center py-8 text-[var(--text-muted)]">
-                        <p>No runtime logs available yet</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-[var(--text-muted)]">
-                    <p>Loading logs...</p>
                   </div>
                 )}
               </div>

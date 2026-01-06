@@ -179,6 +179,9 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 	}
 
 	// Step 1: Clone repository with shallow clone
+	// This always fetches the latest code from the remote repository for the specified branch.
+	// Each build gets a unique clone directory (based on BuildJobID) ensuring fresh code every time.
+	// PlainClone always fetches from remote, so we always get the latest commit from the branch.
 	if h.gitService == nil {
 		return fmt.Errorf("git service not configured")
 	}
@@ -186,9 +189,9 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 	cloneOpts := services.CloneOptions{
 		RepoURL:  payload.RepoURL,
 		Branch:   payload.Branch,
-		Shallow:  true,              // Always use shallow clone
-		Depth:    1,                // Only clone the latest commit
-		UniqueID: payload.BuildJobID, // Use build job ID to avoid concurrent clone conflicts
+		Shallow:  true,              // Always use shallow clone (faster, only latest commit)
+		Depth:    1,                // Only clone the latest commit from the branch
+		UniqueID: payload.BuildJobID, // Use build job ID to create unique directory (ensures fresh clone every time)
 	}
 
 	cloneResult, err := h.gitService.Clone(ctx, cloneOpts)

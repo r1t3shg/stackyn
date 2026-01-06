@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"go.uber.org/zap"
@@ -145,10 +146,8 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 		return nil, fmt.Errorf("failed to ensure network exists: %w", err)
 	}
 
-	// Step 1: Ensure only one active container per app (stop/remove old containers)
-	if err := s.ensureOneContainerPerApp(ctx, opts.AppID); err != nil {
-		return nil, fmt.Errorf("failed to ensure one container per app: %w", err)
-	}
+	// Note: We will stop old containers AFTER the new container is successfully started
+	// This ensures we don't lose service if the new deployment fails
 
 	// Step 2: Pull image if needed
 	imageRef := fmt.Sprintf("%s:%s", opts.ImageName, opts.ImageTag)
@@ -241,6 +240,17 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 		// Cleanup on failure
 		s.client.ContainerRemove(ctx, createResp.ID, container.RemoveOptions{Force: true})
 		return nil, fmt.Errorf("failed to start container: %w", err)
+	}
+
+	// Step 4.5: Stop old containers now that new container is successfully started
+	// Only stop containers that are NOT the current new container
+	if err := s.stopOldContainersForApp(ctx, opts.AppID, createResp.ID); err != nil {
+		s.logger.Warn("Failed to stop old containers after successful deployment",
+			zap.Error(err),
+			zap.String("app_id", opts.AppID),
+			zap.String("new_container_id", createResp.ID),
+		)
+		// Don't fail deployment if stopping old containers fails - new container is already running
 	}
 
 	// Step 5: Start crash detection monitoring
@@ -478,6 +488,7 @@ func (s *DeploymentService) RollbackDeployment(ctx context.Context, appID, previ
 }
 
 // ensureOneContainerPerApp ensures only one active container exists per app (MVP constraint)
+// This is called BEFORE deploying a new container to prevent conflicts
 func (s *DeploymentService) ensureOneContainerPerApp(ctx context.Context, appID string) error {
 	containers, err := s.findContainersByAppID(ctx, appID)
 	if err != nil {
@@ -511,6 +522,65 @@ func (s *DeploymentService) ensureOneContainerPerApp(ctx context.Context, appID 
 	return nil
 }
 
+// stopOldContainersForApp stops all containers for an app except the new container ID
+// This is called AFTER a new deployment is successful to stop previous containers
+func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID string, newContainerID string) error {
+	containers, err := s.findContainersByAppID(ctx, appID)
+	if err != nil {
+		return err
+	}
+
+	// Stop and remove all existing containers except the new one
+	for _, c := range containers {
+		// Skip the new container
+		if c.ID == newContainerID {
+			continue
+		}
+
+		s.logger.Info("Stopping previous container after successful deployment",
+			zap.String("container_id", c.ID),
+			zap.String("app_id", appID),
+			zap.String("new_container_id", newContainerID),
+		)
+
+		// Stop container with timeout
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		timeout := 30
+		stopOpts := container.StopOptions{Timeout: &timeout}
+		if err := s.client.ContainerStop(stopCtx, c.ID, stopOpts); err != nil {
+			s.logger.Warn("Failed to stop previous container", 
+				zap.Error(err), 
+				zap.String("container_id", c.ID),
+				zap.String("app_id", appID),
+			)
+		} else {
+			s.logger.Info("Successfully stopped previous container",
+				zap.String("container_id", c.ID),
+				zap.String("app_id", appID),
+			)
+		}
+
+		// Remove container
+		removeOpts := container.RemoveOptions{Force: true}
+		if err := s.client.ContainerRemove(ctx, c.ID, removeOpts); err != nil {
+			s.logger.Warn("Failed to remove previous container", 
+				zap.Error(err), 
+				zap.String("container_id", c.ID),
+				zap.String("app_id", appID),
+			)
+		} else {
+			s.logger.Info("Successfully removed previous container",
+				zap.String("container_id", c.ID),
+				zap.String("app_id", appID),
+			)
+		}
+	}
+
+	return nil
+}
+
 // findContainersByAppID finds all containers for a given app ID
 func (s *DeploymentService) findContainersByAppID(ctx context.Context, appID string) ([]types.Container, error) {
 	filter := filters.NewArgs()
@@ -525,6 +595,136 @@ func (s *DeploymentService) findContainersByAppID(ctx context.Context, appID str
 	}
 
 	return containers, nil
+}
+
+// CleanupAppResources cleans up all Docker resources for an app (containers and images)
+func (s *DeploymentService) CleanupAppResources(ctx context.Context, appID string) error {
+	// Step 1: Find and remove all containers for this app
+	containers, err := s.findContainersByAppID(ctx, appID)
+	if err != nil {
+		s.logger.Warn("Failed to find containers for cleanup", zap.Error(err), zap.String("app_id", appID))
+	} else {
+		for _, c := range containers {
+			// Stop container if running
+			if c.State == "running" {
+				stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				timeout := 30
+				stopOpts := container.StopOptions{Timeout: &timeout}
+				if err := s.client.ContainerStop(stopCtx, c.ID, stopOpts); err != nil {
+					s.logger.Warn("Failed to stop container during cleanup", 
+						zap.Error(err), 
+						zap.String("container_id", c.ID),
+						zap.String("app_id", appID),
+					)
+				}
+				cancel()
+			}
+
+			// Remove container
+			removeOpts := container.RemoveOptions{Force: true}
+			if err := s.client.ContainerRemove(ctx, c.ID, removeOpts); err != nil {
+				s.logger.Warn("Failed to remove container during cleanup", 
+					zap.Error(err), 
+					zap.String("container_id", c.ID),
+					zap.String("app_id", appID),
+				)
+			} else {
+				s.logger.Info("Removed container during app cleanup",
+					zap.String("container_id", c.ID),
+					zap.String("app_id", appID),
+				)
+			}
+		}
+	}
+
+	// Step 2: Find and remove all images for this app
+	// Image format: stackyn-{appID}:{buildJobID} or stackyn-{appID}
+	imagePattern := fmt.Sprintf("stackyn-%s", appID)
+	
+	images, err := s.client.ImageList(ctx, image.ListOptions{
+		All: true, // Include all images (including dangling ones)
+	})
+	if err != nil {
+		s.logger.Warn("Failed to list images for cleanup", zap.Error(err), zap.String("app_id", appID))
+	} else {
+		for _, img := range images {
+			// Check if any tag matches our app pattern
+			shouldRemove := false
+			for _, tag := range img.RepoTags {
+				if strings.HasPrefix(tag, imagePattern+":") || tag == imagePattern {
+					shouldRemove = true
+					break
+				}
+			}
+
+			if shouldRemove {
+				// Remove image (with all tags)
+				_, err := s.client.ImageRemove(ctx, img.ID, image.RemoveOptions{
+					Force:         true, // Force removal even if in use
+					PruneChildren: true, // Remove untagged parent images
+				})
+				if err != nil {
+					s.logger.Warn("Failed to remove image during cleanup", 
+						zap.Error(err), 
+						zap.String("image_id", img.ID),
+						zap.String("app_id", appID),
+						zap.Strings("tags", img.RepoTags),
+					)
+				} else {
+					s.logger.Info("Removed image during app cleanup",
+						zap.String("image_id", img.ID),
+						zap.String("app_id", appID),
+						zap.Strings("tags", img.RepoTags),
+					)
+				}
+			}
+		}
+	}
+
+	// Step 3: Clean up docker-compose containers if any
+	// Docker-compose uses project name: stackyn-{appID}
+	projectName := fmt.Sprintf("stackyn-%s", appID)
+	composeFilter := filters.NewArgs()
+	composeFilter.Add("label", fmt.Sprintf("com.docker.compose.project=%s", projectName))
+	
+	composeContainers, err := s.client.ContainerList(ctx, container.ListOptions{
+		Filters: composeFilter,
+		All:     true,
+	})
+	if err == nil && len(composeContainers) > 0 {
+		for _, c := range composeContainers {
+			// Stop container if running
+			if c.State == "running" {
+				stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				timeout := 30
+				stopOpts := container.StopOptions{Timeout: &timeout}
+				s.client.ContainerStop(stopCtx, c.ID, stopOpts)
+				cancel()
+			}
+
+			// Remove container
+			removeOpts := container.RemoveOptions{Force: true}
+			if err := s.client.ContainerRemove(ctx, c.ID, removeOpts); err != nil {
+				s.logger.Warn("Failed to remove docker-compose container during cleanup", 
+					zap.Error(err), 
+					zap.String("container_id", c.ID),
+					zap.String("app_id", appID),
+				)
+			}
+		}
+
+		// Try to stop docker-compose project (if docker-compose command is available)
+		// This is best-effort, containers are already stopped above
+		s.logger.Info("Cleaned up docker-compose containers for app",
+			zap.String("app_id", appID),
+			zap.String("project_name", projectName),
+		)
+	}
+
+	s.logger.Info("Completed cleanup of Docker resources for app",
+		zap.String("app_id", appID),
+	)
+	return nil
 }
 
 // pullImage ensures a Docker image exists locally (does not pull from registry for local builds)

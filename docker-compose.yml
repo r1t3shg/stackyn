@@ -334,6 +334,55 @@ services:
       - "traefik.http.middlewares.console-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.console-redirect.redirectscheme.permanent=true"
 
+  # CMS (Admin Panel)
+  cms:
+    build:
+      context: ./cms
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${CMS_API_URL:-https://api.dev.stackyn.com}
+    container_name: stackyn-cms
+    networks:
+      - stackyn-network
+    depends_on:
+      - api
+      - traefik
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=stackyn-network"
+      # Service configuration
+      - "traefik.http.services.cms.loadbalancer.server.port=3001"
+      - "traefik.http.services.cms.loadbalancer.server.scheme=http"
+      # HTTP router for localhost (no TLS, no redirect) - for local development
+      - "traefik.http.routers.cms-localhost.rule=Host(`localhost`) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-localhost.entrypoints=web"
+      - "traefik.http.routers.cms-localhost.middlewares=cms-stripprefix"
+      - "traefik.http.routers.cms-localhost.service=cms"
+      - "traefik.http.routers.cms-localhost.tls=false"
+      # HTTP router for production (redirects to HTTPS)
+      - "traefik.http.routers.cms-http.rule=Host(`${FRONTEND_DOMAIN:-dev.stackyn.com}`) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-http.entrypoints=web"
+      - "traefik.http.routers.cms-http.middlewares=cms-stripprefix,cms-redirect"
+      - "traefik.http.routers.cms-http.tls=false"
+      # HTTPS router (main router with SSL)
+      - "traefik.http.routers.cms.rule=Host(`${FRONTEND_DOMAIN:-dev.stackyn.com}`) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms.entrypoints=websecure"
+      - "traefik.http.routers.cms.middlewares=cms-stripprefix"
+      - "traefik.http.routers.cms.service=cms"
+      - "traefik.http.routers.cms.tls=true"
+      - "traefik.http.routers.cms.tls.certresolver=letsencrypt"
+      # Middlewares
+      - "traefik.http.middlewares.cms-stripprefix.stripprefix.prefixes=/cms"
+      - "traefik.http.middlewares.cms-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.cms-redirect.redirectscheme.permanent=true"
+
 networks:
   stackyn-network:
     name: stackyn-network
