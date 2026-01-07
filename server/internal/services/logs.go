@@ -262,6 +262,36 @@ func (s *LogPersistenceService) GetLogs(ctx context.Context, appID string, logTy
 	return s.getLogsFromFilesystem(ctx, appID, logType, limit, offset)
 }
 
+// GetLogsByDeploymentID retrieves runtime logs for a specific deployment
+func (s *LogPersistenceService) GetLogsByDeploymentID(ctx context.Context, appID string, deploymentID string) (string, error) {
+	if s.usePostgres {
+		return s.getLogsByDeploymentIDFromPostgres(ctx, appID, deploymentID)
+	}
+	return s.getLogsByDeploymentIDFromFilesystem(ctx, appID, deploymentID)
+}
+
+// getLogsByDeploymentIDFromFilesystem retrieves runtime logs for a specific deployment from filesystem
+func (s *LogPersistenceService) getLogsByDeploymentIDFromFilesystem(ctx context.Context, appID string, deploymentID string) (string, error) {
+	logDir := filepath.Join(s.storageDir, appID, string(LogTypeRuntime))
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s.log", deploymentID))
+	
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil // Return empty string if file doesn't exist (no logs yet)
+		}
+		return "", fmt.Errorf("failed to read log file: %w", err)
+	}
+	
+	return string(content), nil
+}
+
+// getLogsByDeploymentIDFromPostgres retrieves runtime logs for a specific deployment from Postgres
+func (s *LogPersistenceService) getLogsByDeploymentIDFromPostgres(ctx context.Context, appID string, deploymentID string) (string, error) {
+	// TODO: Implement Postgres log retrieval by deployment ID
+	return "", fmt.Errorf("Postgres log retrieval by deployment ID not yet implemented")
+}
+
 // getLogsFromFilesystem retrieves logs from filesystem
 func (s *LogPersistenceService) getLogsFromFilesystem(ctx context.Context, appID string, logType string, limit int, offset int) ([]LogEntry, error) {
 	logDir := filepath.Join(s.storageDir, appID, logType)

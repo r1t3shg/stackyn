@@ -199,6 +199,7 @@ type LogPersistenceService interface {
 	PersistLog(ctx context.Context, entry LogEntry) error
 	PersistLogStream(ctx context.Context, entry LogEntry, reader io.Reader) error
 	GetLogs(ctx context.Context, appID string, logType LogType, limit int, offset int) ([]LogEntry, error)
+	GetLogsByDeploymentID(ctx context.Context, appID string, deploymentID string) (string, error)
 	DeleteOldLogs(ctx context.Context, appID string, before time.Time) error
 }
 
@@ -1068,8 +1069,8 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract build_log and runtime_log from deployment data
-	var buildLog, runtimeLog, errorMsg string
+	// Get build_log from deployment data (still stored in DB)
+	var buildLog, errorMsg string
 	if buildLogVal, ok := deploymentData["build_log"].(map[string]interface{}); ok {
 		if valid, ok := buildLogVal["Valid"].(bool); ok && valid {
 			if str, ok := buildLogVal["String"].(string); ok {
@@ -1077,17 +1078,32 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if runtimeLogVal, ok := deploymentData["runtime_log"].(map[string]interface{}); ok {
-		if valid, ok := runtimeLogVal["Valid"].(bool); ok && valid {
-			if str, ok := runtimeLogVal["String"].(string); ok {
-				runtimeLog = str
-			}
-		}
-	}
 	if errorMsgVal, ok := deploymentData["error_message"].(map[string]interface{}); ok {
 		if valid, ok := errorMsgVal["Valid"].(bool); ok && valid {
 			if str, ok := errorMsgVal["String"].(string); ok {
 				errorMsg = str
+			}
+		}
+	}
+
+	// Get runtime logs from persistence service (filesystem/Postgres)
+	// Use the deployment ID from the database (which is the UUID used for log storage)
+	var runtimeLog string
+	if h.logPersistence != nil {
+		// Get the actual deployment ID from the database record (UUID format)
+		dbDeploymentID, ok := deploymentData["id"].(string)
+		if !ok {
+			h.logger.Warn("Invalid deployment ID in deployment data", zap.String("deployment_id", deploymentID))
+		} else {
+			runtimeLogContent, err := h.logPersistence.GetLogsByDeploymentID(r.Context(), appID, dbDeploymentID)
+			if err != nil {
+				h.logger.Warn("Failed to get runtime logs from persistence service", 
+					zap.Error(err), 
+					zap.String("app_id", appID), 
+					zap.String("deployment_id", dbDeploymentID))
+				// Continue with empty runtime log rather than failing
+			} else {
+				runtimeLog = runtimeLogContent
 			}
 		}
 	}
