@@ -477,6 +477,10 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 // UpdateDeployment updates deployment status and details
 func (r *DeploymentRepo) UpdateDeployment(deploymentID, status, imageName, containerID, subdomain, errorMsg string) error {
 	ctx := context.Background()
+	// Sanitize error message to remove NULL bytes (PostgreSQL TEXT cannot contain 0x00)
+	if errorMsg != "" {
+		errorMsg = strings.ReplaceAll(errorMsg, "\x00", "")
+	}
 	_, err := r.pool.Exec(ctx,
 		`UPDATE deployments 
 		 SET status = COALESCE(NULLIF($2, ''), status),
