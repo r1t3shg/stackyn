@@ -97,8 +97,11 @@ export default function AppDetailsPage() {
         loadLogs();
       }, 5000);
       return () => clearInterval(interval);
+    } else {
+      // Clear logs if no active deployment
+      setLogs(null);
     }
-  }, [app?.deployment?.active_deployment_id]);
+  }, [app?.deployment?.active_deployment_id, loadLogs]);
 
   // Refresh app data periodically when viewing metrics tab to get fresh usage stats
   useEffect(() => {
@@ -152,7 +155,7 @@ export default function AppDetailsPage() {
     }
   };
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     if (!app?.deployment?.active_deployment_id) return;
     try {
       const deploymentId = app.deployment.active_deployment_id.replace('dep_', '');
@@ -161,7 +164,7 @@ export default function AppDetailsPage() {
     } catch (err) {
       console.error('Error loading logs:', err);
     }
-  };
+  }, [app?.deployment?.active_deployment_id]);
 
   const handleRedeploy = async () => {
     if (!confirm('Are you sure you want to redeploy this app? This will trigger a new build.')) {
