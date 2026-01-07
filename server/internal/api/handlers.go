@@ -1106,11 +1106,17 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn("container_id not found in deployment data",
 				zap.String("deployment_id", deploymentID),
 				zap.String("app_id", appID),
+				zap.Any("container_id_value", deploymentData["container_id"]),
 			)
 		} else {
+			h.logger.Debug("container_id found in deployment data",
+				zap.String("deployment_id", deploymentID),
+				zap.String("app_id", appID),
+				zap.Any("container_id_val", containerIDVal),
+			)
 			if valid, ok := containerIDVal["Valid"].(bool); ok && valid {
 				if containerID, ok := containerIDVal["String"].(string); ok && containerID != "" {
-					h.logger.Debug("Found container_id, retrieving logs",
+					h.logger.Info("Found container_id, retrieving logs",
 						zap.String("container_id", containerID),
 						zap.String("app_id", appID),
 						zap.String("deployment_id", deploymentID),
@@ -1130,6 +1136,7 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 							zap.String("container_id", containerID),
 							zap.String("deployment_id", deploymentID),
 							zap.Int("log_length", len(runtimeLogContent)),
+							zap.Bool("has_content", len(runtimeLogContent) > 0),
 						)
 						runtimeLog = runtimeLogContent
 					}
@@ -1137,12 +1144,15 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 					h.logger.Warn("container_id string is empty",
 						zap.String("deployment_id", deploymentID),
 						zap.String("app_id", appID),
+						zap.Any("container_id_val", containerIDVal),
 					)
 				}
 			} else {
 				h.logger.Warn("container_id is not valid in deployment data",
 					zap.String("deployment_id", deploymentID),
 					zap.String("app_id", appID),
+					zap.Bool("valid", valid),
+					zap.Any("container_id_val", containerIDVal),
 				)
 			}
 		}
