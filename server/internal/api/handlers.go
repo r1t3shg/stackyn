@@ -1018,6 +1018,11 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	deploymentID := id
 	
+	h.logger.Info("GetDeploymentLogs called",
+		zap.String("deployment_id", deploymentID),
+		zap.String("url_path", r.URL.Path),
+	)
+	
 	// Verify user has access to this deployment
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
@@ -1087,25 +1092,65 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get runtime logs from persistence service (filesystem/Postgres)
-	// Use the deployment ID from the database (which is the UUID used for log storage)
+	// Use container_id to look up logs since logs are stored with container_id as the identifier
 	var runtimeLog string
 	if h.logPersistence != nil {
-		// Get the actual deployment ID from the database record (UUID format)
-		dbDeploymentID, ok := deploymentData["id"].(string)
+		h.logger.Debug("Attempting to retrieve runtime logs",
+			zap.String("deployment_id", deploymentID),
+			zap.String("app_id", appID),
+		)
+		
+		// Get container_id from deployment data
+		containerIDVal, ok := deploymentData["container_id"].(map[string]interface{})
 		if !ok {
-			h.logger.Warn("Invalid deployment ID in deployment data", zap.String("deployment_id", deploymentID))
+			h.logger.Warn("container_id not found in deployment data",
+				zap.String("deployment_id", deploymentID),
+				zap.String("app_id", appID),
+			)
 		} else {
-			runtimeLogContent, err := h.logPersistence.GetLogsByDeploymentID(r.Context(), appID, dbDeploymentID)
-			if err != nil {
-				h.logger.Warn("Failed to get runtime logs from persistence service", 
-					zap.Error(err), 
-					zap.String("app_id", appID), 
-					zap.String("deployment_id", dbDeploymentID))
-				// Continue with empty runtime log rather than failing
+			if valid, ok := containerIDVal["Valid"].(bool); ok && valid {
+				if containerID, ok := containerIDVal["String"].(string); ok && containerID != "" {
+					h.logger.Debug("Found container_id, retrieving logs",
+						zap.String("container_id", containerID),
+						zap.String("app_id", appID),
+						zap.String("deployment_id", deploymentID),
+					)
+					
+					runtimeLogContent, err := h.logPersistence.GetLogsByDeploymentID(r.Context(), appID, containerID)
+					if err != nil {
+						h.logger.Warn("Failed to get runtime logs from persistence service", 
+							zap.Error(err), 
+							zap.String("app_id", appID), 
+							zap.String("container_id", containerID),
+							zap.String("deployment_id", deploymentID))
+						// Continue with empty runtime log rather than failing
+					} else {
+						h.logger.Info("Successfully retrieved runtime logs",
+							zap.String("app_id", appID),
+							zap.String("container_id", containerID),
+							zap.String("deployment_id", deploymentID),
+							zap.Int("log_length", len(runtimeLogContent)),
+						)
+						runtimeLog = runtimeLogContent
+					}
+				} else {
+					h.logger.Warn("container_id string is empty",
+						zap.String("deployment_id", deploymentID),
+						zap.String("app_id", appID),
+					)
+				}
 			} else {
-				runtimeLog = runtimeLogContent
+				h.logger.Warn("container_id is not valid in deployment data",
+					zap.String("deployment_id", deploymentID),
+					zap.String("app_id", appID),
+				)
 			}
 		}
+	} else {
+		h.logger.Warn("Log persistence service not available",
+			zap.String("deployment_id", deploymentID),
+			zap.String("app_id", appID),
+		)
 	}
 
 	// Get status from deployment

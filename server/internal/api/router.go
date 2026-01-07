@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,6 +18,68 @@ import (
 )
 
 // Wrapper types for adapter compatibility
+
+// logPersistenceAdapter adapts services.LogPersistenceService to handlers.LogPersistenceService interface
+type logPersistenceAdapter struct {
+	service *services.LogPersistenceService
+}
+
+func (a *logPersistenceAdapter) PersistLog(ctx context.Context, entry LogEntry) error {
+	// Convert handlers.LogEntry to services.LogEntry
+	serviceEntry := services.LogEntry{
+		AppID:        entry.AppID,
+		BuildJobID:   entry.BuildJobID,
+		DeploymentID: entry.DeploymentID,
+		LogType:      string(entry.LogType),
+		Timestamp:    entry.Timestamp,
+		Content:      entry.Content,
+		Size:         entry.Size,
+	}
+	return a.service.PersistLog(ctx, serviceEntry)
+}
+
+func (a *logPersistenceAdapter) PersistLogStream(ctx context.Context, entry LogEntry, reader io.Reader) error {
+	// Convert LogEntry to services.LogEntry
+	serviceEntry := services.LogEntry{
+		AppID:        entry.AppID,
+		BuildJobID:   entry.BuildJobID,
+		DeploymentID: entry.DeploymentID,
+		LogType:      entry.LogType, // LogEntry.LogType is already string
+		Timestamp:    entry.Timestamp,
+		Content:      entry.Content,
+		Size:         entry.Size,
+	}
+	return a.service.PersistLogStream(ctx, serviceEntry, reader)
+}
+
+func (a *logPersistenceAdapter) GetLogs(ctx context.Context, appID string, logType LogType, limit int, offset int) ([]LogEntry, error) {
+	serviceLogs, err := a.service.GetLogs(ctx, appID, string(logType), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	// Convert services.LogEntry to LogEntry
+	logs := make([]LogEntry, len(serviceLogs))
+	for i, serviceLog := range serviceLogs {
+		logs[i] = LogEntry{
+			AppID:        serviceLog.AppID,
+			BuildJobID:   serviceLog.BuildJobID,
+			DeploymentID: serviceLog.DeploymentID,
+			LogType:      serviceLog.LogType, // Already string
+			Timestamp:    serviceLog.Timestamp,
+			Content:      serviceLog.Content,
+			Size:         serviceLog.Size,
+		}
+	}
+	return logs, nil
+}
+
+func (a *logPersistenceAdapter) GetLogsByDeploymentID(ctx context.Context, appID string, deploymentID string) (string, error) {
+	return a.service.GetLogsByDeploymentID(ctx, appID, deploymentID)
+}
+
+func (a *logPersistenceAdapter) DeleteOldLogs(ctx context.Context, appID string, before time.Time) error {
+	return a.service.DeleteOldLogs(ctx, appID, before)
+}
 
 type planRepoInterfaceWrapper struct {
 	repo *PlanRepo
@@ -86,9 +151,27 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60))
 
-	// Initialize log services (nil for now - wire up when ready)
-	// TODO: Initialize log persistence and container log services
+	// Initialize log persistence service
+	// Use the same storage directory as deploy-worker for consistency
+	logStorageDir := "./logs" // Relative to API binary
+	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
+		logger.Warn("Failed to create log storage directory", zap.Error(err), zap.String("dir", logStorageDir))
+		// Continue without log persistence if directory creation fails
+		logStorageDir = ""
+	}
+	
 	var logPersistence LogPersistenceService
+	if logStorageDir != "" {
+		usePostgres := false // TODO: Make configurable
+		maxStoragePerAppMB := int64(100) // Default: 100 MB per app
+		// Create the service and wrap it to match the interface
+		logPersistenceService := services.NewLogPersistenceService(logger, logStorageDir, usePostgres, maxStoragePerAppMB)
+		logPersistence = &logPersistenceAdapter{service: logPersistenceService}
+		logger.Info("Log persistence service initialized", zap.String("storage_dir", logStorageDir))
+	} else {
+		logger.Warn("Log persistence service not initialized - log storage directory unavailable")
+	}
+	
 	var containerLogs ContainerLogService
 	
 	// Initialize plan enforcement service

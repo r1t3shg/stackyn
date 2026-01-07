@@ -852,17 +852,26 @@ func (s *DeploymentService) streamAndPersistRuntimeLogs(ctx context.Context, con
 	defer logReader.Close()
 
 	// Create log entry as map for LogPersistenceService
+	// Use container_id as the identifier since it's stable and available in both storage and retrieval
 	logEntry := map[string]interface{}{
 		"app_id":        appID,
-		"deployment_id": deploymentID,
+		"deployment_id": containerID, // Use container_id instead of deploymentID for reliable lookup
 		"log_type":      "runtime",
 		"timestamp":     time.Now(),
 		"size":          int64(0),
 	}
 
+	s.logger.Info("Starting to persist runtime logs",
+		zap.String("app_id", appID),
+		zap.String("deployment_id", deploymentID),
+		zap.String("container_id", containerID),
+	)
+
 	// Persist log stream
 	if err := s.persistRuntimeLogStream(ctx, logEntry, logReader); err != nil {
 		s.logger.Warn("Failed to persist runtime logs", zap.Error(err), zap.String("container_id", containerID))
+	} else {
+		s.logger.Info("Successfully started persisting runtime logs", zap.String("container_id", containerID))
 	}
 }
 

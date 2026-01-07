@@ -30,6 +30,11 @@ type LogPersistenceService struct {
 
 // NewLogPersistenceService creates a new log persistence service
 func NewLogPersistenceService(logger *zap.Logger, storageDir string, usePostgres bool, maxStoragePerAppMB int64) *LogPersistenceService {
+	logger.Info("Initializing LogPersistenceService",
+		zap.String("storage_dir", storageDir),
+		zap.Bool("use_postgres", usePostgres),
+		zap.Int64("max_storage_per_app_mb", maxStoragePerAppMB),
+	)
 	return &LogPersistenceService{
 		logger:            logger,
 		storageDir:        storageDir,
@@ -164,6 +169,15 @@ func (s *LogPersistenceService) persistStreamToFilesystem(ctx context.Context, e
 	}
 
 	logPath := filepath.Join(logDir, filename)
+	
+	s.logger.Info("Persisting log stream to filesystem",
+		zap.String("app_id", entry.AppID),
+		zap.String("log_type", string(entry.LogType)),
+		zap.String("deployment_id", entry.DeploymentID),
+		zap.String("log_path", logPath),
+		zap.String("log_dir", logDir),
+		zap.String("filename", filename),
+	)
 
 	// Create or append to file
 	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -175,14 +189,21 @@ func (s *LogPersistenceService) persistStreamToFilesystem(ctx context.Context, e
 	// Copy from stream to file
 	written, err := io.Copy(file, reader)
 	if err != nil {
+		s.logger.Error("Failed to write log stream",
+			zap.Error(err),
+			zap.String("app_id", entry.AppID),
+			zap.String("log_type", string(entry.LogType)),
+			zap.String("log_path", logPath),
+		)
 		return fmt.Errorf("failed to write log stream: %w", err)
 	}
 
-	s.logger.Debug("Persisted log stream to filesystem",
+	s.logger.Info("Successfully persisted log stream to filesystem",
 		zap.String("app_id", entry.AppID),
 		zap.String("log_type", string(entry.LogType)),
-		zap.String("path", logPath),
+		zap.String("log_path", logPath),
 		zap.Int64("bytes_written", written),
+		zap.String("deployment_id", entry.DeploymentID),
 	)
 
 	return nil
@@ -275,13 +296,56 @@ func (s *LogPersistenceService) getLogsByDeploymentIDFromFilesystem(ctx context.
 	logDir := filepath.Join(s.storageDir, appID, string(LogTypeRuntime))
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s.log", deploymentID))
 	
+	s.logger.Debug("Attempting to read runtime logs",
+		zap.String("app_id", appID),
+		zap.String("deployment_id", deploymentID),
+		zap.String("log_path", logPath),
+		zap.String("log_dir", logDir),
+	)
+	
+	// Check if directory exists
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		s.logger.Warn("Log directory does not exist",
+			zap.String("log_dir", logDir),
+			zap.String("app_id", appID),
+		)
+		return "", nil
+	}
+	
+	// List files in directory for debugging
+	files, err := os.ReadDir(logDir)
+	if err != nil {
+		s.logger.Warn("Failed to read log directory", zap.Error(err), zap.String("log_dir", logDir))
+	} else {
+		s.logger.Debug("Files in log directory",
+			zap.String("log_dir", logDir),
+			zap.Int("file_count", len(files)),
+		)
+		for _, file := range files {
+			s.logger.Debug("Found log file", zap.String("filename", file.Name()))
+		}
+	}
+	
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			s.logger.Warn("Log file does not exist",
+				zap.String("log_path", logPath),
+				zap.String("app_id", appID),
+				zap.String("deployment_id", deploymentID),
+			)
 			return "", nil // Return empty string if file doesn't exist (no logs yet)
 		}
+		s.logger.Error("Failed to read log file", zap.Error(err), zap.String("log_path", logPath))
 		return "", fmt.Errorf("failed to read log file: %w", err)
 	}
+	
+	s.logger.Info("Successfully read runtime logs",
+		zap.String("log_path", logPath),
+		zap.Int("content_length", len(content)),
+		zap.String("app_id", appID),
+		zap.String("deployment_id", deploymentID),
+	)
 	
 	return string(content), nil
 }
