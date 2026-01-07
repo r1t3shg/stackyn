@@ -152,8 +152,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	r.Use(middleware.Timeout(60))
 
 	// Initialize log persistence service
-	// Use the same storage directory as deploy-worker for consistency
-	logStorageDir := "./logs" // Relative to API binary
+	// Use /app/logs to match the volume mount in docker-compose (shared with deploy-worker)
+	logStorageDir := "/app/logs"
 	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
 		logger.Warn("Failed to create log storage directory", zap.Error(err), zap.String("dir", logStorageDir))
 		// Continue without log persistence if directory creation fails

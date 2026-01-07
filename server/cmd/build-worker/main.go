@@ -65,10 +65,10 @@ func main() {
 	dockerfileGen := services.NewDockerfileGenerator(logger)
 
 	// Initialize log persistence service
-	// Storage directory: ./logs (relative to worker binary)
-	logStorageDir := filepath.Join(".", "logs")
+	// Storage directory: /app/logs to match the volume mount in docker-compose
+	logStorageDir := "/app/logs"
 	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
-		logger.Fatal("Failed to create log storage directory", zap.Error(err))
+		logger.Fatal("Failed to create log storage directory", zap.Error(err), zap.String("dir", logStorageDir))
 	}
 	
 	// Use filesystem storage (can be switched to Postgres via config)

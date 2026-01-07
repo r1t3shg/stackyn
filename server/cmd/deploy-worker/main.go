@@ -43,9 +43,10 @@ func main() {
 	defer cancel()
 
 	// Initialize log persistence service for runtime logs
-	logStorageDir := "./logs" // Relative to worker binary
+	// Use /app/logs to match the volume mount in docker-compose (shared with API)
+	logStorageDir := "/app/logs"
 	if err := os.MkdirAll(logStorageDir, 0755); err != nil {
-		logger.Fatal("Failed to create log storage directory", zap.Error(err))
+		logger.Fatal("Failed to create log storage directory", zap.Error(err), zap.String("dir", logStorageDir))
 	}
 	
 	usePostgres := false // TODO: Make configurable
