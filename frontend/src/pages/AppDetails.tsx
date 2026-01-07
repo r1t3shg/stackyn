@@ -127,20 +127,25 @@ export default function AppDetailsPage() {
   };
 
   const loadLogs = useCallback(async () => {
-    if (!app?.deployment?.active_deployment_id) return;
+    if (!app?.deployment?.active_deployment_id) {
+      console.log('loadLogs: No active_deployment_id');
+      return;
+    }
     try {
       const deploymentId = app.deployment.active_deployment_id.replace('dep_', '');
+      console.log('loadLogs: Fetching logs for deployment:', deploymentId);
       const data = await deploymentsApi.getLogs(deploymentId);
+      console.log('loadLogs: Got logs data:', data);
       setLogs(data);
     } catch (err) {
-      console.error('Error loading logs:', err);
+      console.error('loadLogs: Error loading logs:', err);
       // Ensure UI doesn't get stuck on "Loading logs..." if request fails (e.g., 401)
       setLogs({
         deployment_id: 0,
-        status: 'unknown',
+        status: 'error',
         build_log: null,
         runtime_log: null,
-        error_message: null,
+        error_message: err instanceof Error ? err.message : 'Failed to load logs',
       });
     }
   }, [app?.deployment?.active_deployment_id]);
@@ -148,17 +153,26 @@ export default function AppDetailsPage() {
   // Load runtime logs automatically when app is loaded
   useEffect(() => {
     if (app?.deployment?.active_deployment_id) {
+      console.log('Loading logs for deployment:', app.deployment.active_deployment_id);
       loadLogs();
       // Auto-refresh logs every 5 seconds
       const interval = setInterval(() => {
         loadLogs();
       }, 5000);
       return () => clearInterval(interval);
-    } else {
-      // Clear logs if no active deployment
-      setLogs(null);
+    } else if (app) {
+      // App loaded but no active deployment - show empty state instead of loading
+      console.log('App loaded but no active deployment');
+      setLogs({
+        deployment_id: 0,
+        status: 'none',
+        build_log: null,
+        runtime_log: null,
+        error_message: null,
+      });
     }
-  }, [app?.deployment?.active_deployment_id, loadLogs]);
+    // Don't set logs to null while app is loading - keep showing loading state
+  }, [app?.deployment?.active_deployment_id, app, loadLogs]);
 
   // Refresh app data periodically when viewing metrics tab to get fresh usage stats
   useEffect(() => {

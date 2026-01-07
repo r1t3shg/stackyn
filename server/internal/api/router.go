@@ -293,8 +293,11 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/{id}/verify", handlers.VerifyDeployment)
 	})
 
-	// Deployments routes
+	// Deployments routes - requires authentication
 	r.Route("/api/v1/deployments", func(r chi.Router) {
+		// Apply authentication middleware to all routes
+		r.Use(AuthMiddleware(jwtService, userRepo, logger))
+		
 		r.Get("/{id}", handlers.GetDeploymentByID)
 		r.Get("/{id}/logs", handlers.GetDeploymentLogs)
 	})
