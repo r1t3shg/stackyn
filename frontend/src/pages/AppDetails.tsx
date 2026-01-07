@@ -88,35 +88,6 @@ export default function AppDetailsPage() {
     }
   }, [appId]);
 
-  // Load runtime logs automatically when app is loaded
-  useEffect(() => {
-    if (app?.deployment?.active_deployment_id) {
-      loadLogs();
-      // Auto-refresh logs every 5 seconds
-      const interval = setInterval(() => {
-        loadLogs();
-      }, 5000);
-      return () => clearInterval(interval);
-    } else {
-      // Clear logs if no active deployment
-      setLogs(null);
-    }
-  }, [app?.deployment?.active_deployment_id, loadLogs]);
-
-  // Refresh app data periodically when viewing metrics tab to get fresh usage stats
-  useEffect(() => {
-    if (activeTab === 'metrics') {
-      // Load fresh app data immediately when switching to metrics tab
-      loadApp();
-      // Auto-refresh metrics every 10 seconds
-      const interval = setInterval(() => {
-        loadApp();
-        loadDeployments();
-      }, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [activeTab, appId]);
-
   const loadApp = async () => {
     try {
       setError(null);
@@ -165,6 +136,35 @@ export default function AppDetailsPage() {
       console.error('Error loading logs:', err);
     }
   }, [app?.deployment?.active_deployment_id]);
+
+  // Load runtime logs automatically when app is loaded
+  useEffect(() => {
+    if (app?.deployment?.active_deployment_id) {
+      loadLogs();
+      // Auto-refresh logs every 5 seconds
+      const interval = setInterval(() => {
+        loadLogs();
+      }, 5000);
+      return () => clearInterval(interval);
+    } else {
+      // Clear logs if no active deployment
+      setLogs(null);
+    }
+  }, [app?.deployment?.active_deployment_id, loadLogs]);
+
+  // Refresh app data periodically when viewing metrics tab to get fresh usage stats
+  useEffect(() => {
+    if (activeTab === 'metrics') {
+      // Load fresh app data immediately when switching to metrics tab
+      loadApp();
+      // Auto-refresh metrics every 10 seconds
+      const interval = setInterval(() => {
+        loadApp();
+        loadDeployments();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, appId]);
 
   const handleRedeploy = async () => {
     if (!confirm('Are you sure you want to redeploy this app? This will trigger a new build.')) {
