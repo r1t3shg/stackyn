@@ -200,8 +200,8 @@ func (s *HealthCheckService) checkTraefikRouter(ctx context.Context, subdomain s
 }
 
 func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
-	// Create a request with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Create a request with timeout (increased to 15s to allow for app startup)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -217,7 +217,7 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 				InsecureSkipVerify: false, // Verify certificates
 			},
 		},
-		Timeout: 10 * time.Second,
+		Timeout: 15 * time.Second, // Increased from 10s to allow for app startup
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return nil
 		},
@@ -242,7 +242,7 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 						InsecureSkipVerify: true,
 					},
 				},
-				Timeout: 10 * time.Second,
+				Timeout: 15 * time.Second, // Increased from 10s to allow for app startup
 			}
 			insecureResp, insecureErr := insecureClient.Do(req)
 			if insecureErr == nil {

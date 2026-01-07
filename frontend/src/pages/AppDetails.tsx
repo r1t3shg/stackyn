@@ -134,6 +134,14 @@ export default function AppDetailsPage() {
       setLogs(data);
     } catch (err) {
       console.error('Error loading logs:', err);
+      // Ensure UI doesn't get stuck on "Loading logs..." if request fails (e.g., 401)
+      setLogs({
+        deployment_id: 0,
+        status: 'unknown',
+        build_log: null,
+        runtime_log: null,
+        error_message: null,
+      });
     }
   }, [app?.deployment?.active_deployment_id]);
 

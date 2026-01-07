@@ -800,7 +800,8 @@ func (s *DeploymentService) generateTraefikLabels(subdomain string, port int, ap
 		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", serviceName): strconv.Itoa(port),
 		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.path", serviceName): "/",
 		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.interval", serviceName): "10s",
-		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.timeout", serviceName): "3s",
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.timeout", serviceName): "10s", // Increased from 3s to allow app startup time
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.healthcheck.scheme", serviceName): "http", // Use HTTP for health checks
 		
 		// Use the configured network
 		"traefik.docker.network": s.networkName,
