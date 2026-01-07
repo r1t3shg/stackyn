@@ -261,9 +261,9 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 	go s.monitorContainerCrash(monitorCtx, createResp.ID, opts.AppID, opts.DeploymentID)
 
 	// Step 6: Start runtime log streaming and persistence
+	// Use background context so log streaming continues after deploy task completes
 	if s.logPersistence != nil {
-		// Use same app-scoped context
-		go s.streamAndPersistRuntimeLogs(monitorCtx, createResp.ID, opts.AppID, opts.DeploymentID)
+		go s.streamAndPersistRuntimeLogs(context.Background(), createResp.ID, opts.AppID, opts.DeploymentID)
 	}
 
 	// Step 7: Return URL for health monitoring (will be started by task handler)
@@ -395,8 +395,9 @@ func (s *DeploymentService) DeployWithDockerCompose(ctx context.Context, opts De
 	go s.monitorContainerCrash(monitorCtx, mainContainerID, opts.AppID, opts.DeploymentID)
 
 	// Step 8: Start runtime log streaming
+	// Use background context so log streaming continues after deploy task completes
 	if s.logPersistence != nil {
-		go s.streamAndPersistRuntimeLogs(monitorCtx, mainContainerID, opts.AppID, opts.DeploymentID)
+		go s.streamAndPersistRuntimeLogs(context.Background(), mainContainerID, opts.AppID, opts.DeploymentID)
 	}
 
 	s.logger.Info("Docker compose deployment completed",
