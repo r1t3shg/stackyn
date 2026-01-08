@@ -1081,31 +1081,51 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	// First try to get build logs from filesystem using build_job_id
 	if h.logPersistence != nil {
 		// Check if build_job_id exists in deployment data (stored as plain string)
-		if buildJobID, ok := deploymentData["build_job_id"].(string); ok && buildJobID != "" {
-			h.logger.Info("Attempting to retrieve build logs from filesystem",
-				zap.String("build_job_id", buildJobID),
-				zap.String("app_id", appID),
-				zap.String("deployment_id", deploymentID),
-			)
-			// Build logs are stored with build_job_id in the filesystem
-			buildLogContent, err := h.logPersistence.GetLogsByBuildJobID(r.Context(), appID, buildJobID)
-			if err != nil {
-				h.logger.Warn("Failed to get build logs from filesystem",
-					zap.Error(err),
-					zap.String("app_id", appID),
+		buildJobIDVal, buildJobIDExists := deploymentData["build_job_id"]
+		h.logger.Debug("Checking for build_job_id in deployment data",
+			zap.String("deployment_id", deploymentID),
+			zap.String("app_id", appID),
+			zap.Bool("build_job_id_exists", buildJobIDExists),
+			zap.Any("build_job_id_value", buildJobIDVal),
+		)
+		
+		if buildJobIDExists {
+			var buildJobID string
+			if idStr, ok := buildJobIDVal.(string); ok {
+				buildJobID = idStr
+			}
+			
+			if buildJobID != "" {
+				h.logger.Info("Attempting to retrieve build logs from filesystem",
 					zap.String("build_job_id", buildJobID),
-				)
-			} else if buildLogContent != "" {
-				h.logger.Info("Successfully retrieved build logs from filesystem",
 					zap.String("app_id", appID),
-					zap.String("build_job_id", buildJobID),
-					zap.Int("log_length", len(buildLogContent)),
+					zap.String("deployment_id", deploymentID),
 				)
-				buildLog = buildLogContent
+				// Build logs are stored with build_job_id in the filesystem
+				buildLogContent, err := h.logPersistence.GetLogsByBuildJobID(r.Context(), appID, buildJobID)
+				if err != nil {
+					h.logger.Warn("Failed to get build logs from filesystem",
+						zap.Error(err),
+						zap.String("app_id", appID),
+						zap.String("build_job_id", buildJobID),
+					)
+				} else if buildLogContent != "" {
+					h.logger.Info("Successfully retrieved build logs from filesystem",
+						zap.String("app_id", appID),
+						zap.String("build_job_id", buildJobID),
+						zap.Int("log_length", len(buildLogContent)),
+					)
+					buildLog = buildLogContent
+				} else {
+					h.logger.Debug("Build logs not found in filesystem, will check database",
+						zap.String("app_id", appID),
+						zap.String("build_job_id", buildJobID),
+					)
+				}
 			} else {
-				h.logger.Debug("Build logs not found in filesystem, will check database",
+				h.logger.Debug("build_job_id is empty, will check database for build logs",
 					zap.String("app_id", appID),
-					zap.String("build_job_id", buildJobID),
+					zap.String("deployment_id", deploymentID),
 				)
 			}
 		} else {
@@ -1231,6 +1251,8 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		zap.Int("runtime_log_length", len(runtimeLog)),
 		zap.Int("build_log_length", len(buildLog)),
 		zap.Bool("has_runtime_log", len(runtimeLog) > 0),
+		zap.Bool("has_build_log", len(buildLog) > 0),
+		zap.Any("build_job_id_in_deployment", deploymentData["build_job_id"]),
 	)
 	h.writeJSON(w, http.StatusOK, logs)
 }
