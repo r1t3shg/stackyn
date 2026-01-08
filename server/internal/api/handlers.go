@@ -1082,16 +1082,17 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	if h.logPersistence != nil {
 		// Check if build_job_id exists in deployment data (stored as plain string)
 		buildJobIDVal, buildJobIDExists := deploymentData["build_job_id"]
-		h.logger.Debug("Checking for build_job_id in deployment data",
+		h.logger.Info("Checking for build_job_id in deployment data",
 			zap.String("deployment_id", deploymentID),
 			zap.String("app_id", appID),
 			zap.Bool("build_job_id_exists", buildJobIDExists),
 			zap.Any("build_job_id_value", buildJobIDVal),
+			zap.String("build_job_id_type", fmt.Sprintf("%T", buildJobIDVal)),
 		)
 		
-		if buildJobIDExists {
+		if buildJobIDExists && buildJobIDVal != nil {
 			var buildJobID string
-			if idStr, ok := buildJobIDVal.(string); ok {
+			if idStr, ok := buildJobIDVal.(string); ok && idStr != "" {
 				buildJobID = idStr
 			}
 			

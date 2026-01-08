@@ -437,26 +437,11 @@ func NewDeploymentRepo(pool *pgxpool.Pool, logger *zap.Logger) *DeploymentRepo {
 func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, containerID, subdomain string) (string, error) {
 	ctx := context.Background()
 	var id string
-	// Build job ID is optional - if it doesn't exist in build_jobs table, set to NULL
-	// This prevents foreign key constraint violations
+	// Build job ID is optional - store it even if build_job doesn't exist in build_jobs table
+	// This is necessary for retrieving build logs later, and build jobs might be stored elsewhere
 	var buildJobIDPtr interface{}
 	if buildJobID != "" {
-		// Verify build_job exists before using it
-		var exists bool
-		err := r.pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM build_jobs WHERE id = $1)`,
-			buildJobID,
-		).Scan(&exists)
-		if err == nil && exists {
-			buildJobIDPtr = buildJobID
-		} else {
-			// Build job doesn't exist, use NULL instead
-			r.logger.Debug("Build job not found in database, using NULL for build_job_id",
-				zap.String("build_job_id", buildJobID),
-				zap.String("app_id", appID),
-			)
-			buildJobIDPtr = nil
-		}
+		buildJobIDPtr = buildJobID
 	} else {
 		buildJobIDPtr = nil
 	}
@@ -471,6 +456,13 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 		r.logger.Error("Failed to create deployment", zap.Error(err), zap.String("app_id", appID))
 		return "", err
 	}
+	
+	r.logger.Info("Deployment created successfully",
+		zap.String("deployment_id", id),
+		zap.String("app_id", appID),
+		zap.String("build_job_id", buildJobID),
+		zap.Bool("has_build_job_id", buildJobID != ""),
+	)
 	return id, nil
 }
 
@@ -621,8 +613,11 @@ func (r *DeploymentRepo) GetDeploymentByID(deploymentID string) (map[string]inte
 		"updated_at": updatedAt.Format(time.RFC3339),
 	}
 
+	// Always include build_job_id, even if NULL (for debugging and API consistency)
 	if buildJobID.Valid {
 		deployment["build_job_id"] = buildJobID.String
+	} else {
+		deployment["build_job_id"] = nil // Explicitly set to nil so we know it exists but is NULL
 	}
 	if imageName.Valid {
 		deployment["image_name"] = map[string]interface{}{"String": imageName.String, "Valid": true}
