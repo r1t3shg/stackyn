@@ -296,11 +296,12 @@ func (s *LogPersistenceService) getLogsByDeploymentIDFromFilesystem(ctx context.
 	logDir := filepath.Join(s.storageDir, appID, string(LogTypeRuntime))
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s.log", deploymentID))
 	
-	s.logger.Debug("Attempting to read runtime logs",
+	s.logger.Info("Attempting to read runtime logs",
 		zap.String("app_id", appID),
 		zap.String("deployment_id", deploymentID),
 		zap.String("log_path", logPath),
 		zap.String("log_dir", logDir),
+		zap.String("storage_dir", s.storageDir),
 	)
 	
 	// Check if directory exists
@@ -308,6 +309,7 @@ func (s *LogPersistenceService) getLogsByDeploymentIDFromFilesystem(ctx context.
 		s.logger.Warn("Log directory does not exist",
 			zap.String("log_dir", logDir),
 			zap.String("app_id", appID),
+			zap.String("storage_dir", s.storageDir),
 		)
 		return "", nil
 	}
@@ -317,25 +319,29 @@ func (s *LogPersistenceService) getLogsByDeploymentIDFromFilesystem(ctx context.
 	if err != nil {
 		s.logger.Warn("Failed to read log directory", zap.Error(err), zap.String("log_dir", logDir))
 	} else {
-		s.logger.Debug("Files in log directory",
+		s.logger.Info("Files in log directory",
 			zap.String("log_dir", logDir),
 			zap.Int("file_count", len(files)),
 		)
+		var fileNames []string
 		for _, file := range files {
-			s.logger.Debug("Found log file", zap.String("filename", file.Name()))
+			fileNames = append(fileNames, file.Name())
 		}
+		s.logger.Info("Found log files", zap.Strings("files", fileNames))
+	}
+	
+	// Check if target file exists before reading
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		s.logger.Warn("Log file does not exist",
+			zap.String("log_path", logPath),
+			zap.String("app_id", appID),
+			zap.String("deployment_id", deploymentID),
+		)
+		return "", nil // Return empty string if file doesn't exist (no logs yet)
 	}
 	
 	content, err := os.ReadFile(logPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			s.logger.Warn("Log file does not exist",
-				zap.String("log_path", logPath),
-				zap.String("app_id", appID),
-				zap.String("deployment_id", deploymentID),
-			)
-			return "", nil // Return empty string if file doesn't exist (no logs yet)
-		}
 		s.logger.Error("Failed to read log file", zap.Error(err), zap.String("log_path", logPath))
 		return "", fmt.Errorf("failed to read log file: %w", err)
 	}
