@@ -81,6 +81,7 @@ func main() {
 		nil, // No WebSocket broadcast client needed for cleanup worker
 		nil, // No deployment repository needed for cleanup worker
 		nil, // No app repository needed for cleanup worker
+		nil, // No build job repository needed for cleanup worker
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
