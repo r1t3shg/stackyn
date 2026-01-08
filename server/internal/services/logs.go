@@ -362,6 +362,85 @@ func (s *LogPersistenceService) getLogsByDeploymentIDFromPostgres(ctx context.Co
 	return "", fmt.Errorf("Postgres log retrieval by deployment ID not yet implemented")
 }
 
+// GetLogsByBuildJobID retrieves build logs for a specific build job
+func (s *LogPersistenceService) GetLogsByBuildJobID(ctx context.Context, appID string, buildJobID string) (string, error) {
+	if s.usePostgres {
+		return s.getLogsByBuildJobIDFromPostgres(ctx, appID, buildJobID)
+	}
+	return s.getLogsByBuildJobIDFromFilesystem(ctx, appID, buildJobID)
+}
+
+// getLogsByBuildJobIDFromFilesystem retrieves build logs for a specific build job from filesystem
+func (s *LogPersistenceService) getLogsByBuildJobIDFromFilesystem(ctx context.Context, appID string, buildJobID string) (string, error) {
+	logDir := filepath.Join(s.storageDir, appID, string(LogTypeBuild))
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s.log", buildJobID))
+	
+	s.logger.Info("Attempting to read build logs",
+		zap.String("app_id", appID),
+		zap.String("build_job_id", buildJobID),
+		zap.String("log_path", logPath),
+		zap.String("log_dir", logDir),
+		zap.String("storage_dir", s.storageDir),
+	)
+	
+	// Check if directory exists
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		s.logger.Warn("Build log directory does not exist",
+			zap.String("log_dir", logDir),
+			zap.String("app_id", appID),
+			zap.String("storage_dir", s.storageDir),
+		)
+		return "", nil
+	}
+	
+	// List files in directory for debugging
+	files, err := os.ReadDir(logDir)
+	if err != nil {
+		s.logger.Warn("Failed to read build log directory", zap.Error(err), zap.String("log_dir", logDir))
+	} else {
+		s.logger.Info("Files in build log directory",
+			zap.String("log_dir", logDir),
+			zap.Int("file_count", len(files)),
+		)
+		var fileNames []string
+		for _, file := range files {
+			fileNames = append(fileNames, file.Name())
+		}
+		s.logger.Info("Found build log files", zap.Strings("files", fileNames))
+	}
+	
+	// Check if target file exists before reading
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		s.logger.Warn("Build log file does not exist",
+			zap.String("log_path", logPath),
+			zap.String("app_id", appID),
+			zap.String("build_job_id", buildJobID),
+		)
+		return "", nil // Return empty string if file doesn't exist (no logs yet)
+	}
+	
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		s.logger.Error("Failed to read build log file", zap.Error(err), zap.String("log_path", logPath))
+		return "", fmt.Errorf("failed to read build log file: %w", err)
+	}
+	
+	s.logger.Info("Successfully read build logs",
+		zap.String("log_path", logPath),
+		zap.Int("content_length", len(content)),
+		zap.String("app_id", appID),
+		zap.String("build_job_id", buildJobID),
+	)
+	
+	return string(content), nil
+}
+
+// getLogsByBuildJobIDFromPostgres retrieves build logs for a specific build job from Postgres
+func (s *LogPersistenceService) getLogsByBuildJobIDFromPostgres(ctx context.Context, appID string, buildJobID string) (string, error) {
+	// TODO: Implement Postgres log retrieval by build job ID
+	return "", fmt.Errorf("Postgres log retrieval by build job ID not yet implemented")
+}
+
 // getLogsFromFilesystem retrieves logs from filesystem
 func (s *LogPersistenceService) getLogsFromFilesystem(ctx context.Context, appID string, logType string, limit int, offset int) ([]LogEntry, error) {
 	logDir := filepath.Join(s.storageDir, appID, logType)

@@ -200,6 +200,7 @@ type LogPersistenceService interface {
 	PersistLogStream(ctx context.Context, entry LogEntry, reader io.Reader) error
 	GetLogs(ctx context.Context, appID string, logType LogType, limit int, offset int) ([]LogEntry, error)
 	GetLogsByDeploymentID(ctx context.Context, appID string, deploymentID string) (string, error)
+	GetLogsByBuildJobID(ctx context.Context, appID string, buildJobID string) (string, error)
 	DeleteOldLogs(ctx context.Context, appID string, before time.Time) error
 }
 
@@ -1074,15 +1075,63 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get build_log from deployment data (still stored in DB)
+	// Get build_log from filesystem (using build_job_id) or database (fallback)
 	var buildLog, errorMsg string
-	if buildLogVal, ok := deploymentData["build_log"].(map[string]interface{}); ok {
-		if valid, ok := buildLogVal["Valid"].(bool); ok && valid {
-			if str, ok := buildLogVal["String"].(string); ok {
-				buildLog = str
+	
+	// First try to get build logs from filesystem using build_job_id
+	if h.logPersistence != nil {
+		// Check if build_job_id exists in deployment data (stored as plain string)
+		if buildJobID, ok := deploymentData["build_job_id"].(string); ok && buildJobID != "" {
+			h.logger.Info("Attempting to retrieve build logs from filesystem",
+				zap.String("build_job_id", buildJobID),
+				zap.String("app_id", appID),
+				zap.String("deployment_id", deploymentID),
+			)
+			// Build logs are stored with build_job_id in the filesystem
+			buildLogContent, err := h.logPersistence.GetLogsByBuildJobID(r.Context(), appID, buildJobID)
+			if err != nil {
+				h.logger.Warn("Failed to get build logs from filesystem",
+					zap.Error(err),
+					zap.String("app_id", appID),
+					zap.String("build_job_id", buildJobID),
+				)
+			} else if buildLogContent != "" {
+				h.logger.Info("Successfully retrieved build logs from filesystem",
+					zap.String("app_id", appID),
+					zap.String("build_job_id", buildJobID),
+					zap.Int("log_length", len(buildLogContent)),
+				)
+				buildLog = buildLogContent
+			} else {
+				h.logger.Debug("Build logs not found in filesystem, will check database",
+					zap.String("app_id", appID),
+					zap.String("build_job_id", buildJobID),
+				)
+			}
+		} else {
+			h.logger.Debug("No build_job_id found in deployment data, will check database for build logs",
+				zap.String("app_id", appID),
+				zap.String("deployment_id", deploymentID),
+			)
+		}
+	}
+	
+	// Fallback to database if filesystem doesn't have logs (for older deployments)
+	if buildLog == "" {
+		if buildLogVal, ok := deploymentData["build_log"].(map[string]interface{}); ok {
+			if valid, ok := buildLogVal["Valid"].(bool); ok && valid {
+				if str, ok := buildLogVal["String"].(string); ok && str != "" {
+					buildLog = str
+					h.logger.Debug("Retrieved build logs from database",
+						zap.String("app_id", appID),
+						zap.String("deployment_id", deploymentID),
+						zap.Int("log_length", len(buildLog)),
+					)
+				}
 			}
 		}
 	}
+	
 	if errorMsgVal, ok := deploymentData["error_message"].(map[string]interface{}); ok {
 		if valid, ok := errorMsgVal["Valid"].(bool); ok && valid {
 			if str, ok := errorMsgVal["String"].(string); ok {
