@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { appsApi, deploymentsApi } from '@/lib/api';
 import type { App, Deployment, EnvVar, DeploymentLogs } from '@/lib/types';
@@ -25,6 +25,7 @@ export default function AppDetailsPage() {
   const [newEnvVars, setNewEnvVars] = useState<Array<{ key: string; value: string }>>([]);
   const [addingEnvVar, setAddingEnvVar] = useState(false);
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
+  const runtimeLogsContainerRef = useRef<HTMLDivElement>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
   // Poll for app/deployment status updates (DB is single source of truth)
   useEffect(() => {
@@ -175,6 +176,23 @@ export default function AppDetailsPage() {
     }
     // Don't set logs to null while app is loading - keep showing loading state
   }, [app?.deployment?.active_deployment_id, app, loadLogs]);
+
+  // Auto-scroll to bottom when runtime logs update
+  useEffect(() => {
+    if (runtimeLogsContainerRef.current && logs?.runtime_log) {
+      const container = runtimeLogsContainerRef.current;
+      // Use setTimeout with requestAnimationFrame to ensure DOM has fully rendered
+      const scrollToBottom = () => {
+        container.scrollTop = container.scrollHeight;
+      };
+      // Double RAF ensures layout is complete before scrolling
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToBottom();
+        });
+      });
+    }
+  }, [logs?.runtime_log]);
 
   // Refresh app data periodically when viewing metrics tab to get fresh usage stats
   useEffect(() => {
@@ -490,7 +508,13 @@ export default function AppDetailsPage() {
           {logs ? (
             <div>
               {extractString(logs.runtime_log) ? (
-                <LogsViewer logs={extractString(logs.runtime_log)} title="" />
+                <div 
+                  ref={runtimeLogsContainerRef}
+                  className="overflow-y-auto overflow-x-auto bg-[var(--terminal-bg)] text-[var(--text-primary)] rounded-lg p-4 font-mono text-sm border border-[var(--border-subtle)]"
+                  style={{ height: '500px' }}
+                >
+                  <pre className="whitespace-pre-wrap break-words">{extractString(logs.runtime_log)}</pre>
+                </div>
               ) : (
                 <div className="text-center py-8 text-[var(--text-muted)] bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)]">
                   <p>No runtime logs available yet. Logs will appear here once the application starts.</p>
