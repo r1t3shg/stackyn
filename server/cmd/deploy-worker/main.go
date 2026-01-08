@@ -103,6 +103,9 @@ func main() {
 	// Initialize app repository for updating app status and URL
 	appRepo := api.NewAppRepo(dbPool, logger)
 
+	// Initialize build job repository (needed for TaskHandler interface, though deploy-worker doesn't create build_jobs)
+	buildJobRepo := api.NewBuildJobRepo(dbPool, logger)
+
 	// Set crash callback to update database when containers crash
 	// This must be after repositories are initialized
 	deploymentService.SetCrashCallback(func(appID, deploymentID, containerID string, exitCode int, errorMsg string) {
@@ -153,6 +156,7 @@ func main() {
 		nil, // No WebSocket broadcast client needed for deploy worker
 		deploymentRepo, // Deployment repository for storing deployment status in DB
 		appRepo,        // App repository for updating app status and URL
+		buildJobRepo,   // Build job repository (needed for interface, though deploy-worker doesn't create build_jobs)
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
