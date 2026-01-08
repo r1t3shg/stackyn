@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -437,11 +438,42 @@ func NewDeploymentRepo(pool *pgxpool.Pool, logger *zap.Logger) *DeploymentRepo {
 func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, containerID, subdomain string) (string, error) {
 	ctx := context.Background()
 	var id string
-	// Build job ID is optional - store it even if build_job doesn't exist in build_jobs table
-	// This is necessary for retrieving build logs later, and build jobs might be stored elsewhere
+	// Build job ID is optional - verify it exists in build_jobs table before using it
+	// This prevents foreign key constraint violations
 	var buildJobIDPtr interface{}
 	if buildJobID != "" {
-		buildJobIDPtr = buildJobID
+		// Verify build_job exists before using it
+		var exists bool
+		err := r.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM build_jobs WHERE id = $1)`,
+			buildJobID,
+		).Scan(&exists)
+		if err == nil && exists {
+			buildJobIDPtr = buildJobID
+			r.logger.Debug("Build job found in database, using build_job_id",
+				zap.String("build_job_id", buildJobID),
+				zap.String("app_id", appID),
+			)
+		} else {
+			// Build job doesn't exist, use NULL instead
+			// This prevents foreign key constraint violations
+			// NOTE: This means build logs won't be retrievable for this deployment
+			// TODO: Create build_job record in database before creating deployment
+			if err != nil {
+				r.logger.Warn("Failed to check if build job exists, using NULL for build_job_id",
+					zap.Error(err),
+					zap.String("build_job_id", buildJobID),
+					zap.String("app_id", appID),
+				)
+			} else {
+				r.logger.Warn("Build job not found in database, using NULL for build_job_id (build logs won't be retrievable)",
+					zap.String("build_job_id", buildJobID),
+					zap.String("app_id", appID),
+					zap.String("suggestion", "Ensure build_job is created in build_jobs table before creating deployment"),
+				)
+			}
+			buildJobIDPtr = nil
+		}
 	} else {
 		buildJobIDPtr = nil
 	}
@@ -453,7 +485,12 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 		appID, buildJobIDPtr, status, imageName, containerID, subdomain,
 	).Scan(&id)
 	if err != nil {
-		r.logger.Error("Failed to create deployment", zap.Error(err), zap.String("app_id", appID))
+		r.logger.Error("Failed to create deployment",
+			zap.Error(err),
+			zap.String("app_id", appID),
+			zap.String("build_job_id", buildJobID),
+			zap.String("build_job_id_ptr", fmt.Sprintf("%v", buildJobIDPtr)),
+		)
 		return "", err
 	}
 	
@@ -461,7 +498,7 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 		zap.String("deployment_id", id),
 		zap.String("app_id", appID),
 		zap.String("build_job_id", buildJobID),
-		zap.Bool("has_build_job_id", buildJobID != ""),
+		zap.Bool("has_build_job_id", buildJobID != "" && buildJobIDPtr != nil),
 	)
 	return id, nil
 }
