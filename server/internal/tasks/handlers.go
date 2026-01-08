@@ -41,6 +41,7 @@ type TaskHandler struct {
 	wsBroadcast      *services.WebSocketBroadcastClient
 	deploymentRepo   DeploymentRepository // For storing deployment status in DB
 	appRepo          AppRepository        // For updating app status and URL
+	buildJobRepo     BuildJobRepository  // For creating build_job records in DB
 }
 
 // ConstraintsService interface for constraint enforcement
@@ -105,6 +106,12 @@ type AppRepository interface {
 	UpdateApp(appID, status, url string) error
 }
 
+// BuildJobRepository interface for build_job database operations
+type BuildJobRepository interface {
+	CreateBuildJob(ctx context.Context, buildJobID, appID, status string) error
+	UpdateBuildJob(ctx context.Context, buildJobID, status, buildLog, errorMsg string) error
+}
+
 // CleanupService interface for cleanup operations
 type CleanupService interface {
 	RunCleanup(ctx context.Context) (*services.CleanupResult, error)
@@ -135,6 +142,7 @@ func NewTaskHandler(
 	wsBroadcast *services.WebSocketBroadcastClient, // Deprecated - not used, DB is single source of truth
 	deploymentRepo DeploymentRepository, // For storing deployment status in DB
 	appRepo AppRepository, // For updating app status and URL
+	buildJobRepo BuildJobRepository, // For creating build_job records in DB
 ) *TaskHandler {
 	return &TaskHandler{
 		logger:           logger,
@@ -151,6 +159,7 @@ func NewTaskHandler(
 		taskEnqueue:      taskEnqueue,
 		wsBroadcast:      nil, // Not used - DB is single source of truth
 		appRepo:          appRepo,
+		buildJobRepo:     buildJobRepo,
 	}
 }
 
@@ -167,6 +176,24 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		zap.String("repo_url", payload.RepoURL),
 		zap.String("branch", payload.Branch),
 	)
+
+	// Create build_job record in database FIRST
+	// This ensures build_job_id exists when CreateDeployment is called later
+	if h.buildJobRepo != nil {
+		if err := h.buildJobRepo.CreateBuildJob(ctx, payload.BuildJobID, payload.AppID, "building"); err != nil {
+			h.logger.Warn("Failed to create build_job record in database (deployment may not have build_job_id)",
+				zap.Error(err),
+				zap.String("app_id", payload.AppID),
+				zap.String("build_job_id", payload.BuildJobID),
+			)
+			// Don't fail the build task - continue with build even if DB record creation fails
+		}
+	} else {
+		h.logger.Warn("BuildJobRepo not available - build_job_id may be NULL in deployment",
+			zap.String("app_id", payload.AppID),
+			zap.String("build_job_id", payload.BuildJobID),
+		)
+	}
 
 	// Update app status to "building" when build starts
 	if h.appRepo != nil {
@@ -442,6 +469,16 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 			)
 		}
 
+		// Update build_job status to "failed"
+		if h.buildJobRepo != nil {
+			if err := h.buildJobRepo.UpdateBuildJob(ctx, payload.BuildJobID, "failed", "", errorMsgForDB); err != nil {
+				h.logger.Warn("Failed to update build_job status to failed",
+					zap.Error(err),
+					zap.String("build_job_id", payload.BuildJobID),
+				)
+			}
+		}
+
 		// Create a failed deployment with error message
 		// Note: App might have been deleted, so we handle foreign key errors gracefully
 		if h.deploymentRepo != nil {
@@ -523,6 +560,16 @@ func (h *TaskHandler) HandleBuildTask(ctx context.Context, t *asynq.Task) error 
 		}
 		if err := h.logPersister.PersistLog(ctx, logEntry); err != nil {
 			h.logger.Warn("Failed to persist build logs", zap.Error(err))
+		}
+	}
+
+	// Update build_job status to "completed"
+	if h.buildJobRepo != nil {
+		if err := h.buildJobRepo.UpdateBuildJob(ctx, payload.BuildJobID, "completed", logBuffer.String(), ""); err != nil {
+			h.logger.Warn("Failed to update build_job status to completed",
+				zap.Error(err),
+				zap.String("build_job_id", payload.BuildJobID),
+			)
 		}
 	}
 

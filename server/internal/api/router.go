@@ -81,6 +81,10 @@ func (a *logPersistenceAdapter) GetLogsByBuildJobID(ctx context.Context, appID s
 	return a.service.GetLogsByBuildJobID(ctx, appID, buildJobID)
 }
 
+func (a *logPersistenceAdapter) GetLatestBuildLogs(ctx context.Context, appID string) (string, error) {
+	return a.service.GetLatestBuildLogs(ctx, appID)
+}
+
 func (a *logPersistenceAdapter) DeleteOldLogs(ctx context.Context, appID string, before time.Time) error {
 	return a.service.DeleteOldLogs(ctx, appID, before)
 }

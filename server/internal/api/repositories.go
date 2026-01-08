@@ -1045,3 +1045,70 @@ func (r *EnvVarRepo) DeleteEnvVar(ctx context.Context, appID, key string) error 
 	return nil
 }
 
+// BuildJobRepo handles build_jobs table operations
+type BuildJobRepo struct {
+	pool   *pgxpool.Pool
+	logger *zap.Logger
+}
+
+// NewBuildJobRepo creates a new BuildJob repository
+func NewBuildJobRepo(pool *pgxpool.Pool, logger *zap.Logger) *BuildJobRepo {
+	return &BuildJobRepo{
+		pool:   pool,
+		logger: logger,
+	}
+}
+
+// CreateBuildJob creates a new build_job record in the database
+// This ensures the build_job_id exists when CreateDeployment is called
+func (r *BuildJobRepo) CreateBuildJob(ctx context.Context, buildJobID, appID, status string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO build_jobs (id, app_id, status)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (id) DO NOTHING`,
+		buildJobID, appID, status,
+	)
+	if err != nil {
+		r.logger.Error("Failed to create build_job",
+			zap.Error(err),
+			zap.String("build_job_id", buildJobID),
+			zap.String("app_id", appID),
+			zap.String("status", status),
+		)
+		return err
+	}
+	
+	r.logger.Info("Build job created in database",
+		zap.String("build_job_id", buildJobID),
+		zap.String("app_id", appID),
+		zap.String("status", status),
+	)
+	return nil
+}
+
+// UpdateBuildJob updates a build_job record
+func (r *BuildJobRepo) UpdateBuildJob(ctx context.Context, buildJobID, status, buildLog, errorMsg string) error {
+	// Sanitize error message to remove NULL bytes
+	if errorMsg != "" {
+		errorMsg = strings.ReplaceAll(errorMsg, "\x00", "")
+	}
+	
+	_, err := r.pool.Exec(ctx,
+		`UPDATE build_jobs 
+		 SET status = COALESCE(NULLIF($2, ''), status),
+		     build_log = COALESCE(NULLIF($3, ''), build_log),
+		     error_message = COALESCE(NULLIF($4, ''), error_message),
+		     updated_at = NOW()
+		 WHERE id = $1`,
+		buildJobID, status, buildLog, errorMsg,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update build_job",
+			zap.Error(err),
+			zap.String("build_job_id", buildJobID),
+		)
+		return err
+	}
+	return nil
+}
+

@@ -123,6 +123,9 @@ func main() {
 	// Initialize deployment repository for creating failed deployments with error messages
 	deploymentRepo := api.NewDeploymentRepo(dbPool, logger)
 
+	// Initialize build job repository for creating build_job records
+	buildJobRepo := api.NewBuildJobRepo(dbPool, logger)
+
 	// Initialize task handler with all services
 	taskHandler := tasks.NewTaskHandler(
 		logger,
@@ -139,6 +142,7 @@ func main() {
 		nil,                // No WebSocket broadcaster - DB is single source of truth
 		deploymentRepo,     // Deployment repository for creating failed deployments with error messages
 		appRepo,            // App repository for updating app status
+		buildJobRepo,       // Build job repository for creating build_job records
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)

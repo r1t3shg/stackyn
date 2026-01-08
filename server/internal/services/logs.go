@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -430,6 +431,104 @@ func (s *LogPersistenceService) getLogsByBuildJobIDFromFilesystem(ctx context.Co
 		zap.Int("content_length", len(content)),
 		zap.String("app_id", appID),
 		zap.String("build_job_id", buildJobID),
+	)
+	
+	return string(content), nil
+}
+
+// GetLatestBuildLogs retrieves the most recent build log file for an app (fallback when build_job_id is NULL)
+func (s *LogPersistenceService) GetLatestBuildLogs(ctx context.Context, appID string) (string, error) {
+	if s.usePostgres {
+		return "", fmt.Errorf("Postgres latest build log retrieval not yet implemented")
+	}
+	return s.getLatestBuildLogsFromFilesystem(ctx, appID)
+}
+
+// getLatestBuildLogsFromFilesystem finds and returns the most recent build log file
+func (s *LogPersistenceService) getLatestBuildLogsFromFilesystem(ctx context.Context, appID string) (string, error) {
+	logDir := filepath.Join(s.storageDir, appID, string(LogTypeBuild))
+	
+	s.logger.Info("Attempting to find latest build log file",
+		zap.String("app_id", appID),
+		zap.String("log_dir", logDir),
+	)
+	
+	// Check if directory exists
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		s.logger.Debug("Build log directory does not exist",
+			zap.String("log_dir", logDir),
+			zap.String("app_id", appID),
+		)
+		return "", nil
+	}
+	
+	// Read directory to find all .log files
+	files, err := os.ReadDir(logDir)
+	if err != nil {
+		s.logger.Warn("Failed to read build log directory", zap.Error(err), zap.String("log_dir", logDir))
+		return "", fmt.Errorf("failed to read build log directory: %w", err)
+	}
+	
+	if len(files) == 0 {
+		s.logger.Debug("No build log files found in directory",
+			zap.String("log_dir", logDir),
+			zap.String("app_id", appID),
+		)
+		return "", nil
+	}
+	
+	// Find the most recent file by modification time
+	var latestFile os.DirEntry
+	var latestTime time.Time
+	
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		// Only consider .log files
+		if !strings.HasSuffix(file.Name(), ".log") {
+			continue
+		}
+		
+		info, err := file.Info()
+		if err != nil {
+			s.logger.Warn("Failed to get file info", zap.Error(err), zap.String("file", file.Name()))
+			continue
+		}
+		
+		if latestFile == nil || info.ModTime().After(latestTime) {
+			latestFile = file
+			latestTime = info.ModTime()
+		}
+	}
+	
+	if latestFile == nil {
+		s.logger.Debug("No .log files found in build log directory",
+			zap.String("log_dir", logDir),
+			zap.String("app_id", appID),
+		)
+		return "", nil
+	}
+	
+	// Read the most recent file
+	logPath := filepath.Join(logDir, latestFile.Name())
+	s.logger.Info("Found latest build log file",
+		zap.String("app_id", appID),
+		zap.String("file", latestFile.Name()),
+		zap.String("log_path", logPath),
+		zap.Time("modified_time", latestTime),
+	)
+	
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		s.logger.Error("Failed to read latest build log file", zap.Error(err), zap.String("log_path", logPath))
+		return "", fmt.Errorf("failed to read build log file: %w", err)
+	}
+	
+	s.logger.Info("Successfully read latest build logs",
+		zap.String("log_path", logPath),
+		zap.Int("content_length", len(content)),
+		zap.String("app_id", appID),
 	)
 	
 	return string(content), nil

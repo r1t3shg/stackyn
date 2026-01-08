@@ -201,6 +201,7 @@ type LogPersistenceService interface {
 	GetLogs(ctx context.Context, appID string, logType LogType, limit int, offset int) ([]LogEntry, error)
 	GetLogsByDeploymentID(ctx context.Context, appID string, deploymentID string) (string, error)
 	GetLogsByBuildJobID(ctx context.Context, appID string, buildJobID string) (string, error)
+	GetLatestBuildLogs(ctx context.Context, appID string) (string, error)
 	DeleteOldLogs(ctx context.Context, appID string, before time.Time) error
 }
 
@@ -1124,9 +1125,10 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 					)
 				}
 			} else {
-				h.logger.Debug("build_job_id is empty, will check database for build logs",
+				h.logger.Warn("build_job_id is NULL or empty in deployment - this should not happen for new deployments",
 					zap.String("app_id", appID),
 					zap.String("deployment_id", deploymentID),
+					zap.String("suggestion", "Check if build_job was created in build_jobs table"),
 				)
 			}
 		} else {
