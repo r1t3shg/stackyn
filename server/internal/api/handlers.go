@@ -1176,6 +1176,13 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 		RuntimeLog:   runtimeLog,
 		ErrorMessage: errorMsg,
 	}
+	h.logger.Info("Returning deployment logs response",
+		zap.String("deployment_id", deploymentID),
+		zap.String("app_id", appID),
+		zap.Int("runtime_log_length", len(runtimeLog)),
+		zap.Int("build_log_length", len(buildLog)),
+		zap.Bool("has_runtime_log", len(runtimeLog) > 0),
+	)
 	h.writeJSON(w, http.StatusOK, logs)
 }
 
@@ -1480,13 +1487,37 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 		containerID = cidStr
 	}
 
-	if containerID == "" {
-		return
+	// Extract deployment ID (always set this, even if container ID is empty)
+	var deploymentID string
+	if depID, ok := activeDeployment["id"].(string); ok {
+		deploymentID = depID
 	}
 
-	// Get container stats if deployment service is available
-	// We'll use type assertion to access the underlying DeploymentService
-	if h.deploymentService == nil {
+	// Extract last deployed time
+	var lastDeployedAt string
+	if createdAt, ok := activeDeployment["created_at"].(string); ok {
+		lastDeployedAt = createdAt
+	} else if updatedAt, ok := activeDeployment["updated_at"].(string); ok {
+		lastDeployedAt = updatedAt
+	}
+
+	// Get deployment status
+	var state string
+	if status, ok := activeDeployment["status"].(string); ok {
+		state = status
+	}
+
+	// Always set basic deployment info (even if container stats aren't available)
+	if deploymentID != "" {
+		app.Deployment = &AppDeployment{
+			ActiveDeploymentID: fmt.Sprintf("dep_%s", deploymentID), // Prefix for frontend compatibility
+			LastDeployedAt:     lastDeployedAt,
+			State:              state,
+		}
+	}
+
+	// Only try to get container stats if container ID is available and deployment service exists
+	if containerID == "" || h.deploymentService == nil {
 		return
 	}
 
@@ -1566,43 +1597,27 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 	cpuLimit := float64(containerJSON.HostConfig.NanoCPUs) / 1e9
 	diskGB := 10 // Default, could be calculated from container size or config
 
-	// Extract deployment ID
-	var deploymentID string
-	if depID, ok := activeDeployment["id"].(string); ok {
-		deploymentID = depID
+	// Update deployment data with container stats (if Deployment wasn't created above, create it now)
+	if app.Deployment == nil {
+		app.Deployment = &AppDeployment{
+			ActiveDeploymentID: fmt.Sprintf("dep_%s", deploymentID),
+			LastDeployedAt:     lastDeployedAt,
+			State:              state,
+		}
 	}
 
-	// Extract last deployed time
-	var lastDeployedAt string
-	if createdAt, ok := activeDeployment["created_at"].(string); ok {
-		lastDeployedAt = createdAt
-	} else if updatedAt, ok := activeDeployment["updated_at"].(string); ok {
-		lastDeployedAt = updatedAt
+	// Add resource limits and usage stats
+	app.Deployment.ResourceLimits = &ResourceLimits{
+		MemoryMB: memoryMB,
+		CPU:      int(cpuLimit),
+		DiskGB:   diskGB,
 	}
-
-	// Get deployment status
-	var state string
-	if status, ok := activeDeployment["status"].(string); ok {
-		state = status
-	}
-
-	// Populate deployment data
-	app.Deployment = &AppDeployment{
-		ActiveDeploymentID: deploymentID,
-		LastDeployedAt:     lastDeployedAt,
-		State:              state,
-		ResourceLimits: &ResourceLimits{
-			MemoryMB: memoryMB,
-			CPU:      int(cpuLimit),
-			DiskGB:   diskGB,
-		},
-		UsageStats: &UsageStats{
-			MemoryUsageMB:      memoryUsageMB,
-			MemoryUsagePercent: memoryUsagePercent,
-			DiskUsageGB:        diskUsageGB,
-			DiskUsagePercent:   diskUsagePercent,
-			RestartCount:       restartCount,
-		},
+	app.Deployment.UsageStats = &UsageStats{
+		MemoryUsageMB:      memoryUsageMB,
+		MemoryUsagePercent: memoryUsagePercent,
+		DiskUsageGB:        diskUsageGB,
+		DiskUsagePercent:   diskUsagePercent,
+		RestartCount:       restartCount,
 	}
 }
 

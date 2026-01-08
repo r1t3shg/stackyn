@@ -136,6 +136,8 @@ export default function AppDetailsPage() {
       console.log('loadLogs: Fetching logs for deployment:', deploymentId);
       const data = await deploymentsApi.getLogs(deploymentId);
       console.log('loadLogs: Got logs data:', data);
+      console.log('loadLogs: runtime_log type:', typeof data.runtime_log, 'value length:', data.runtime_log?.length || 0);
+      console.log('loadLogs: extractString result:', extractString(data.runtime_log));
       setLogs(data);
     } catch (err) {
       console.error('loadLogs: Error loading logs:', err);
