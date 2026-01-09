@@ -52,7 +52,7 @@ func main() {
 	poolConfig.MaxConnLifetime = 30 * time.Minute // Maximum lifetime of a connection
 	poolConfig.MaxConnIdleTime = 5 * time.Minute  // Maximum idle time before closing
 	poolConfig.HealthCheckPeriod = 1 * time.Minute // How often to check connection health
-	poolConfig.ConnectTimeout = 5 * time.Second   // Timeout for establishing new connections
+	poolConfig.ConnConfig.ConnectTimeout = 5 * time.Second // Timeout for establishing new connections
 	
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
