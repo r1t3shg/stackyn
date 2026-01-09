@@ -42,6 +42,7 @@ type TaskHandler struct {
 	deploymentRepo   DeploymentRepository // For storing deployment status in DB
 	appRepo          AppRepository        // For updating app status and URL
 	buildJobRepo     BuildJobRepository  // For creating build_job records in DB
+	envVarRepo       EnvVarRepository    // For retrieving environment variables
 }
 
 // ConstraintsService interface for constraint enforcement
@@ -112,6 +113,17 @@ type BuildJobRepository interface {
 	UpdateBuildJob(ctx context.Context, buildJobID, status, buildLog, errorMsg string) error
 }
 
+// EnvVarRepository interface for environment variable database operations
+type EnvVarRepository interface {
+	GetEnvVarsByAppID(ctx context.Context, appID string) ([]*EnvVar, error)
+}
+
+// EnvVar represents an environment variable
+type EnvVar struct {
+	Key   string
+	Value string
+}
+
 // CleanupService interface for cleanup operations
 type CleanupService interface {
 	RunCleanup(ctx context.Context) (*services.CleanupResult, error)
@@ -143,6 +155,7 @@ func NewTaskHandler(
 	deploymentRepo DeploymentRepository, // For storing deployment status in DB
 	appRepo AppRepository, // For updating app status and URL
 	buildJobRepo BuildJobRepository, // For creating build_job records in DB
+	envVarRepo EnvVarRepository, // For retrieving environment variables
 ) *TaskHandler {
 	return &TaskHandler{
 		logger:           logger,
@@ -160,6 +173,7 @@ func NewTaskHandler(
 		wsBroadcast:      nil, // Not used - DB is single source of truth
 		appRepo:          appRepo,
 		buildJobRepo:     buildJobRepo,
+		envVarRepo:       envVarRepo,
 	}
 }
 
@@ -738,6 +752,36 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		CPU:      0.5, // Default: 0.5 CPU
 	}
 
+	// Retrieve environment variables from database
+	envVars := make(map[string]string)
+	if h.envVarRepo != nil {
+		envVarList, err := h.envVarRepo.GetEnvVarsByAppID(ctx, payload.AppID)
+		if err != nil {
+			h.logger.Warn("Failed to retrieve environment variables from database",
+				zap.Error(err),
+				zap.String("app_id", payload.AppID),
+			)
+			// Continue with empty env vars rather than failing deployment
+		} else {
+			// Convert []*EnvVar to map[string]string
+			for _, envVar := range envVarList {
+				if envVar != nil && envVar.Key != "" {
+					envVars[envVar.Key] = envVar.Value
+				}
+			}
+			if len(envVars) > 0 {
+				h.logger.Info("Retrieved environment variables for deployment",
+					zap.String("app_id", payload.AppID),
+					zap.Int("count", len(envVars)),
+				)
+			}
+		}
+	} else {
+		h.logger.Warn("EnvVarRepo not available - deploying without environment variables",
+			zap.String("app_id", payload.AppID),
+		)
+	}
+
 	// Prepare deployment options
 	deployOpts := services.DeploymentOptions{
 		AppID:        payload.AppID,
@@ -747,7 +791,7 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		Subdomain:    subdomain,
 		Port:         port,
 		Limits:       limits,
-		EnvVars:      make(map[string]string), // Can be extended with additional env vars
+		EnvVars:      envVars, // Environment variables from database
 		UseDockerCompose: payload.UseDockerCompose,
 		ComposeFilePath: payload.RepoPath, // Path to repository containing docker-compose.yml
 	}

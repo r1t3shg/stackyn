@@ -106,6 +106,12 @@ func main() {
 	// Initialize build job repository (needed for TaskHandler interface, though deploy-worker doesn't create build_jobs)
 	buildJobRepo := api.NewBuildJobRepo(dbPool, logger)
 
+	// Initialize environment variables repository
+	apiEnvVarRepo := api.NewEnvVarRepo(dbPool, logger)
+	
+	// Create adapter to convert api.EnvVarRepo to tasks.EnvVarRepository interface
+	envVarRepo := &envVarRepoAdapter{repo: apiEnvVarRepo}
+
 	// Set crash callback to update database when containers crash
 	// This must be after repositories are initialized
 	deploymentService.SetCrashCallback(func(appID, deploymentID, containerID string, exitCode int, errorMsg string) {
@@ -157,6 +163,7 @@ func main() {
 		deploymentRepo, // Deployment repository for storing deployment status in DB
 		appRepo,        // App repository for updating app status and URL
 		buildJobRepo,   // Build job repository (needed for interface, though deploy-worker doesn't create build_jobs)
+		envVarRepo,     // Environment variables repository for retrieving env vars during deployment
 	)
 
 	// Initialize task state persistence (nil for now - wire up when DB is ready)
@@ -221,4 +228,28 @@ func initLogger(level string) (*zap.Logger, error) {
 	
 	config.Level = zapLevel
 	return config.Build()
+}
+
+// envVarRepoAdapter adapts api.EnvVarRepo to tasks.EnvVarRepository interface
+type envVarRepoAdapter struct {
+	repo *api.EnvVarRepo
+}
+
+func (a *envVarRepoAdapter) GetEnvVarsByAppID(ctx context.Context, appID string) ([]*tasks.EnvVar, error) {
+	apiEnvVars, err := a.repo.GetEnvVarsByAppID(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert []*api.EnvVar to []*tasks.EnvVar
+	tasksEnvVars := make([]*tasks.EnvVar, len(apiEnvVars))
+	for i, apiEnvVar := range apiEnvVars {
+		if apiEnvVar != nil {
+			tasksEnvVars[i] = &tasks.EnvVar{
+				Key:   apiEnvVar.Key,
+				Value: apiEnvVar.Value,
+			}
+		}
+	}
+	return tasksEnvVars, nil
 }
