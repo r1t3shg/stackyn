@@ -40,24 +40,45 @@ func main() {
 		zap.String("docker_host", config.Docker.Host),
 	)
 
-	// Initialize database connection pool
-	pool, err := pgxpool.New(context.Background(), config.Postgres.DSN)
+	// Initialize database connection pool with proper configuration
+	poolConfig, err := pgxpool.ParseConfig(config.Postgres.DSN)
+	if err != nil {
+		logger.Fatal("Failed to parse database connection string", zap.Error(err))
+	}
+	
+	// Configure connection pool settings
+	poolConfig.MaxConns = 25                    // Maximum number of connections in the pool
+	poolConfig.MinConns = 5                     // Minimum number of connections to maintain
+	poolConfig.MaxConnLifetime = 30 * time.Minute // Maximum lifetime of a connection
+	poolConfig.MaxConnIdleTime = 5 * time.Minute  // Maximum idle time before closing
+	poolConfig.HealthCheckPeriod = 1 * time.Minute // How often to check connection health
+	poolConfig.ConnectTimeout = 5 * time.Second   // Timeout for establishing new connections
+	
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer pool.Close()
 
-	// Test connection
-	if err := pool.Ping(context.Background()); err != nil {
+	// Test connection with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(ctx); err != nil {
 		logger.Fatal("Failed to ping database", zap.Error(err))
 	}
-	logger.Info("Database connection established")
+	logger.Info("Database connection established",
+		zap.Int("max_conns", int(poolConfig.MaxConns)),
+		zap.Int("min_conns", int(poolConfig.MinConns)),
+	)
 
 	// Initialize HTTP server with chi router
 	router := api.Router(logger, config, pool)
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%s", config.Server.Addr, config.Server.Port),
-		Handler: router,
+		Addr:         fmt.Sprintf("%s:%s", config.Server.Addr, config.Server.Port),
+		Handler:      router,
+		ReadTimeout:  75 * time.Second,  // Time to read the entire request
+		WriteTimeout: 75 * time.Second,  // Time to write the entire response
+		IdleTimeout:  120 * time.Second,  // Time to keep idle connections open
 	}
 
 	// Start server in goroutine

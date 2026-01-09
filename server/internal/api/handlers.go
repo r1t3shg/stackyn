@@ -82,9 +82,10 @@ type DeploymentLogs struct {
 }
 
 type CreateAppRequest struct {
-	Name    string `json:"name"`
-	RepoURL string `json:"repo_url"`
-	Branch  string `json:"branch"`
+	Name    string            `json:"name"`
+	RepoURL string            `json:"repo_url"`
+	Branch  string            `json:"branch"`
+	EnvVars []CreateEnvVarRequest `json:"env_vars,omitempty"` // Optional environment variables
 }
 
 type CreateAppResponse struct {
@@ -548,6 +549,36 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save environment variables BEFORE enqueueing build task
+	// This ensures they're available when the deployment happens
+	if len(req.EnvVars) > 0 && h.envVarRepo != nil {
+		for _, envVar := range req.EnvVars {
+			// Skip empty keys
+			if envVar.Key == "" {
+				continue
+			}
+			
+			_, err := h.envVarRepo.CreateEnvVar(r.Context(), app.ID, envVar.Key, envVar.Value)
+			if err != nil {
+				// Log error but don't fail app creation - env vars can be added later
+				h.logger.Warn("Failed to create environment variable during app creation",
+					zap.Error(err),
+					zap.String("app_id", app.ID),
+					zap.String("key", envVar.Key),
+				)
+			} else {
+				h.logger.Info("Created environment variable during app creation",
+					zap.String("app_id", app.ID),
+					zap.String("key", envVar.Key),
+				)
+			}
+		}
+		h.logger.Info("Environment variables saved for app",
+			zap.String("app_id", app.ID),
+			zap.Int("count", len(req.EnvVars)),
+		)
+	}
+
 	// Generate build job ID
 	buildJobID := uuid.New().String()
 
@@ -871,6 +902,12 @@ func (h *Handlers) GetEnvVars(w http.ResponseWriter, r *http.Request) {
 
 	envVars, err := h.envVarRepo.GetEnvVarsByAppID(r.Context(), appID)
 	if err != nil {
+		// Check for context deadline exceeded
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.logger.Error("Timeout getting env vars", zap.Error(err), zap.String("app_id", appID))
+			h.writeError(w, http.StatusGatewayTimeout, "Request timed out while retrieving environment variables")
+			return
+		}
 		h.logger.Error("Failed to get env vars", zap.Error(err), zap.String("app_id", appID))
 		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve environment variables")
 		return
@@ -888,6 +925,13 @@ func (h *Handlers) GetEnvVars(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/apps/{id}/env - Create environment variable
 func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
+	
+	// Validate appID is a valid UUID
+	if _, err := uuid.Parse(appID); err != nil {
+		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid app ID format: %s", appID))
+		return
+	}
+	
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
 		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
@@ -932,14 +976,64 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 
 	envVar, err := h.envVarRepo.CreateEnvVar(r.Context(), appID, req.Key, req.Value)
 	if err != nil {
-		// Check for unique constraint violation
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			h.writeError(w, http.StatusConflict, fmt.Sprintf("Environment variable '%s' already exists for this app", req.Key))
+		// Check for context deadline exceeded first
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.logger.Error("Timeout creating env var", 
+				zap.Error(err), 
+				zap.String("app_id", appID), 
+				zap.String("key", req.Key),
+			)
+			h.writeError(w, http.StatusGatewayTimeout, "Request timed out while creating environment variable")
 			return
 		}
-		h.logger.Error("Failed to create env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", req.Key))
-		h.writeError(w, http.StatusInternalServerError, "Failed to create environment variable")
+		// Check for specific database errors
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505": // Unique constraint violation
+				h.writeError(w, http.StatusConflict, fmt.Sprintf("Environment variable '%s' already exists for this app", req.Key))
+				return
+			case "23503": // Foreign key constraint violation
+				h.logger.Error("Foreign key constraint violation when creating env var", 
+					zap.Error(err), 
+					zap.String("app_id", appID), 
+					zap.String("key", req.Key),
+					zap.String("pg_error_code", pgErr.Code),
+					zap.String("pg_error_message", pgErr.Message),
+				)
+				h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid app ID or app does not exist: %s", pgErr.Message))
+				return
+			case "23514": // Check constraint violation
+				h.logger.Error("Check constraint violation when creating env var", 
+					zap.Error(err), 
+					zap.String("app_id", appID), 
+					zap.String("key", req.Key),
+					zap.String("pg_error_code", pgErr.Code),
+					zap.String("pg_error_message", pgErr.Message),
+				)
+				h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid environment variable: %s", pgErr.Message))
+				return
+			default:
+				h.logger.Error("Database error when creating env var", 
+					zap.Error(err), 
+					zap.String("app_id", appID), 
+					zap.String("key", req.Key),
+					zap.String("pg_error_code", pgErr.Code),
+					zap.String("pg_error_message", pgErr.Message),
+					zap.String("pg_error_detail", pgErr.Detail),
+				)
+				h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create environment variable: %s", pgErr.Message))
+				return
+			}
+		}
+		// Non-PostgreSQL errors
+		h.logger.Error("Failed to create env var", 
+			zap.Error(err), 
+			zap.String("app_id", appID), 
+			zap.String("key", req.Key),
+			zap.String("error_type", fmt.Sprintf("%T", err)),
+		)
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create environment variable: %v", err))
 		return
 	}
 
@@ -982,6 +1076,12 @@ func (h *Handlers) DeleteEnvVar(w http.ResponseWriter, r *http.Request) {
 
 	err = h.envVarRepo.DeleteEnvVar(r.Context(), appID, key)
 	if err != nil {
+		// Check for context deadline exceeded first
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.logger.Error("Timeout deleting env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
+			h.writeError(w, http.StatusGatewayTimeout, "Request timed out while deleting environment variable")
+			return
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			h.writeError(w, http.StatusNotFound, "Environment variable not found")
 			return

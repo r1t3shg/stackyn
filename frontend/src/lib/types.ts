@@ -71,6 +71,7 @@ export interface CreateAppRequest {
   name: string;
   repo_url: string;
   branch: string;
+  env_vars?: Array<{ key: string; value: string }>; // Optional environment variables
 }
 
 export interface CreateAppResponse {

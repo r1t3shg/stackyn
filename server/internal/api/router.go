@@ -157,7 +157,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	r.Use(middleware.RealIP)
 	r.Use(loggingMiddleware(logger))
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60))
+	r.Use(middleware.Timeout(70 * time.Second)) // Slightly less than HTTP server timeout (75s)
 
 	// Initialize log persistence service
 	// Use /app/logs to match the volume mount in docker-compose (shared with deploy-worker)

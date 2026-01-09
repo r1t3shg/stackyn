@@ -24,23 +24,22 @@ export default function NewAppPage() {
     setError(null);
 
     try {
-      const response = await appsApi.create(formData);
+      // Prepare environment variables for the request
+      const validEnvVars = envVars
+        .filter(env => env.key.trim() !== '')
+        .map(env => ({ key: env.key.trim(), value: env.value }));
+      
+      // Include environment variables in the create request
+      const createData = {
+        ...formData,
+        env_vars: validEnvVars.length > 0 ? validEnvVars : undefined,
+      };
+      
+      const response = await appsApi.create(createData);
       if (response.error) {
         setError(response.error);
       } else {
-        // Create environment variables after app is created
-        if (envVars.length > 0) {
-          const envVarPromises = envVars
-            .filter(env => env.key.trim() !== '')
-            .map(env => appsApi.createEnvVar(response.app.id, { key: env.key.trim(), value: env.value }));
-          
-          try {
-            await Promise.all(envVarPromises);
-          } catch (envErr) {
-            console.error('Error creating environment variables:', envErr);
-            // Continue even if env vars fail - app was created successfully
-          }
-        }
+        // Navigate to app details page
         navigate(`/apps/${response.app.id}`);
       }
     } catch (err) {
