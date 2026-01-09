@@ -311,11 +311,9 @@ func (s *DeploymentService) DeployWithDockerCompose(ctx context.Context, opts De
 		zap.String("compose_dir", composeDir),
 	)
 
-	// Step 2: Stop and remove existing containers for this app
-	if err := s.ensureOneContainerPerApp(ctx, opts.AppID); err != nil {
-		s.logger.Warn("Failed to clean up existing containers", zap.Error(err))
-		// Continue anyway - docker-compose will handle conflicts
-	}
+	// Step 2: Note: We will stop old containers AFTER the new deployment is successfully started
+	// This ensures we don't lose service if the new deployment fails
+	// Old containers will be stopped in Step 7.5 after docker-compose up succeeds
 
 	// Step 3: Set environment variables for docker-compose
 	env := os.Environ()
@@ -397,6 +395,41 @@ func (s *DeploymentService) DeployWithDockerCompose(ctx context.Context, opts De
 		return nil, fmt.Errorf("no containers found after docker-compose up")
 	}
 
+	// Step 7.5: Stop old containers now that new deployment is successfully started
+	// Only stop containers that are NOT part of the new compose project
+	// Get all container IDs from the new compose project
+	newContainerIDs := make(map[string]bool)
+	for _, c := range containers {
+		newContainerIDs[c.ID] = true
+	}
+	
+	// Stop old containers (those not in the new compose project)
+	stoppedContainerIDs, err := s.stopOldContainersForApp(ctx, opts.AppID, mainContainerID)
+	if err != nil {
+		s.logger.Warn("Failed to stop old containers after docker-compose deployment",
+			zap.Error(err),
+			zap.String("app_id", opts.AppID),
+			zap.String("new_main_container_id", mainContainerID),
+		)
+		// Don't fail deployment if stopping old containers fails - new containers are already running
+	} else {
+		// Filter out new container IDs from stopped list (shouldn't happen, but safety check)
+		filteredStoppedIDs := []string{}
+		for _, stoppedID := range stoppedContainerIDs {
+			if !newContainerIDs[stoppedID] {
+				filteredStoppedIDs = append(filteredStoppedIDs, stoppedID)
+			}
+		}
+		stoppedContainerIDs = filteredStoppedIDs
+		
+		if len(stoppedContainerIDs) > 0 {
+			s.logger.Info("Stopped old containers after docker-compose deployment",
+				zap.String("app_id", opts.AppID),
+				zap.Int("stopped_count", len(stoppedContainerIDs)),
+			)
+		}
+	}
+
 	// Step 7: Start crash detection monitoring
 	monitorCtx, monitorCancel := context.WithCancel(ctx)
 	_ = monitorCancel
@@ -415,9 +448,10 @@ func (s *DeploymentService) DeployWithDockerCompose(ctx context.Context, opts De
 	)
 
 	return &DeploymentResult{
-		ContainerID:   mainContainerID,
-		ContainerName: fmt.Sprintf("%s-main", projectName),
-		Status:        "running",
+		ContainerID:         mainContainerID,
+		ContainerName:        fmt.Sprintf("%s-main", projectName),
+		Status:               "running",
+		StoppedContainerIDs: stoppedContainerIDs,
 	}, nil
 }
 
