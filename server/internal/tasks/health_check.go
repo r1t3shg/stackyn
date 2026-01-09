@@ -34,6 +34,21 @@ func (h *TaskHandler) performHealthCheck(ctx context.Context, appID, deploymentI
 			zap.String("error", errorMsg),
 		)
 
+		// Check if deployment is stopped - if so, don't set error messages
+		// This prevents "container not found" errors from appearing for stopped deployments
+		if h.deploymentRepo != nil {
+			deployment, err := h.deploymentRepo.GetDeploymentByID(deploymentID)
+			if err == nil && deployment != nil {
+				if status, ok := deployment["status"].(string); ok && status == "stopped" {
+					h.logger.Info("Skipping health check error for stopped deployment",
+						zap.String("deployment_id", deploymentID),
+						zap.String("error", errorMsg),
+					)
+					return // Don't update error message for stopped deployments
+				}
+			}
+		}
+
 		// Update deployment status to error (always update the specific deployment)
 		if h.deploymentRepo != nil {
 			err := h.deploymentRepo.UpdateDeployment(deploymentID, "error", "", containerID, "", errorMsg)

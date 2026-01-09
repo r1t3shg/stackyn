@@ -91,7 +91,6 @@ type LogPersister interface {
 type DeploymentService interface {
 	DeployContainer(ctx context.Context, opts services.DeploymentOptions) (*services.DeploymentResult, error)
 	DeployWithDockerCompose(ctx context.Context, opts services.DeploymentOptions) (*services.DeploymentResult, error)
-	RollbackDeployment(ctx context.Context, appID, previousImageName, previousImageTag string) error
 	GetDockerClient() *client.Client
 	Close() error
 }
@@ -102,6 +101,7 @@ type DeploymentRepository interface {
 	UpdateDeployment(deploymentID, status, imageName, containerID, subdomain, errorMsg string) error
 	UpdateDeploymentsByContainerIDs(ctx context.Context, containerIDs []string, status string) error
 	GetDeploymentsByAppID(appID string) ([]map[string]interface{}, error)
+	GetDeploymentByID(deploymentID string) (map[string]interface{}, error)
 }
 
 // AppRepository interface for app database operations

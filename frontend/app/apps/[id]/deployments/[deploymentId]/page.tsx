@@ -139,7 +139,7 @@ export default function DeploymentDetailsPage() {
             </div>
           </div>
 
-          {logs?.error_message && (
+          {logs?.error_message && deployment.status !== 'stopped' && (
             <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
               <p className="text-red-800">{extractString(logs.error_message)}</p>

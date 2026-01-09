@@ -18,6 +18,7 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
       case 'failed':
         return 'bg-red-100 text-red-800 border-red-200';
       case 'stopped':
+      case 'expired':
         return 'bg-gray-100 text-gray-800 border-gray-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -29,9 +30,12 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
     return lowerStatus === 'building' || lowerStatus === 'deploying' || lowerStatus === 'pending';
   };
 
+  // Show "expired" for stopped deployments
+  const displayStatus = status.toLowerCase() === 'stopped' ? 'expired' : status;
+
   return (
     <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)} ${isAnimated(status) ? 'animate-pulse' : ''}`}>
-      {status}
+      {displayStatus}
     </span>
   );
 }

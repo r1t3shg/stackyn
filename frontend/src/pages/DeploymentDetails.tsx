@@ -91,7 +91,7 @@ export default function DeploymentDetailsPage() {
       case 'failed':
         return 'Failed';
       case 'stopped':
-        return 'Stopped';
+        return 'Expired';
       default:
         return status;
     }
@@ -110,7 +110,7 @@ export default function DeploymentDetailsPage() {
       case 'failed':
         return `The deployment for "${app.name}" failed. Check the error message and logs below to identify the issue.`;
       case 'stopped':
-        return `The deployment for "${app.name}" has been stopped. It is no longer serving traffic.`;
+        return `The deployment for "${app.name}" has expired. It is no longer serving traffic.`;
       default:
         return `Deployment status: ${deployment.status}`;
     }
@@ -213,7 +213,7 @@ export default function DeploymentDetailsPage() {
         </div>
 
         {/* Error Message Section */}
-        {logs?.error_message && extractString(logs.error_message) && (
+        {logs?.error_message && extractString(logs.error_message) && deployment.status !== 'stopped' && (
           <div className="bg-[var(--error)]/10 border border-[var(--error)] rounded-lg p-6 mb-6">
             <h3 className="text-lg font-semibold text-[var(--error)] mb-3">Deployment Failed</h3>
             <p className="text-[var(--error)] mb-4 whitespace-pre-wrap">

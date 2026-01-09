@@ -35,7 +35,7 @@ export default function DeploymentCard({ deployment, appId }: DeploymentCardProp
             <span className="font-medium">Subdomain:</span> {subdomain}
           </p>
         )}
-        {errorMessage && (
+        {errorMessage && deployment.status !== 'stopped' && (
           <div className="mt-3 p-3 bg-[var(--error)]/10 border border-[var(--error)] rounded">
             <p className="text-sm text-[var(--error)]">{errorMessage}</p>
           </div>

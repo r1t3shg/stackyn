@@ -492,43 +492,6 @@ func (s *DeploymentService) findContainersByComposeProject(ctx context.Context, 
 	return containers, nil
 }
 
-// RollbackDeployment rolls back to a previous deployment
-func (s *DeploymentService) RollbackDeployment(ctx context.Context, appID, previousImageName, previousImageTag string) error {
-	s.logger.Info("Rolling back deployment",
-		zap.String("app_id", appID),
-		zap.String("image", fmt.Sprintf("%s:%s", previousImageName, previousImageTag)),
-	)
-
-	// Find current container
-	containers, err := s.findContainersByAppID(ctx, appID)
-	if err != nil {
-		return fmt.Errorf("failed to find containers: %w", err)
-	}
-
-	if len(containers) == 0 {
-		return fmt.Errorf("no active container found for app %s", appID)
-	}
-
-	// Stop and remove current container
-	currentContainer := containers[0]
-	if err := s.client.ContainerStop(ctx, currentContainer.ID, container.StopOptions{}); err != nil {
-		s.logger.Warn("Failed to stop container during rollback", zap.Error(err))
-	}
-
-	if err := s.client.ContainerRemove(ctx, currentContainer.ID, container.RemoveOptions{Force: true}); err != nil {
-		s.logger.Warn("Failed to remove container during rollback", zap.Error(err))
-	}
-
-	// Deploy previous version
-	// Note: This requires storing previous deployment info (should be in database)
-	// For now, we'll just log the rollback
-	s.logger.Info("Rollback completed",
-		zap.String("app_id", appID),
-		zap.String("previous_image", fmt.Sprintf("%s:%s", previousImageName, previousImageTag)),
-	)
-
-	return nil
-}
 
 // ensureOneContainerPerApp ensures only one active container exists per app (MVP constraint)
 // This is called BEFORE deploying a new container to prevent conflicts
@@ -931,7 +894,7 @@ func (s *DeploymentService) persistRuntimeLogStream(ctx context.Context, entry i
 	return nil
 }
 
-// monitorContainerCrash monitors a container for crashes and triggers rollback
+// monitorContainerCrash monitors a container for crashes and logs errors
 func (s *DeploymentService) monitorContainerCrash(ctx context.Context, containerID, appID, deploymentID string) {
 	ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds
 	defer ticker.Stop()
@@ -1014,18 +977,11 @@ func (s *DeploymentService) monitorContainerCrash(ctx context.Context, container
 
 				// Check restart count
 				if containerJSON.RestartCount >= 3 {
-					s.logger.Error("Container exceeded restart limit, triggering rollback",
+					s.logger.Error("Container exceeded restart limit",
 						zap.String("container_id", containerID),
 						zap.String("app_id", appID),
-						zap.Int("restart_count", containerJSON.RestartCount),
-					)
-
-					// Trigger rollback (this would typically notify the system to rollback)
-					// For now, we'll just log it
-					// TODO: Implement actual rollback mechanism (e.g., via task queue)
-					s.logger.Error("ROLLBACK REQUIRED",
-						zap.String("app_id", appID),
 						zap.String("deployment_id", deploymentID),
+						zap.Int("restart_count", containerJSON.RestartCount),
 						zap.String("reason", "container_crash_exceeded_restart_limit"),
 					)
 				}

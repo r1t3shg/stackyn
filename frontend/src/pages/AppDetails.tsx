@@ -698,22 +698,9 @@ export default function AppDetailsPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                   </svg>
                                 )}
-                                {isActive && !isFailed && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      // Rollback functionality - for now just show alert
-                                      alert('Rollback functionality will be available soon. This will redeploy the previous successful deployment.');
-                                    }}
-                                    className="px-3 py-1 text-sm bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] rounded transition-colors"
-                                  >
-                                    Rollback
-                                  </button>
-                                )}
                               </div>
                             </div>
-                            {extractString(deployment.error_message) && (
+                            {extractString(deployment.error_message) && deployment.status !== 'stopped' && (
                               <div className="mt-3 p-3 bg-[var(--error)]/10 border border-[var(--error)] rounded">
                                 <p className="text-sm text-[var(--error)]">{extractString(deployment.error_message)}</p>
                               </div>
@@ -978,7 +965,7 @@ export default function AppDetailsPage() {
                 <div className="font-medium text-[var(--error)] mb-2">
                   {app.status === 'error' ? 'Application Not Accessible' : 'Application Failed to Start'}
                 </div>
-                {deployments.length > 0 && deployments[0].error_message && extractString(deployments[0].error_message) && (
+                {deployments.length > 0 && deployments[0].error_message && extractString(deployments[0].error_message) && deployments[0].status !== 'stopped' && (
                   <div className="bg-[var(--surface)] rounded border border-[var(--border-subtle)] p-3 mb-2 font-mono text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words">
                     {extractString(deployments[0].error_message)}
                   </div>
