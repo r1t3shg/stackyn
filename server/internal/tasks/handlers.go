@@ -100,6 +100,8 @@ type DeploymentService interface {
 type DeploymentRepository interface {
 	CreateDeployment(appID, buildJobID, status, imageName, containerID, subdomain string) (string, error)
 	UpdateDeployment(deploymentID, status, imageName, containerID, subdomain, errorMsg string) error
+	UpdateDeploymentsByContainerIDs(ctx context.Context, containerIDs []string, status string) error
+	GetDeploymentsByAppID(appID string) ([]map[string]interface{}, error)
 }
 
 // AppRepository interface for app database operations
@@ -883,6 +885,22 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 		zap.String("container_name", deployResult.ContainerName),
 		zap.String("status", deployResult.Status),
 	)
+
+	// Mark old deployments as "stopped" if containers were stopped
+	if len(deployResult.StoppedContainerIDs) > 0 && h.deploymentRepo != nil {
+		if err := h.deploymentRepo.UpdateDeploymentsByContainerIDs(ctx, deployResult.StoppedContainerIDs, "stopped"); err != nil {
+			h.logger.Warn("Failed to update old deployments to stopped status",
+				zap.Error(err),
+				zap.String("app_id", payload.AppID),
+				zap.Int("stopped_count", len(deployResult.StoppedContainerIDs)),
+			)
+		} else {
+			h.logger.Info("Updated old deployments to stopped status",
+				zap.String("app_id", payload.AppID),
+				zap.Int("stopped_count", len(deployResult.StoppedContainerIDs)),
+			)
+		}
+	}
 
 	// Update deployment status in database
 	var dbDeploymentID string

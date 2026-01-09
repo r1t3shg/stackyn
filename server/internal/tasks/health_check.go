@@ -28,13 +28,13 @@ func (h *TaskHandler) performHealthCheck(ctx context.Context, appID, deploymentI
 	
 	// Set callback to update database when health check fails
 	healthService.SetHealthCheckCallback(func(appID, deploymentID, errorMsg string) {
-		h.logger.Warn("Health check failed, updating app status to error",
+		h.logger.Warn("Health check failed, checking if deployment is still active",
 			zap.String("app_id", appID),
 			zap.String("deployment_id", deploymentID),
 			zap.String("error", errorMsg),
 		)
 
-		// Update deployment status to error
+		// Update deployment status to error (always update the specific deployment)
 		if h.deploymentRepo != nil {
 			err := h.deploymentRepo.UpdateDeployment(deploymentID, "error", "", containerID, "", errorMsg)
 			if err != nil {
@@ -45,14 +45,58 @@ func (h *TaskHandler) performHealthCheck(ctx context.Context, appID, deploymentI
 			}
 		}
 
-		// Update app status to error
-		if h.appRepo != nil {
-			err := h.appRepo.UpdateApp(appID, "error", url)
+		// Only update app status to error if this is still the latest/active deployment
+		// Check if there's a newer running deployment
+		if h.deploymentRepo != nil && h.appRepo != nil {
+			// Get all deployments for this app
+			deployments, err := h.deploymentRepo.GetDeploymentsByAppID(appID)
 			if err != nil {
-				h.logger.Error("Failed to update app status to error",
+				h.logger.Warn("Failed to get deployments to check if failed deployment is still active",
 					zap.Error(err),
 					zap.String("app_id", appID),
 				)
+				// If we can't check, err on the side of caution and don't update app status
+				return
+			}
+
+			// Find the latest deployment (first one in the list, sorted by created_at DESC)
+			// Check if there's a newer running deployment
+			hasNewerRunningDeployment := false
+			for _, dep := range deployments {
+				depID, _ := dep["id"].(string)
+				depStatus, _ := dep["status"].(string)
+				
+				// If we find a deployment that's newer and running, don't update app status
+				if depID != deploymentID && depStatus == "running" {
+					hasNewerRunningDeployment = true
+					h.logger.Info("Found newer running deployment, not updating app status to error",
+						zap.String("app_id", appID),
+						zap.String("failed_deployment_id", deploymentID),
+						zap.String("newer_deployment_id", depID),
+					)
+					break
+				}
+				
+				// If we've reached the failed deployment, no newer running deployment exists
+				if depID == deploymentID {
+					break
+				}
+			}
+
+			// Only update app status to error if there's no newer running deployment
+			if !hasNewerRunningDeployment {
+				err := h.appRepo.UpdateApp(appID, "error", url)
+				if err != nil {
+					h.logger.Error("Failed to update app status to error",
+						zap.Error(err),
+						zap.String("app_id", appID),
+					)
+				} else {
+					h.logger.Info("Updated app status to error (no newer running deployment)",
+						zap.String("app_id", appID),
+						zap.String("deployment_id", deploymentID),
+					)
+				}
 			}
 		}
 	})

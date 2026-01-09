@@ -100,9 +100,10 @@ type DeploymentOptions struct {
 
 // DeploymentResult represents the result of a deployment
 type DeploymentResult struct {
-	ContainerID string
-	ContainerName string
-	Status      string
+	ContainerID         string
+	ContainerName       string
+	Status              string
+	StoppedContainerIDs []string // Container IDs of old deployments that were stopped
 }
 
 // ensureNetworkExists ensures the Docker network exists, creating it if necessary
@@ -244,14 +245,23 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 
 	// Step 4.5: Stop old containers now that new container is successfully started
 	// Only stop containers that are NOT the current new container
-	if err := s.stopOldContainersForApp(ctx, opts.AppID, createResp.ID); err != nil {
+	stoppedContainerIDs, err := s.stopOldContainersForApp(ctx, opts.AppID, createResp.ID)
+	if err != nil {
 		s.logger.Warn("Failed to stop old containers after successful deployment",
 			zap.Error(err),
 			zap.String("app_id", opts.AppID),
 			zap.String("new_container_id", createResp.ID),
 		)
 		// Don't fail deployment if stopping old containers fails - new container is already running
+	} else if len(stoppedContainerIDs) > 0 {
+		s.logger.Info("Stopped old containers, ready for database update",
+			zap.String("app_id", opts.AppID),
+			zap.Int("stopped_count", len(stoppedContainerIDs)),
+		)
 	}
+	
+	// Store stopped container IDs in result for database update
+	result.StoppedContainerIDs = stoppedContainerIDs
 
 	// Step 5: Start crash detection monitoring
 	// Use app-scoped context that can be cancelled when app is deleted
@@ -525,11 +535,14 @@ func (s *DeploymentService) ensureOneContainerPerApp(ctx context.Context, appID 
 
 // stopOldContainersForApp stops all containers for an app except the new container ID
 // This is called AFTER a new deployment is successful to stop previous containers
-func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID string, newContainerID string) error {
+// Returns a list of stopped container IDs so they can be marked as "stopped" in the database
+func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID string, newContainerID string) ([]string, error) {
 	containers, err := s.findContainersByAppID(ctx, appID)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	var stoppedContainerIDs []string
 
 	// Stop and remove all existing containers except the new one
 	for _, c := range containers {
@@ -561,6 +574,7 @@ func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID s
 				zap.String("container_id", c.ID),
 				zap.String("app_id", appID),
 			)
+			stoppedContainerIDs = append(stoppedContainerIDs, c.ID)
 		}
 
 		// Remove container
@@ -579,7 +593,7 @@ func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID s
 		}
 	}
 
-	return nil
+	return stoppedContainerIDs, nil
 }
 
 // findContainersByAppID finds all containers for a given app ID

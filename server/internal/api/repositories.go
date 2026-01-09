@@ -615,6 +615,34 @@ func (r *DeploymentRepo) GetDeploymentsByAppID(appID string) ([]map[string]inter
 	return deployments, nil
 }
 
+// UpdateDeploymentsByContainerIDs updates deployment status for multiple containers
+func (r *DeploymentRepo) UpdateDeploymentsByContainerIDs(ctx context.Context, containerIDs []string, status string) error {
+	if len(containerIDs) == 0 {
+		return nil
+	}
+	
+	_, err := r.pool.Exec(ctx,
+		`UPDATE deployments 
+		 SET status = $1, updated_at = NOW()
+		 WHERE container_id = ANY($2::text[])`,
+		status, containerIDs,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update deployments by container IDs", 
+			zap.Error(err), 
+			zap.Strings("container_ids", containerIDs),
+			zap.String("status", status),
+		)
+		return err
+	}
+	
+	r.logger.Info("Updated deployments to stopped status",
+		zap.Int("count", len(containerIDs)),
+		zap.String("status", status),
+	)
+	return nil
+}
+
 // GetDeploymentByID retrieves a deployment by ID
 func (r *DeploymentRepo) GetDeploymentByID(deploymentID string) (map[string]interface{}, error) {
 	ctx := context.Background()
