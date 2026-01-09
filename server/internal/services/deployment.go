@@ -259,9 +259,6 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 			zap.Int("stopped_count", len(stoppedContainerIDs)),
 		)
 	}
-	
-	// Store stopped container IDs in result for database update
-	result.StoppedContainerIDs = stoppedContainerIDs
 
 	// Step 5: Start crash detection monitoring
 	// Use app-scoped context that can be cancelled when app is deleted
@@ -285,9 +282,10 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 	)
 
 	return &DeploymentResult{
-		ContainerID:   createResp.ID,
-		ContainerName: containerName,
-		Status:        "running",
+		ContainerID:         createResp.ID,
+		ContainerName:       containerName,
+		Status:              "running",
+		StoppedContainerIDs: stoppedContainerIDs,
 	}, nil
 }
 
