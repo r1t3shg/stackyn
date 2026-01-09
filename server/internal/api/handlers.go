@@ -1690,8 +1690,33 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 		}
 	}
 
+	// Set default resource limits and usage stats (will be updated if container stats are available)
+	defaultMemoryMB := 512
+	defaultCPU := 1
+	defaultDiskGB := 10
+	defaultMemoryUsageMB := 0
+	defaultMemoryUsagePercent := 0.0
+	defaultDiskUsageGB := 0.0
+	defaultDiskUsagePercent := 0.0
+	defaultRestartCount := 0
+
 	// Only try to get container stats if container ID is available and deployment service exists
 	if containerID == "" || h.deploymentService == nil {
+		// Set defaults when container stats aren't available
+		if app.Deployment != nil {
+			app.Deployment.ResourceLimits = &ResourceLimits{
+				MemoryMB: defaultMemoryMB,
+				CPU:      defaultCPU,
+				DiskGB:   defaultDiskGB,
+			}
+			app.Deployment.UsageStats = &UsageStats{
+				MemoryUsageMB:      defaultMemoryUsageMB,
+				MemoryUsagePercent: defaultMemoryUsagePercent,
+				DiskUsageGB:        defaultDiskUsageGB,
+				DiskUsagePercent:   defaultDiskUsagePercent,
+				RestartCount:       defaultRestartCount,
+			}
+		}
 		return
 	}
 
@@ -1707,10 +1732,40 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 	} else {
 		// Try reflection-based approach as fallback
 		h.logger.Debug("Cannot get Docker client via interface, trying reflection")
+		// Set defaults when Docker client can't be obtained
+		if app.Deployment != nil {
+			app.Deployment.ResourceLimits = &ResourceLimits{
+				MemoryMB: defaultMemoryMB,
+				CPU:      defaultCPU,
+				DiskGB:   defaultDiskGB,
+			}
+			app.Deployment.UsageStats = &UsageStats{
+				MemoryUsageMB:      defaultMemoryUsageMB,
+				MemoryUsagePercent: defaultMemoryUsagePercent,
+				DiskUsageGB:        defaultDiskUsageGB,
+				DiskUsagePercent:   defaultDiskUsagePercent,
+				RestartCount:       defaultRestartCount,
+			}
+		}
 		return
 	}
 
 	if dockerClient == nil {
+		// Set defaults when Docker client is nil
+		if app.Deployment != nil {
+			app.Deployment.ResourceLimits = &ResourceLimits{
+				MemoryMB: defaultMemoryMB,
+				CPU:      defaultCPU,
+				DiskGB:   defaultDiskGB,
+			}
+			app.Deployment.UsageStats = &UsageStats{
+				MemoryUsageMB:      defaultMemoryUsageMB,
+				MemoryUsagePercent: defaultMemoryUsagePercent,
+				DiskUsageGB:        defaultDiskUsageGB,
+				DiskUsagePercent:   defaultDiskUsagePercent,
+				RestartCount:       defaultRestartCount,
+			}
+		}
 		return
 	}
 
@@ -1727,6 +1782,21 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 	containerJSON, err := dockerClient.ContainerInspect(ctx, containerID)
 	if err != nil {
 		h.logger.Debug("Failed to inspect container", zap.Error(err))
+		// Set defaults when container inspection fails
+		if app.Deployment != nil {
+			app.Deployment.ResourceLimits = &ResourceLimits{
+				MemoryMB: defaultMemoryMB,
+				CPU:      defaultCPU,
+				DiskGB:   defaultDiskGB,
+			}
+			app.Deployment.UsageStats = &UsageStats{
+				MemoryUsageMB:      defaultMemoryUsageMB,
+				MemoryUsagePercent: defaultMemoryUsagePercent,
+				DiskUsageGB:        defaultDiskUsageGB,
+				DiskUsagePercent:   defaultDiskUsagePercent,
+				RestartCount:       defaultRestartCount,
+			}
+		}
 		return
 	}
 
