@@ -41,33 +41,99 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Listen to Firebase auth state changes
+  // Initialize auth state and listen to Firebase auth changes
   useEffect(() => {
+    // First, check localStorage immediately for legacy JWT tokens (for fast initial render)
+    const storedToken = localStorage.getItem('auth_token');
+    const storedUser = localStorage.getItem('auth_user');
+    
+    if (storedToken && storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setToken(storedToken);
+        setUser(parsedUser);
+        // Set isLoading to false immediately if we have a valid token in localStorage
+        // This prevents redirect to login page while waiting for Firebase
+        setIsLoading(false);
+      } catch (e) {
+        console.error('Failed to parse stored user:', e);
+        // Clear invalid data
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+      }
+    }
+
+    // Then set up Firebase auth state listener
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setFirebaseUser(firebaseUser);
       
       if (firebaseUser) {
-        // Get ID token
-        const idToken = await firebaseUser.getIdToken();
-        setToken(idToken);
-        
-        // Load user from our backend if available
-        const storedUser = localStorage.getItem('auth_user');
-        if (storedUser) {
-          try {
-            setUser(JSON.parse(storedUser));
-          } catch (e) {
-            console.error('Failed to parse stored user:', e);
+        // Firebase user is authenticated - prioritize Firebase auth
+        try {
+          // Get ID token
+          const idToken = await firebaseUser.getIdToken();
+          setToken(idToken);
+          
+          // Load user from our backend if available
+          const storedUser = localStorage.getItem('auth_user');
+          if (storedUser) {
+            try {
+              setUser(JSON.parse(storedUser));
+            } catch (e) {
+              console.error('Failed to parse stored user:', e);
+            }
+          }
+          
+          // Store Firebase token
+          localStorage.setItem('auth_token', idToken);
+          setIsLoading(false);
+        } catch (error) {
+          console.error('Failed to get Firebase ID token:', error);
+          // If Firebase token fetch fails, check if we have a legacy token
+          const storedToken = localStorage.getItem('auth_token');
+          const storedUser = localStorage.getItem('auth_user');
+          if (storedToken && storedUser) {
+            try {
+              setToken(storedToken);
+              setUser(JSON.parse(storedUser));
+              setIsLoading(false);
+            } catch (e) {
+              console.error('Failed to restore legacy auth:', e);
+              setIsLoading(false);
+            }
+          } else {
+            setIsLoading(false);
           }
         }
       } else {
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
+        // Firebase user is null - check if we have a legacy JWT token
+        const storedToken = localStorage.getItem('auth_token');
+        const storedUser = localStorage.getItem('auth_user');
+        
+        if (storedToken && storedUser) {
+          // We have a legacy JWT token - keep the user authenticated
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setToken(storedToken);
+            setUser(parsedUser);
+            // Keep firebaseUser as null (legacy user)
+            setIsLoading(false);
+          } catch (e) {
+            console.error('Failed to parse stored user:', e);
+            // Clear invalid data
+            setUser(null);
+            setToken(null);
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_user');
+            setIsLoading(false);
+          }
+        } else {
+          // No Firebase user and no legacy token - user is logged out
+          setUser(null);
+          setToken(null);
+          setIsLoading(false);
+        }
       }
-      
-      setIsLoading(false);
     });
 
     // Listen for unauthorized events from API calls
@@ -75,6 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setToken(null);
       setFirebaseUser(null);
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);

@@ -171,6 +171,9 @@ type Handlers struct {
 	appRepo           *AppRepo
 	deploymentRepo    *DeploymentRepo
 	envVarRepo        *EnvVarRepo
+	userRepo          *UserRepo
+	planRepo          *PlanRepo
+	userPlanRepo      *UserPlanRepo
 	taskEnqueue       *services.TaskEnqueueService
 	wsHub             *services.Hub
 	deploymentService DeploymentService
@@ -250,7 +253,7 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, userRepo *UserRepo, planRepo *PlanRepo, userPlanRepo *UserPlanRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
 	return &Handlers{
 		logger:            logger,
 		logPersistence:   logPersistence,
@@ -262,6 +265,9 @@ func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, conta
 		appRepo:           appRepo,
 		deploymentRepo:    deploymentRepo,
 		envVarRepo:        envVarRepo,
+		userRepo:          userRepo,
+		planRepo:          planRepo,
+		userPlanRepo:      userPlanRepo,
 		taskEnqueue:       taskEnqueue,
 		deploymentService: deploymentService,
 	}
@@ -1490,40 +1496,177 @@ func (h *Handlers) VerifyToken(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/user/me - Get user profile
 func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
-	now := time.Now().Format(time.RFC3339)
-	
-	profile := UserProfile{
-		ID:           "user-123",
-		Email:        "user@example.com",
-		FullName:     "John Doe",
-		CompanyName:  "Acme Corp",
-		EmailVerified: true,
-		Plan:         "pro",
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		Quota: &Quota{
-			PlanName:   "pro",
-			AppCount:   2,
-			TotalRAMMB: 1024,
-			TotalDiskMB: 2048,
-			Plan: PlanInfo{
-				Name:            "pro",
-				DisplayName:     "Pro Plan",
-				Price:           29,
-				MaxRAMMB:        2048,
-				MaxDiskMB:       4096,
-				MaxApps:         10,
-				AlwaysOn:        true,
-				AutoDeploy:      true,
-				HealthChecks:    true,
-				Logs:            true,
-				ZeroDowntime:    true,
-				Workers:         true,
-				PriorityBuilds:  true,
+	// Get user ID from context (set by AuthMiddleware)
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	// Get user from database
+	if h.userRepo == nil {
+		h.logger.Error("User repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "User repository not available")
+		return
+	}
+
+	user, err := h.userRepo.GetUserByID(userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "User not found")
+			return
+		}
+		h.logger.Error("Failed to get user", zap.Error(err), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve user")
+		return
+	}
+
+	// Get user created_at and updated_at from database
+	var createdAt, updatedAt time.Time
+	if h.userRepo != nil {
+		var err error
+		createdAt, updatedAt, err = h.userRepo.GetUserDates(r.Context(), userID)
+		if err != nil {
+			// If dates are not available, use current time
+			h.logger.Warn("Failed to get user dates", zap.Error(err), zap.String("user_id", userID))
+			createdAt = time.Now()
+			updatedAt = time.Now()
+		}
+	} else {
+		createdAt = time.Now()
+		updatedAt = time.Now()
+	}
+
+	// Get user's plan
+	var planID string
+	var plan *Plan
+	if h.userPlanRepo != nil {
+		planID, err = h.userPlanRepo.GetUserPlanID(r.Context(), userID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			h.logger.Warn("Failed to get user plan ID", zap.Error(err), zap.String("user_id", userID))
+		}
+	}
+
+	// Get plan details
+	if planID != "" && h.planRepo != nil {
+		plan, err = h.planRepo.GetPlanByID(r.Context(), planID)
+		if err != nil {
+			h.logger.Warn("Failed to get plan by ID", zap.Error(err), zap.String("plan_id", planID))
+			plan = nil
+		}
+	}
+
+	// If no plan found, use default free plan
+	var planName string
+	if plan == nil && h.planRepo != nil {
+		defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
+		if err != nil {
+			h.logger.Warn("Failed to get default plan, using fallback free plan", zap.Error(err))
+			planName = "free"
+			// Use fallback plan limits if database plan is not available
+			plan = &Plan{
+				Name:        "free",
+				DisplayName: "Free Plan",
+				Price:       0,
+				MaxRAMMB:    512,
+				MaxDiskMB:   1024,
+				MaxApps:     3,
+				AlwaysOn:     false,
+				AutoDeploy:   false,
+				HealthChecks: false,
+				Logs:         true,
+				ZeroDowntime: false,
+				Workers:      false,
+				PriorityBuilds: false,
 				ManualDeployOnly: false,
+			}
+		} else {
+			plan = defaultPlan
+			planName = plan.Name
+		}
+	} else if plan != nil {
+		planName = plan.Name
+	} else {
+		planName = "free"
+		// Use fallback plan limits if no plan repo available
+		plan = &Plan{
+			Name:        "free",
+			DisplayName: "Free Plan",
+			Price:       0,
+			MaxRAMMB:    512,
+			MaxDiskMB:   1024,
+			MaxApps:     3,
+			AlwaysOn:     false,
+			AutoDeploy:   false,
+			HealthChecks: false,
+			Logs:         true,
+			ZeroDowntime: false,
+			Workers:      false,
+			PriorityBuilds: false,
+			ManualDeployOnly: false,
+		}
+	}
+
+	// Get user's apps to calculate usage
+	var appCount int
+	var totalRAMMB int
+	var totalDiskMB int
+	
+	if h.appRepo != nil {
+		apps, err := h.appRepo.GetAppsByUserID(userID)
+		if err != nil {
+			h.logger.Warn("Failed to get user apps for quota calculation", zap.Error(err), zap.String("user_id", userID))
+		} else {
+			appCount = len(apps)
+			
+			// Calculate total RAM and disk usage from apps' deployments
+			for _, app := range apps {
+				// Enrich app with deployment data to get usage stats
+				h.enrichAppWithDeployment(r.Context(), &app)
+				
+				if app.Deployment != nil && app.Deployment.UsageStats != nil {
+					totalRAMMB += app.Deployment.UsageStats.MemoryUsageMB
+					// Convert disk usage from GB to MB
+					totalDiskMB += int(app.Deployment.UsageStats.DiskUsageGB * 1024)
+				}
+			}
+		}
+	}
+
+	// Build profile response with plan and quota information
+	profile := UserProfile{
+		ID:           user.ID,
+		Email:        user.Email,
+		FullName:     user.FullName,
+		CompanyName:  user.CompanyName,
+		EmailVerified: false, // TODO: Implement email verification check
+		Plan:         planName,
+		CreatedAt:    createdAt.Format(time.RFC3339),
+		UpdatedAt:    updatedAt.Format(time.RFC3339),
+		Quota: &Quota{
+			PlanName:    plan.Name,
+			AppCount:    appCount,
+			TotalRAMMB:  totalRAMMB,
+			TotalDiskMB: totalDiskMB,
+			Plan: PlanInfo{
+				Name:            plan.Name,
+				DisplayName:     plan.DisplayName,
+				Price:           plan.Price,
+				MaxRAMMB:        plan.MaxRAMMB,
+				MaxDiskMB:       plan.MaxDiskMB,
+				MaxApps:         plan.MaxApps,
+				AlwaysOn:        plan.AlwaysOn,
+				AutoDeploy:      plan.AutoDeploy,
+				HealthChecks:    plan.HealthChecks,
+				Logs:            plan.Logs,
+				ZeroDowntime:    plan.ZeroDowntime,
+				Workers:         plan.Workers,
+				PriorityBuilds:  plan.PriorityBuilds,
+				ManualDeployOnly: plan.ManualDeployOnly,
 			},
 		},
 	}
+
 	h.writeJSON(w, http.StatusOK, profile)
 }
 

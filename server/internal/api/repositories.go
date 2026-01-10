@@ -109,6 +109,44 @@ func (r *UserRepo) GetUserByEmail(email string) (*User, error) {
 	return &user, nil
 }
 
+// GetUserByID retrieves a user by ID
+func (r *UserRepo) GetUserByID(userID string) (*User, error) {
+	ctx := context.Background()
+	var user User
+	var passwordHash sql.NullString
+	err := r.pool.QueryRow(ctx,
+		"SELECT id, email, full_name, company_name, password_hash FROM users WHERE id = $1",
+		userID,
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get user", zap.Error(err), zap.String("user_id", userID))
+		return nil, err
+	}
+	if passwordHash.Valid {
+		user.PasswordHash = passwordHash.String
+	}
+	return &user, nil
+}
+
+// GetUserDates retrieves created_at and updated_at for a user
+func (r *UserRepo) GetUserDates(ctx context.Context, userID string) (createdAt, updatedAt time.Time, err error) {
+	err = r.pool.QueryRow(ctx,
+		"SELECT created_at, updated_at FROM users WHERE id = $1",
+		userID,
+	).Scan(&createdAt, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, time.Time{}, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get user dates", zap.Error(err), zap.String("user_id", userID))
+		return time.Time{}, time.Time{}, err
+	}
+	return createdAt, updatedAt, nil
+}
+
 // CreateUser creates a new user and assigns default free plan
 func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string) (*User, error) {
 	ctx := context.Background()

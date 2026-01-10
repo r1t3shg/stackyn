@@ -28,24 +28,35 @@ export default function AppDetailsPage() {
   const runtimeLogsContainerRef = useRef<HTMLDivElement>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
   // Poll for app/deployment status updates (DB is single source of truth)
+  // Check app.status, app.deployment.state, and deployments to catch building states immediately
   useEffect(() => {
-    // Only poll if app is in building/deploying state
+    // Check if app is in a transitional state (building, pending, deploying)
+    const appStatusBuilding = app?.status === 'building' || app?.status === 'pending' || app?.status === 'deploying';
+    
+    // Check deployment state from app.deployment (set by backend enrichment)
+    const deploymentStateBuilding = app?.deployment?.state === 'building' || 
+                                    app?.deployment?.state === 'pending' || 
+                                    app?.deployment?.state === 'deploying';
+    
+    // Check if any deployment is building
     const hasActiveBuild = deployments.some(d => 
-      d.status === 'building' || d.status === 'pending'
+      d.status === 'building' || d.status === 'pending' || d.status === 'deploying'
     );
     
-    if (!hasActiveBuild) {
+    // Poll if app status, deployment state, or deployments list indicates building
+    // This ensures we start polling immediately when status changes to building
+    if (!appStatusBuilding && !deploymentStateBuilding && !hasActiveBuild) {
       return;
     }
 
-    // Poll every 2 seconds while building
+    // Poll every 2 seconds while building/deploying
     const interval = setInterval(() => {
       loadApp();
       loadDeployments();
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [appId, deployments]);
+  }, [appId, app?.status, app?.deployment?.state, deployments, loadApp, loadDeployments]);
 
   const loadBuildLogs = useCallback(async (deploymentId: number) => {
     try {
@@ -58,11 +69,41 @@ export default function AppDetailsPage() {
 
   // Poll for build logs during deployment
   useEffect(() => {
+    // Check if app is in building state or if there's a building deployment
+    const appStatusBuilding = app?.status === 'building' || app?.status === 'pending' || app?.status === 'deploying';
+    const deploymentStateBuilding = app?.deployment?.state === 'building' || 
+                                    app?.deployment?.state === 'pending' || 
+                                    app?.deployment?.state === 'deploying';
+    const appIsBuilding = appStatusBuilding || deploymentStateBuilding;
+    
     // Find the active deployment that's building or pending
-    const activeBuildingDeployment = deployments.find(d => 
-      (d.status === 'building' || d.status === 'pending') &&
+    // First try to match by active_deployment_id, then try any building deployment
+    let activeBuildingDeployment = deployments.find(d => 
+      (d.status === 'building' || d.status === 'pending' || d.status === 'deploying') &&
       d.id.toString() === app?.deployment?.active_deployment_id?.replace('dep_', '')
     );
+    
+    // If no match by active_deployment_id, find any building deployment
+    if (!activeBuildingDeployment && appIsBuilding) {
+      activeBuildingDeployment = deployments.find(d => 
+        d.status === 'building' || d.status === 'pending' || d.status === 'deploying'
+      );
+    }
+
+    // Also check if app is building even if deployments array is empty/not loaded yet
+    if (!activeBuildingDeployment && appIsBuilding && app?.deployment?.active_deployment_id) {
+      // App is building but deployment not in list yet - try to load logs using active_deployment_id
+      const deploymentId = app.deployment.active_deployment_id.replace('dep_', '');
+      const parsedId = parseInt(deploymentId, 10);
+      if (!isNaN(parsedId)) {
+        // Poll for build logs using the active_deployment_id
+        loadBuildLogs(parsedId);
+        const interval = setInterval(() => {
+          loadBuildLogs(parsedId);
+        }, 2000);
+        return () => clearInterval(interval);
+      }
+    }
 
     if (!activeBuildingDeployment) {
       // Clear build logs if no active building deployment
@@ -75,11 +116,11 @@ export default function AppDetailsPage() {
 
     // Poll for build logs every 2 seconds while building
     const interval = setInterval(() => {
-      loadBuildLogs(activeBuildingDeployment.id);
+      loadBuildLogs(activeBuildingDeployment!.id);
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [appId, deployments, app?.deployment?.active_deployment_id, loadBuildLogs]);
+  }, [appId, app?.status, app?.deployment?.state, app?.deployment?.active_deployment_id, deployments, loadBuildLogs]);
 
   useEffect(() => {
     if (appId) {
@@ -89,7 +130,22 @@ export default function AppDetailsPage() {
     }
   }, [appId]);
 
-  const loadApp = async () => {
+  // Immediate check when app status or deployment state changes to building - start polling right away
+  useEffect(() => {
+    const appStatusBuilding = app?.status === 'building' || app?.status === 'pending' || app?.status === 'deploying';
+    const deploymentStateBuilding = app?.deployment?.state === 'building' || 
+                                    app?.deployment?.state === 'pending' || 
+                                    app?.deployment?.state === 'deploying';
+    
+    if (appStatusBuilding || deploymentStateBuilding) {
+      // App just entered building state - reload data immediately
+      // The polling effect will take over after this
+      loadApp();
+      loadDeployments();
+    }
+  }, [app?.status, app?.deployment?.state, loadApp, loadDeployments]);
+
+  const loadApp = useCallback(async () => {
     try {
       setError(null);
       const data = await appsApi.getById(appId);
@@ -100,9 +156,9 @@ export default function AppDetailsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [appId]);
 
-  const loadDeployments = async () => {
+  const loadDeployments = useCallback(async () => {
     try {
       const data = await appsApi.getDeployments(appId);
       setDeployments(Array.isArray(data) ? data : []);
@@ -110,7 +166,7 @@ export default function AppDetailsPage() {
       console.error('Error loading deployments:', err);
       setDeployments([]);
     }
-  };
+  }, [appId]);
 
   const loadEnvVars = async () => {
     setLoadingEnvVars(true);
@@ -215,8 +271,10 @@ export default function AppDetailsPage() {
     setActionLoading('redeploy');
     try {
       await appsApi.redeploy(appId);
+      // Immediately reload app and deployments to get updated status
       await loadApp();
       await loadDeployments();
+      // Polling effect will automatically start if status is now building
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to redeploy app');
       console.error('Error redeploying app:', err);
@@ -381,9 +439,11 @@ export default function AppDetailsPage() {
             <div className="flex-1">
               <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-3">{app.name}</h1>
               <div className="flex items-center gap-4 flex-wrap">
-                <StatusBadge status={app.status || 'unknown'} />
-                {/* Show deployment status if building/pending */}
-                {deployments.length > 0 && (deployments[0].status === 'building' || deployments[0].status === 'pending') && (
+                <StatusBadge status={app.status || app?.deployment?.state || 'unknown'} />
+                {/* Show deployment status if building/pending/deploying */}
+                {(app?.status === 'building' || app?.status === 'pending' || app?.status === 'deploying' ||
+                  app?.deployment?.state === 'building' || app?.deployment?.state === 'pending' || app?.deployment?.state === 'deploying' ||
+                  (deployments.length > 0 && (deployments[0].status === 'building' || deployments[0].status === 'pending' || deployments[0].status === 'deploying'))) && (
                   <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--primary)]"></div>
                     <span>Building...</span>
