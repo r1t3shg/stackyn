@@ -447,3 +447,183 @@ func (h *AuthHandlers) UpdateUserProfile(w http.ResponseWriter, r *http.Request)
 	h.writeJSON(w, http.StatusOK, user)
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+type ForgotPasswordResponse struct {
+	Message string `json:"message"`
+	OTP     string `json:"otp,omitempty"` // Only in development
+}
+
+type ResetPasswordRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	OTP      string `json:"otp" validate:"required,len=6"`
+	Password string `json:"password" validate:"required,min=8"`
+}
+
+type ResetPasswordResponse struct {
+	Message string `json:"message"`
+}
+
+// ForgotPassword sends an OTP to the user's email for password reset
+// POST /api/auth/forgot-password
+func (h *AuthHandlers) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate email
+	if !ValidateEmail(req.Email) {
+		h.writeError(w, http.StatusBadRequest, "Invalid email address")
+		return
+	}
+
+	// Check if user exists (for security, don't reveal if email exists or not)
+	_, err := h.userRepo.GetUserByEmail(req.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Silently succeed to prevent email enumeration attacks
+			// Don't reveal whether the email exists or not
+			response := ForgotPasswordResponse{
+				Message: "If an account with that email exists, a password reset code has been sent.",
+			}
+			h.writeJSON(w, http.StatusOK, response)
+			return
+		}
+		h.logger.Error("Failed to check user existence", zap.Error(err))
+		// Still return success to prevent email enumeration
+		response := ForgotPasswordResponse{
+			Message: "If an account with that email exists, a password reset code has been sent.",
+		}
+		h.writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	// Generate and send OTP for password reset
+	otp, err := h.otpService.SendPasswordResetOTP(req.Email)
+	if err != nil {
+		h.logger.Error("Failed to send password reset OTP",
+			zap.Error(err),
+			zap.String("email", req.Email),
+		)
+		// Return generic error message
+		h.writeError(w, http.StatusInternalServerError, "Failed to send password reset code. Please try again later.")
+		return
+	}
+
+	// In development, return OTP in response (remove in production)
+	response := ForgotPasswordResponse{
+		Message: "If an account with that email exists, a password reset code has been sent.",
+	}
+
+	// Only include OTP in development mode
+	if r.URL.Query().Get("dev") == "true" {
+		response.OTP = otp
+		h.logger.Info("Password reset OTP generated (dev mode)", zap.String("email", req.Email), zap.String("otp", otp))
+	} else {
+		h.logger.Info("Password reset OTP sent", zap.String("email", req.Email))
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// ResetPassword verifies OTP and resets the user's password
+// POST /api/auth/reset-password
+func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate email
+	if !ValidateEmail(req.Email) {
+		h.writeError(w, http.StatusBadRequest, "Invalid email address")
+		return
+	}
+
+	// Validate OTP format
+	if len(req.OTP) != 6 {
+		h.writeError(w, http.StatusBadRequest, "OTP must be 6 digits")
+		return
+	}
+
+	// Validate password
+	if len(req.Password) < 8 {
+		h.writeError(w, http.StatusBadRequest, "Password must be at least 8 characters")
+		return
+	}
+
+	// Get user
+	user, err := h.userRepo.GetUserByEmail(req.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusUnauthorized, "Invalid email or OTP")
+			return
+		}
+		h.logger.Error("Failed to get user", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to reset password")
+		return
+	}
+
+	// Get OTP from database
+	otpID, otpHash, expiresAt, err := h.otpRepo.GetOTPByEmail(req.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusUnauthorized, "Invalid or expired OTP")
+			return
+		}
+		h.logger.Error("Failed to get OTP", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to verify OTP")
+		return
+	}
+
+	// Check if expired
+	if time.Now().After(expiresAt) {
+		h.writeError(w, http.StatusUnauthorized, "OTP has expired")
+		return
+	}
+
+	// Verify OTP
+	if !h.otpService.VerifyOTP(req.OTP, otpHash) {
+		h.writeError(w, http.StatusUnauthorized, "Invalid OTP")
+		return
+	}
+
+	// Mark OTP as used
+	if err := h.otpRepo.MarkOTPAsUsed(otpID); err != nil {
+		h.logger.Warn("Failed to mark OTP as used", zap.Error(err))
+	}
+
+	// Hash new password
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.Error("Failed to hash password", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to reset password")
+		return
+	}
+	passwordHash := string(hashedBytes)
+
+	// Update user password
+	_, err = h.userRepo.UpdateUser(user.ID, user.FullName, user.CompanyName, passwordHash)
+	if err != nil {
+		h.logger.Error("Failed to update password",
+			zap.Error(err),
+			zap.String("user_id", user.ID),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Failed to reset password")
+		return
+	}
+
+	h.logger.Info("Password reset successfully", zap.String("email", req.Email))
+
+	response := ResetPasswordResponse{
+		Message: "Password has been reset successfully",
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+

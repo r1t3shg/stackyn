@@ -263,6 +263,10 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/verify-otp", authHandlers.VerifyOTP)
 		r.Post("/login", authHandlers.Login)
 		
+		// Password reset endpoints
+		r.Post("/forgot-password", authHandlers.ForgotPassword)
+		r.Post("/reset-password", authHandlers.ResetPassword)
+		
 		// Legacy Firebase endpoint (for compatibility)
 		r.Post("/verify-token", handlers.VerifyToken)
 		

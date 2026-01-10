@@ -119,6 +119,47 @@ func (s *OTPService) SendOTP(email string) (string, error) {
 	return otp, nil
 }
 
+// SendPasswordResetOTP generates, hashes, and stores an OTP for password reset
+func (s *OTPService) SendPasswordResetOTP(email string) (string, error) {
+	// Generate OTP
+	otp, err := s.GenerateOTP()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate OTP: %w", err)
+	}
+
+	// Hash OTP
+	otpHash, err := s.HashOTP(otp)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash OTP: %w", err)
+	}
+
+	// Set expiry to 10 minutes from now
+	expiresAt := time.Now().Add(10 * time.Minute)
+
+	// Store in database
+	if err := s.db.CreateOTP(email, otpHash, expiresAt); err != nil {
+		return "", fmt.Errorf("failed to store OTP: %w", err)
+	}
+
+	s.logger.Info("Password reset OTP generated and stored",
+		zap.String("email", email),
+		zap.Time("expires_at", expiresAt),
+	)
+
+	// Send OTP via email service
+	if s.emailService != nil {
+		if err := s.emailService.SendPasswordResetOTPEmail(email, otp); err != nil {
+			s.logger.Error("Failed to send password reset OTP email", zap.Error(err), zap.String("email", email))
+			// Don't fail the entire operation if email fails - OTP is still stored
+		}
+	} else {
+		s.logger.Warn("Email service not configured, password reset OTP not sent", zap.String("email", email))
+	}
+
+	// Return plain OTP (for development/debugging)
+	return otp, nil
+}
+
 // VerifyOTP verifies an OTP for the given email
 func (s *OTPService) VerifyOTPForEmail(email, otp string) (bool, error) {
 	// Get OTP from database

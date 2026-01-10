@@ -4,12 +4,12 @@ import {
   signInWithEmailAndPassword,
   signOut,
   sendEmailVerification,
-  sendPasswordResetEmail,
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
 import { API_BASE_URL } from '@/lib/config';
 import { auth } from '@/lib/firebase';
+import { authApi } from '@/lib/api';
 
 interface User {
   id: string;
@@ -238,19 +238,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Send password reset email
+  // Send password reset OTP via Resend
   const sendPasswordReset = async (email: string): Promise<void> => {
     try {
-      // Firebase will use the default action URL configured in Firebase Console
-      await sendPasswordResetEmail(auth, email);
+      await authApi.forgotPassword(email);
+      // Always succeed to prevent email enumeration
+      // The backend will return success even if email doesn't exist
     } catch (error: any) {
-      // Don't reveal if email exists or not for security
-      // Firebase will send email if account exists, otherwise silently fail
-      if (error.code === 'auth/user-not-found') {
-        // Silently succeed to prevent email enumeration
-        return;
-      }
-      throw new Error(error.message || 'Failed to send password reset email');
+      // Provide user-friendly error message
+      throw new Error(error.message || 'Failed to send password reset code. Please try again later.');
     }
   };
 

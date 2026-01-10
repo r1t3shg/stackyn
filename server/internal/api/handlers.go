@@ -677,7 +677,7 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("Deployment service not available, skipping Docker resource cleanup", zap.String("app_id", appID))
 	}
 	
-	// Step 2: Delete the app from database (cascade will handle related records: deployments, env_vars, etc.)
+	// Step 2: Delete the app from database (this will also delete app_logs, and cascade will handle: deployments, env_vars, build_jobs, runtime_instances)
 	err = h.appRepo.DeleteApp(appID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

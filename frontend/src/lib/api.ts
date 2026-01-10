@@ -259,6 +259,30 @@ export const authApi = {
     }, false);
     return handleResponse<{ uid: string; email: string; email_verified: boolean }>(response);
   },
+
+  // Forgot password - sends OTP via Resend
+  forgotPassword: async (email: string): Promise<{ message: string; otp?: string }> => {
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    }, false);
+    return handleResponse<{ message: string; otp?: string }>(response);
+  },
+
+  // Reset password - verifies OTP and updates password
+  resetPassword: async (email: string, otp: string, password: string): Promise<{ message: string }> => {
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, otp, password }),
+    }, false);
+    return handleResponse<{ message: string }>(response);
+  },
 };
 
 // User API

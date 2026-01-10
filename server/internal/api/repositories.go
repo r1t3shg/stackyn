@@ -377,8 +377,31 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		return pgx.ErrNoRows
 	}
 	
-	// Delete the app (cascade will handle related records if foreign keys are set up)
-	result, err := r.pool.Exec(ctx,
+	// Begin transaction to ensure atomic deletion of app and logs
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		r.logger.Error("Failed to begin transaction for app deletion", zap.Error(err), zap.String("app_id", appID))
+		return err
+	}
+	defer tx.Rollback(ctx)
+	
+	// Step 1: Delete all app_logs associated with this app
+	// Note: app_logs uses TEXT for app_id, so it doesn't cascade automatically
+	logsResult, err := tx.Exec(ctx,
+		"DELETE FROM app_logs WHERE app_id = $1",
+		appID,
+	)
+	if err != nil {
+		r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
+		return err
+	}
+	r.logger.Info("Deleted app logs", 
+		zap.String("app_id", appID), 
+		zap.Int64("logs_deleted", logsResult.RowsAffected()),
+	)
+	
+	// Step 2: Delete the app (cascade will handle related records: build_jobs, deployments, env_vars, runtime_instances)
+	result, err := tx.Exec(ctx,
 		"DELETE FROM apps WHERE id = $1 AND user_id = $2",
 		appID, userID,
 	)
@@ -392,7 +415,17 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		return pgx.ErrNoRows
 	}
 	
-	r.logger.Info("App deleted successfully", zap.String("app_id", appID), zap.String("user_id", userID))
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		r.logger.Error("Failed to commit transaction for app deletion", zap.Error(err), zap.String("app_id", appID))
+		return err
+	}
+	
+	r.logger.Info("App and all associated logs deleted successfully", 
+		zap.String("app_id", appID), 
+		zap.String("user_id", userID),
+		zap.Int64("logs_deleted", logsResult.RowsAffected()),
+	)
 	return nil
 }
 
