@@ -27,6 +27,30 @@ export default function AppDetailsPage() {
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const runtimeLogsContainerRef = useRef<HTMLDivElement>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
+  
+  const loadApp = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await appsApi.getById(appId);
+      setApp(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load app');
+      console.error('Error loading app:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [appId]);
+
+  const loadDeployments = useCallback(async () => {
+    try {
+      const data = await appsApi.getDeployments(appId);
+      setDeployments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Error loading deployments:', err);
+      setDeployments([]);
+    }
+  }, [appId]);
+
   // Poll for app/deployment status updates (DB is single source of truth)
   // Check app.status, app.deployment.state, and deployments to catch building states immediately
   useEffect(() => {
@@ -128,7 +152,7 @@ export default function AppDetailsPage() {
       loadDeployments();
       loadEnvVars();
     }
-  }, [appId]);
+  }, [appId, loadApp, loadDeployments]);
 
   // Immediate check when app status or deployment state changes to building - start polling right away
   useEffect(() => {
@@ -144,29 +168,6 @@ export default function AppDetailsPage() {
       loadDeployments();
     }
   }, [app?.status, app?.deployment?.state, loadApp, loadDeployments]);
-
-  const loadApp = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await appsApi.getById(appId);
-      setApp(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load app');
-      console.error('Error loading app:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [appId]);
-
-  const loadDeployments = useCallback(async () => {
-    try {
-      const data = await appsApi.getDeployments(appId);
-      setDeployments(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Error loading deployments:', err);
-      setDeployments([]);
-    }
-  }, [appId]);
 
   const loadEnvVars = async () => {
     setLoadingEnvVars(true);
@@ -262,7 +263,7 @@ export default function AppDetailsPage() {
       }, 10000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, appId]);
+  }, [activeTab, appId, loadApp, loadDeployments]);
 
   const handleRedeploy = async () => {
     if (!confirm('Are you sure you want to redeploy this app? This will trigger a new build.')) {

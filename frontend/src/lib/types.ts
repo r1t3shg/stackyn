@@ -38,7 +38,7 @@ interface NullString {
 export interface Deployment {
   id: number;
   app_id: number;
-  status: 'pending' | 'building' | 'running' | 'failed' | 'stopped';
+  status: 'pending' | 'building' | 'deploying' | 'running' | 'failed' | 'stopped';
   image_name?: string | null | NullString;
   container_id?: string | null | NullString;
   subdomain?: string | null | NullString;
