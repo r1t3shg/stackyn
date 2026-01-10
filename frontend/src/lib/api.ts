@@ -203,7 +203,7 @@ export const healthCheck = async (): Promise<{ status: string }> => {
   return handleResponse<{ status: string }>(response);
 };
 
-// Auth API - OTP and Firebase Auth signup flow
+// Auth API - OTP authentication flow
 export const authApi = {
   // Send OTP to email
   sendOTP: async (email: string): Promise<{ message: string; otp?: string }> => {
@@ -246,18 +246,6 @@ export const authApi = {
       body: JSON.stringify(body),
     }, false);
     return handleResponse<{ token: string; user: { id: string; email: string; full_name?: string; company_name?: string } }>(response);
-  },
-
-  // Verify Firebase token (legacy)
-  verifyToken: async (idToken: string): Promise<{ uid: string; email: string; email_verified: boolean }> => {
-    const response = await safeFetch(`${API_BASE_URL}/api/auth/verify-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ id_token: idToken }),
-    }, false);
-    return handleResponse<{ uid: string; email: string; email_verified: boolean }>(response);
   },
 
   // Forgot password - sends OTP via Resend

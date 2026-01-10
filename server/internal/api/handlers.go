@@ -145,16 +145,6 @@ type PlanInfo struct {
 	ManualDeployOnly bool  `json:"manual_deploy_only"`
 }
 
-type VerifyTokenRequest struct {
-	IDToken string `json:"id_token"`
-}
-
-type VerifyTokenResponse struct {
-	UID          string `json:"uid"`
-	Email        string `json:"email"`
-	EmailVerified bool  `json:"email_verified"`
-}
-
 type HealthResponse struct {
 	Status string `json:"status"`
 }
@@ -1473,23 +1463,6 @@ func (h *Handlers) StreamRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	response := HealthResponse{
 		Status: "ok",
-	}
-	h.writeJSON(w, http.StatusOK, response)
-}
-
-// POST /api/auth/verify-token - Verify Firebase token
-func (h *Handlers) VerifyToken(w http.ResponseWriter, r *http.Request) {
-	var req VerifyTokenRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	// Mock response
-	response := VerifyTokenResponse{
-		UID:          "user-123",
-		Email:        "user@example.com",
-		EmailVerified: true,
 	}
 	h.writeJSON(w, http.StatusOK, response)
 }

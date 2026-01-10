@@ -290,7 +290,8 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	if req.Password != "" {
 		// Password authentication
 		if user.PasswordHash == "" {
-			h.writeError(w, http.StatusUnauthorized, "Password not set. Please use OTP login or set a password.")
+			// User exists but has no password
+			h.writeError(w, http.StatusUnauthorized, "Password not set. Please use OTP login or set a password using password reset.")
 			return
 		}
 		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {

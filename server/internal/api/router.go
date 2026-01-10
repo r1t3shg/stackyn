@@ -267,25 +267,23 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/forgot-password", authHandlers.ForgotPassword)
 		r.Post("/reset-password", authHandlers.ResetPassword)
 		
-		// Legacy Firebase endpoint (for compatibility)
-		r.Post("/verify-token", handlers.VerifyToken)
-		
 		// Update user profile (requires auth)
-		r.With(AuthMiddleware(jwtService, userRepo, logger)).Post("/update-profile", authHandlers.UpdateUserProfile)
+		r.With(AuthMiddleware(jwtService, logger)).Post("/update-profile", authHandlers.UpdateUserProfile)
 	})
 
-	// User routes
+	// User routes - requires authentication
 	r.Route("/api/user", func(r chi.Router) {
+		r.Use(AuthMiddleware(jwtService, logger))
 		r.Get("/me", handlers.GetUserProfile)
 	})
 
 	// Apps routes - /api/apps (for listing) - requires authentication
-	r.With(AuthMiddleware(jwtService, userRepo, logger)).Get("/api/apps", handlers.ListApps)
+	r.With(AuthMiddleware(jwtService, logger)).Get("/api/apps", handlers.ListApps)
 
 	// Apps routes - /api/v1/apps (for CRUD operations) - requires authentication
 	r.Route("/api/v1/apps", func(r chi.Router) {
 		// Apply authentication middleware to all routes
-		r.Use(AuthMiddleware(jwtService, userRepo, logger))
+		r.Use(AuthMiddleware(jwtService, logger))
 		
 		r.Get("/{id}", handlers.GetAppByID)
 		r.Post("/", handlers.CreateApp)
@@ -308,7 +306,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Deployments routes - requires authentication
 	r.Route("/api/v1/deployments", func(r chi.Router) {
 		// Apply authentication middleware to all routes
-		r.Use(AuthMiddleware(jwtService, userRepo, logger))
+		r.Use(AuthMiddleware(jwtService, logger))
 		
 		r.Get("/{id}", handlers.GetDeploymentByID)
 		r.Get("/{id}/logs", handlers.GetDeploymentLogs)
