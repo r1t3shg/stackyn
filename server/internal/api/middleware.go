@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -46,11 +47,15 @@ func AuthMiddleware(jwtService *services.JWTService, userRepo *UserRepo, logger 
 				return
 			}
 
+			// Log the backend JWT validation error for debugging
+			logger.Debug("Backend JWT validation failed, trying Firebase token", zap.Error(err))
+
 			// If backend JWT validation failed, try Firebase token
 			// Firebase tokens have 3 parts separated by dots
 			tokenParts := strings.Split(token, ".")
 			if len(tokenParts) != 3 {
-				logger.Warn("Invalid token format", zap.Error(err))
+				// Token doesn't have 3 parts - it's invalid for both backend and Firebase
+				logger.Warn("Invalid token format - not a valid JWT (missing parts)", zap.Error(err))
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write([]byte(`{"error":"Invalid or expired token"}`))
 				return
@@ -71,6 +76,19 @@ func AuthMiddleware(jwtService *services.JWTService, userRepo *UserRepo, logger 
 				logger.Warn("Failed to parse Firebase token", zap.Error(err))
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write([]byte(`{"error":"Invalid token format"}`))
+				return
+			}
+
+			// Check if this looks like a backend JWT (has "user_id" field)
+			// Backend JWTs have "user_id" field, Firebase tokens don't
+			if userID, hasUserID := firebaseClaims["user_id"].(string); hasUserID && userID != "" {
+				// This is a backend JWT that failed validation
+				logger.Warn("Backend JWT token validation failed", 
+					zap.Error(err), 
+					zap.String("user_id", userID),
+					zap.String("error_type", fmt.Sprintf("%T", err)))
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"Invalid or expired token"}`))
 				return
 			}
 
