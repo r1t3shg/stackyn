@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithToken: (token: string, user: User) => void;
   logout: () => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   isLoading: boolean;
@@ -95,10 +96,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await response.json();
     
     // Store JWT token
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem('auth_token', data.token);
-    localStorage.setItem('auth_user', JSON.stringify(data.user));
+    loginWithToken(data.token, data.user);
+  };
+
+  const loginWithToken = (token: string, userData: User) => {
+    setToken(token);
+    setUser(userData);
+    localStorage.setItem('auth_token', token);
+    localStorage.setItem('auth_user', JSON.stringify(userData));
   };
 
   // Send password reset OTP via Resend
@@ -125,7 +130,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{ 
       user, 
       token, 
-      login, 
+      login,
+      loginWithToken,
       sendPasswordReset,
       logout, 
       isLoading 

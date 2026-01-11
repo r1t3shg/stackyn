@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -425,18 +426,27 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 	
 	// Step 1: Delete all app_logs associated with this app
 	// Note: app_logs uses TEXT for app_id, so it doesn't cascade automatically
+	// Note: app_logs table is optional (only exists if Postgres log persistence is enabled)
 	logsResult, err := tx.Exec(ctx,
 		"DELETE FROM app_logs WHERE app_id = $1",
 		appID,
 	)
 	if err != nil {
-		r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
-		return err
+		// Check if the error is because the table doesn't exist (42P01 = undefined_table)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			// Table doesn't exist - this is fine, log persistence may not be enabled
+			r.logger.Debug("app_logs table does not exist, skipping log deletion", zap.String("app_id", appID))
+		} else {
+			r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
+			return err
+		}
+	} else {
+		r.logger.Info("Deleted app logs", 
+			zap.String("app_id", appID), 
+			zap.Int64("logs_deleted", logsResult.RowsAffected()),
+		)
 	}
-	r.logger.Info("Deleted app logs", 
-		zap.String("app_id", appID), 
-		zap.Int64("logs_deleted", logsResult.RowsAffected()),
-	)
 	
 	// Step 2: Delete the app (cascade will handle related records: build_jobs, deployments, env_vars, runtime_instances)
 	result, err := tx.Exec(ctx,
@@ -459,10 +469,9 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		return err
 	}
 	
-	r.logger.Info("App and all associated logs deleted successfully", 
+	r.logger.Info("App and all associated resources deleted successfully", 
 		zap.String("app_id", appID), 
 		zap.String("user_id", userID),
-		zap.Int64("logs_deleted", logsResult.RowsAffected()),
 	)
 	return nil
 }
