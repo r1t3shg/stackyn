@@ -2,37 +2,53 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
-	"stackyn/server/internal/api"
 )
 
 // SubscriptionService handles subscription and trial management
 type SubscriptionService struct {
-	subscriptionRepo api.SubscriptionRepo
+	subscriptionRepo SubscriptionRepo
 	emailService     *EmailService
-	userRepo         api.UserRepository
+	userRepo         UserRepository
 	logger           *zap.Logger
 }
 
+// Subscription represents a subscription from the database
+type Subscription struct {
+	ID                 string
+	UserID             string
+	LemonSubscriptionID *string    // nullable
+	Plan               string      // starter | pro
+	Status             string      // trial | active | expired | cancelled
+	TrialStartedAt     *time.Time  // nullable
+	TrialEndsAt        *time.Time  // nullable
+	RAMLimitMB         int
+	DiskLimitGB        int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// User represents a user (minimal fields needed for subscription service)
+type User struct {
+	ID    string
+	Email string
+}
+
 // SubscriptionRepo interface for subscription repository operations
-// This interface allows us to use the repository from the api package
 type SubscriptionRepo interface {
-	GetSubscriptionByUserID(ctx context.Context, userID string) (*api.Subscription, error)
-	CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*api.Subscription, error)
+	GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error)
+	CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error)
 	UpdateSubscriptionByUserID(ctx context.Context, userID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID *string) error
-	GetTrialSubscriptions(ctx context.Context) ([]*api.Subscription, error)
+	GetTrialSubscriptions(ctx context.Context) ([]*Subscription, error)
 }
 
 // UserRepository interface for user operations
-// This matches the UserRepository from api package
 type UserRepository interface {
-	GetUserByID(userID string) (*api.User, error)
-	GetUserByEmail(email string) (*api.User, error)
+	GetUserByID(userID string) (*User, error)
+	GetUserByEmail(email string) (*User, error)
 }
 
 // NewSubscriptionService creates a new subscription service

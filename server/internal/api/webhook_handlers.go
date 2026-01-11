@@ -18,12 +18,12 @@ import (
 type WebhookHandlers struct {
 	logger              *zap.Logger
 	subscriptionService *services.SubscriptionService
-	userRepo            UserRepository
+	userRepo            *UserRepo
 	webhookSecret       string // Lemon Squeezy webhook signing secret
 }
 
 // NewWebhookHandlers creates a new webhook handlers instance
-func NewWebhookHandlers(logger *zap.Logger, subscriptionService *services.SubscriptionService, userRepo UserRepository, webhookSecret string) *WebhookHandlers {
+func NewWebhookHandlers(logger *zap.Logger, subscriptionService *services.SubscriptionService, userRepo *UserRepo, webhookSecret string) *WebhookHandlers {
 	return &WebhookHandlers{
 		logger:              logger,
 		subscriptionService: subscriptionService,

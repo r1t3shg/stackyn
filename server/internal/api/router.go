@@ -196,10 +196,14 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
 	// Initialize subscription service for trial management
+	// Create adapters to convert api repositories to services interfaces
+	subscriptionRepoAdapter := NewSubscriptionRepoAdapter(&subscriptionRepo)
+	userRepoAdapter := NewUserRepoAdapter(&userRepo)
+	
 	subscriptionService := services.NewSubscriptionService(
-		subscriptionRepo, // subscriptionRepo implements SubscriptionRepo interface
+		subscriptionRepoAdapter,
 		emailService,
-		userRepo,
+		userRepoAdapter,
 		logger,
 	)
 	
