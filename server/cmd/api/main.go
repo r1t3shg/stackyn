@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"stackyn/server/internal/api"
+	"stackyn/server/internal/db"
 	"stackyn/server/internal/infra"
 
 	"go.uber.org/zap"
@@ -70,6 +72,17 @@ func main() {
 		zap.Int("max_conns", int(poolConfig.MaxConns)),
 		zap.Int("min_conns", int(poolConfig.MinConns)),
 	)
+
+	// Run database migrations
+	// Convert pgxpool.Pool to *sql.DB for migrations
+	// We need to create a new connection for migrations since pgxpool doesn't directly expose *sql.DB
+	sqlDB := stdlib.OpenDB(*poolConfig.ConnConfig)
+	defer sqlDB.Close()
+	
+	if err := db.RunMigrations(sqlDB, logger); err != nil {
+		logger.Fatal("Failed to run database migrations", zap.Error(err))
+	}
+	logger.Info("Database migrations completed successfully")
 
 	// Initialize HTTP server with chi router
 	router := api.Router(logger, config, pool)
