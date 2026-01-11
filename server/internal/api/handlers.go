@@ -1580,7 +1580,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		updatedAt = time.Now()
 	}
 
-	// Get user's subscription (for trial info)
+	// Get user's subscription (for trial info and plan)
 	var subscription *Subscription
 	if h.subscriptionRepo != nil {
 		sub, subErr := h.subscriptionRepo.GetSubscriptionByUserID(r.Context(), userID)
@@ -1591,33 +1591,25 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get user's plan
-	var planID string
+	// Get user's plan from subscription (not from user_plans table)
+	// Users have subscriptions (trial or paid), not direct plan assignments
 	var plan *Plan
-	if h.userPlanRepo != nil {
-		planID, err = h.userPlanRepo.GetUserPlanID(r.Context(), userID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			h.logger.Warn("Failed to get user plan ID", zap.Error(err), zap.String("user_id", userID))
+	planName := "starter" // Default fallback
+	
+	// Try to get plan from subscription if available
+	if subscription != nil && h.planRepo != nil {
+		subPlan, err := h.planRepo.GetPlanByName(r.Context(), subscription.Plan)
+		if err == nil {
+			plan = subPlan
+			planName = plan.Name
 		}
 	}
-
-	// Get plan details
-	if planID != "" && h.planRepo != nil {
-		plan, err = h.planRepo.GetPlanByID(r.Context(), planID)
-		if err != nil {
-			h.logger.Warn("Failed to get plan by ID", zap.Error(err), zap.String("plan_id", planID))
-			plan = nil
-		}
-	}
-
-	// If no plan found, use default starter plan
-	var planName string
+	
+	// Fallback to starter plan if no subscription or plan not found
 	if plan == nil && h.planRepo != nil {
-		defaultPlan, err := h.planRepo.GetPlanByName(r.Context(), "starter")
+		defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
 		if err != nil {
-			h.logger.Warn("Failed to get starter plan, using fallback", zap.Error(err))
 			planName = "starter"
-			// Use fallback plan limits if database plan is not available
 			plan = &Plan{
 				Name:        "starter",
 				DisplayName: "Starter",
@@ -1638,11 +1630,10 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			plan = defaultPlan
 			planName = plan.Name
 		}
-	} else if plan != nil {
-		planName = plan.Name
-	} else {
-		planName = "starter"
-		// Use fallback plan limits if no plan repo available
+	}
+	
+	// Final fallback if plan is still nil
+	if plan == nil {
 		plan = &Plan{
 			Name:        "starter",
 			DisplayName: "Starter",
@@ -1659,6 +1650,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			PriorityBuilds: false,
 			ManualDeployOnly: false,
 		}
+		planName = "starter"
 	}
 
 	// Get user's apps to calculate usage
@@ -2141,6 +2133,17 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn("Failed to get user dates", zap.Error(err), zap.String("user_id", user.ID))
 			createdAt = time.Now()
 			updatedAt = time.Now()
+		}
+		
+		// Get user's subscription (for plan info)
+		var subscription *Subscription
+		if h.subscriptionRepo != nil {
+			sub, subErr := h.subscriptionRepo.GetSubscriptionByUserID(r.Context(), user.ID)
+			if subErr != nil && !errors.Is(subErr, pgx.ErrNoRows) {
+				h.logger.Warn("Failed to get user subscription", zap.Error(subErr), zap.String("user_id", user.ID))
+			} else if subErr == nil {
+				subscription = sub
+			}
 		}
 		
 		// Get user's plan from subscription (not from user_plans table)

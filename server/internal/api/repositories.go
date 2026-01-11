@@ -175,7 +175,7 @@ func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string)
 	var planID sql.NullString
 	planID = sql.NullString{Valid: false}
 	
-	err = r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(ctx,
 		"INSERT INTO users (email, full_name, company_name, password_hash, plan_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, company_name, password_hash",
 		email, fullName, companyName, hash, planID,
 	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &hash)
