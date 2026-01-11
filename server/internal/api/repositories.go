@@ -229,6 +229,68 @@ func (r *UserRepo) UpdateUserPassword(userID, passwordHash string) error {
 	return nil
 }
 
+// ListAllUsers lists all users with pagination and optional search
+func (r *UserRepo) ListAllUsers(limit, offset int, search string) ([]User, int, error) {
+	ctx := context.Background()
+	var rows pgx.Rows
+	var err error
+	var total int
+
+	// Build query with optional search
+	query := `SELECT id, email, full_name, company_name, password_hash FROM users`
+	countQuery := `SELECT COUNT(*) FROM users`
+	
+	args := []interface{}{}
+	argNum := 1
+	
+	if search != "" {
+		query += ` WHERE email ILIKE $` + fmt.Sprintf("%d", argNum)
+		countQuery += ` WHERE email ILIKE $` + fmt.Sprintf("%d", argNum)
+		args = append(args, "%"+search+"%")
+		argNum++
+	}
+	
+	query += ` ORDER BY created_at DESC LIMIT $` + fmt.Sprintf("%d", argNum) + ` OFFSET $` + fmt.Sprintf("%d", argNum+1)
+	args = append(args, limit, offset)
+	
+	// Get total count
+	err = r.pool.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total)
+	if err != nil {
+		r.logger.Error("Failed to get total users count", zap.Error(err))
+		return nil, 0, err
+	}
+	
+	// Get users
+	rows, err = r.pool.Query(ctx, query, args...)
+	if err != nil {
+		r.logger.Error("Failed to list users", zap.Error(err))
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		var passwordHash sql.NullString
+		err := rows.Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash)
+		if err != nil {
+			r.logger.Error("Failed to scan user", zap.Error(err))
+			continue
+		}
+		if passwordHash.Valid {
+			user.PasswordHash = passwordHash.String
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		r.logger.Error("Error iterating users", zap.Error(err))
+		return nil, 0, err
+	}
+
+	return users, total, nil
+}
+
 // AppRepo implements AppRepository interface using database
 type AppRepo struct {
 	pool   *pgxpool.Pool
@@ -308,6 +370,105 @@ func (r *AppRepo) GetAppCountByUserID(userID string) (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// ListAllApps lists all apps with pagination
+func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
+	ctx := context.Background()
+	var total int
+	
+	// Get total count
+	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM apps").Scan(&total)
+	if err != nil {
+		r.logger.Error("Failed to get total apps count", zap.Error(err))
+		return nil, 0, err
+	}
+	
+	// Get apps
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, name, slug, status, url, repo_url, branch, created_at, updated_at 
+		 FROM apps 
+		 ORDER BY created_at DESC 
+		 LIMIT $1 OFFSET $2`,
+		limit, offset,
+	)
+	if err != nil {
+		r.logger.Error("Failed to list apps", zap.Error(err))
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var apps []App
+	for rows.Next() {
+		var app App
+		var url sql.NullString
+		var createdAt, updatedAt time.Time
+		err := rows.Scan(
+			&app.ID,
+			&app.Name,
+			&app.Slug,
+			&app.Status,
+			&url,
+			&app.RepoURL,
+			&app.Branch,
+			&createdAt,
+			&updatedAt,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan app", zap.Error(err))
+			continue
+		}
+		if url.Valid {
+			app.URL = url.String
+		}
+		app.CreatedAt = createdAt.Format(time.RFC3339)
+		app.UpdatedAt = updatedAt.Format(time.RFC3339)
+		apps = append(apps, app)
+	}
+
+	if err := rows.Err(); err != nil {
+		r.logger.Error("Error iterating apps", zap.Error(err))
+		return nil, 0, err
+	}
+
+	return apps, total, nil
+}
+
+// GetAppByIDWithoutUserCheck retrieves an app by ID (no user ownership check, for admin)
+func (r *AppRepo) GetAppByIDWithoutUserCheck(appID string) (*App, error) {
+	ctx := context.Background()
+	var app App
+	var url sql.NullString
+	var createdAt, updatedAt time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, name, slug, status, url, repo_url, branch, created_at, updated_at 
+		 FROM apps 
+		 WHERE id = $1`,
+		appID,
+	).Scan(
+		&app.ID,
+		&app.Name,
+		&app.Slug,
+		&app.Status,
+		&url,
+		&app.RepoURL,
+		&app.Branch,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get app", zap.Error(err), zap.String("app_id", appID))
+		return nil, err
+	}
+	if url.Valid {
+		app.URL = url.String
+	}
+	app.CreatedAt = createdAt.Format(time.RFC3339)
+	app.UpdatedAt = updatedAt.Format(time.RFC3339)
+	return &app, nil
 }
 
 // GetAppByID retrieves an app by ID (must belong to the user)

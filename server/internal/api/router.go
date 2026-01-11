@@ -317,6 +317,21 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/lemon-squeezy", handlers.HandleLemonSqueezyWebhook)
 	})
 
+	// Admin routes - requires authentication
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(AuthMiddleware(jwtService, logger))
+		
+		// Users
+		r.Get("/users", handlers.AdminListUsers)
+		r.Patch("/users/{id}/plan", handlers.AdminUpdateUserPlan)
+		
+		// Apps
+		r.Get("/apps", handlers.AdminListApps)
+		r.Post("/apps/{id}/stop", handlers.AdminStopApp)
+		r.Post("/apps/{id}/start", handlers.AdminStartApp)
+		r.Post("/apps/{id}/redeploy", handlers.AdminRedeployApp)
+	})
+
 	return r
 }
 

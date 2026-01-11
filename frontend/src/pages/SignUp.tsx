@@ -4,7 +4,7 @@ import { authApi } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import Logo from '@/components/Logo';
 
-type SignupStep = 'email' | 'otp' | 'details';
+type SignupStep = 'email' | 'otp' | 'password' | 'details';
 
 export default function SignUp() {
   const [step, setStep] = useState<SignupStep>('email');
@@ -74,7 +74,7 @@ export default function SignUp() {
     }
   };
 
-  // Step 2: Verify OTP
+  // Step 2: Verify OTP (password not included here)
   const handleOTPSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -91,13 +91,8 @@ export default function SignUp() {
       localStorage.setItem('auth_token', response.token);
       localStorage.setItem('auth_user', JSON.stringify(response.user));
       
-      // Move to details step if user doesn't have full name
-      if (!response.user.full_name) {
-        setStep('details');
-      } else {
-        // User already has details, redirect to apps
-        navigate('/apps');
-      }
+      // Move to password step (optional)
+      setStep('password');
       setError(null);
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to verify OTP';
@@ -132,7 +127,60 @@ export default function SignUp() {
     }
   };
 
-  // Step 3: Complete signup with user details
+  // Step 3: Set password (optional - can skip)
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    // Password is optional - if provided, validate it
+    if (password) {
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        return;
+      }
+
+      // Update password via API
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('auth_token');
+        
+        if (!token) {
+          throw new Error('Session expired. Please start over.');
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/auth/update-profile`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            password: password,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Failed to set password' }));
+          throw new Error(error.error || 'Failed to set password');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to set password');
+        setLoading(false);
+        return;
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Move to details step
+    setStep('details');
+  };
+
+  // Step 4: Complete signup with user details
   const handleDetailsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -193,11 +241,13 @@ export default function SignUp() {
           <h1 className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-3">
             {step === 'email' && 'Create account'}
             {step === 'otp' && 'Verify your email'}
+            {step === 'password' && 'Set password (optional)'}
             {step === 'details' && 'Complete your account'}
           </h1>
           <p className="text-lg text-[var(--text-secondary)]">
             {step === 'email' && 'Go from code to production without managing servers. Get started in seconds.'}
             {step === 'otp' && `We sent a verification code to ${email}. Please check your inbox and enter the code below.`}
+            {step === 'password' && 'Set a password to login without OTP in the future (optional)'}
             {step === 'details' && 'Just a few more details to get you started'}
           </p>
         </div>
@@ -206,12 +256,14 @@ export default function SignUp() {
         <div className="mb-8">
           <div className="flex items-center justify-center gap-2">
             <div className={`flex-1 h-1 rounded-full ${step !== 'email' ? 'bg-[var(--primary)]' : 'bg-[var(--primary)]'}`}></div>
-            <div className={`flex-1 h-1 rounded-full ${step === 'otp' || step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
+            <div className={`flex-1 h-1 rounded-full ${step === 'otp' || step === 'password' || step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
+            <div className={`flex-1 h-1 rounded-full ${step === 'password' || step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
             <div className={`flex-1 h-1 rounded-full ${step === 'details' ? 'bg-[var(--primary)]' : 'bg-[var(--border-subtle)]'}`}></div>
           </div>
           <div className="flex justify-between mt-2 text-xs text-[var(--text-muted)]">
             <span>Email</span>
             <span>Verify</span>
+            <span>Password</span>
             <span>Details</span>
           </div>
         </div>
@@ -259,7 +311,7 @@ export default function SignUp() {
             </form>
           )}
 
-          {/* Step 2: OTP Verification */}
+          {/* Step 2: OTP Verification (password fields removed) */}
           {step === 'otp' && (
             <div className="space-y-6">
               <form className="space-y-6" onSubmit={handleOTPSubmit}>
@@ -289,65 +341,9 @@ export default function SignUp() {
                   </p>
                 </div>
 
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                    Password <span className="text-[var(--text-muted)]">(optional)</span>
-                  </label>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (e.target.value && e.target.value.length < 8) {
-                        setPasswordError('Password must be at least 8 characters');
-                      } else if (e.target.value && confirmPassword && e.target.value !== confirmPassword) {
-                        setPasswordError('Passwords do not match');
-                      } else {
-                        setPasswordError(null);
-                      }
-                    }}
-                    className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
-                    placeholder="Enter a password (optional)"
-                  />
-                  {passwordError && (
-                    <p className="mt-1 text-sm text-[var(--error)]">{passwordError}</p>
-                  )}
-                  <p className="mt-1 text-sm text-[var(--text-muted)]">
-                    Set a password to login without OTP in the future
-                  </p>
-                </div>
-
-                {password && (
-                  <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                      Confirm Password
-                    </label>
-                    <input
-                      id="confirmPassword"
-                      name="confirmPassword"
-                      type="password"
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                        if (password && e.target.value !== password) {
-                          setPasswordError('Passwords do not match');
-                        } else {
-                          setPasswordError(null);
-                        }
-                      }}
-                      className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
-                      placeholder="Confirm your password"
-                    />
-                  </div>
-                )}
-
                 <button
                   type="submit"
-                  disabled={loading || otp.length !== 6 || !!passwordError}
+                  disabled={loading || otp.length !== 6}
                   className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Verifying...' : 'Verify code'}
@@ -371,9 +367,7 @@ export default function SignUp() {
                 onClick={() => {
                   setStep('email');
                   setOtp('');
-                  setPassword('');
-                  setConfirmPassword('');
-                  setPasswordError(null);
+                  setError(null);
                 }}
                 className="w-full py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
               >
@@ -382,7 +376,76 @@ export default function SignUp() {
             </div>
           )}
 
-          {/* Step 3: Account Details */}
+          {/* Step 3: Set Password (optional) */}
+          {step === 'password' && (
+            <form className="space-y-6" onSubmit={handlePasswordSubmit}>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                  Password <span className="text-[var(--text-muted)]">(optional)</span>
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (e.target.value && e.target.value.length < 8) {
+                      setPasswordError('Password must be at least 8 characters');
+                    } else if (e.target.value && confirmPassword && e.target.value !== confirmPassword) {
+                      setPasswordError('Passwords do not match');
+                    } else {
+                      setPasswordError(null);
+                    }
+                  }}
+                  className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                  placeholder="Enter a password (optional)"
+                />
+                {passwordError && (
+                  <p className="mt-1 text-sm text-[var(--error)]">{passwordError}</p>
+                )}
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  Set a password to login without OTP in the future. You can skip this step.
+                </p>
+              </div>
+
+              {password && (
+                <div>
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                    Confirm Password
+                  </label>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (password && e.target.value !== password) {
+                        setPasswordError('Passwords do not match');
+                      } else {
+                        setPasswordError(null);
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
+                    placeholder="Confirm your password"
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !!passwordError || (password ? password.length < 8 : false) || (password ? password !== confirmPassword : false)}
+                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Setting password...' : password ? 'Continue with password' : 'Skip password'}
+              </button>
+            </form>
+          )}
+
+          {/* Step 4: Account Details */}
           {step === 'details' && (
             <form className="space-y-6" onSubmit={handleDetailsSubmit}>
               <div>
