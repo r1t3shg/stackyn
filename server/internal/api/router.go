@@ -215,8 +215,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	
 	// Initialize subscription service for trial management
 	// Create adapters to convert api repositories to services.SubscriptionRepo interface
-	subscriptionServiceRepoAdapter := NewSubscriptionRepoAdapter(&subscriptionRepo)
-	userRepoAdapter := NewUserRepoAdapter(&userRepo)
+	subscriptionServiceRepoAdapter := NewSubscriptionRepoAdapter(subscriptionRepo)
+	userRepoAdapter := NewUserRepoAdapter(userRepo)
 	
 	subscriptionService := services.NewSubscriptionService(
 		subscriptionServiceRepoAdapter,
