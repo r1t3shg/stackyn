@@ -195,6 +195,14 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Initialize email service
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
+	// Initialize subscription service for trial management
+	subscriptionService := services.NewSubscriptionService(
+		subscriptionRepo, // subscriptionRepo implements SubscriptionRepo interface
+		emailService,
+		userRepo,
+		logger,
+	)
+	
 	// Initialize task enqueue service for triggering builds/deployments
 	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
 	if err != nil {
@@ -248,10 +256,10 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 
 	// Initialize handlers with appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo and task enqueue service
 	// WebSocket removed - DB is single source of truth
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo, taskEnqueue, nil, nil)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, subscriptionService, appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo, taskEnqueue, nil, nil)
 
 	// Initialize auth handlers
-	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo)
+	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo, subscriptionService)
 
 	// Health check
 	r.Get("/health", handlers.HealthCheck)
@@ -313,8 +321,11 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	})
 
 	// Billing webhooks routes
+	// Initialize webhook handlers
+	webhookSecret := "" // TODO: Load from config
+	webhookHandlers := NewWebhookHandlers(logger, subscriptionService, userRepo, webhookSecret)
 	r.Route("/api/webhooks", func(r chi.Router) {
-		r.Post("/lemon-squeezy", handlers.HandleLemonSqueezyWebhook)
+		r.Post("/lemon-squeezy", webhookHandlers.LemonSqueezyWebhook)
 	})
 
 	// Admin routes - requires authentication

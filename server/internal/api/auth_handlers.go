@@ -14,11 +14,12 @@ import (
 )
 
 type AuthHandlers struct {
-	logger     *zap.Logger
-	otpService *services.OTPService
-	jwtService *services.JWTService
-	userRepo   UserRepository
-	otpRepo    OTPRepository
+	logger             *zap.Logger
+	otpService         *services.OTPService
+	jwtService         *services.JWTService
+	userRepo           UserRepository
+	otpRepo            OTPRepository
+	subscriptionService *services.SubscriptionService
 }
 
 // GetJWTService returns the JWT service (for use in handlers)
@@ -77,13 +78,14 @@ type LoginResponse struct {
 	User  User   `json:"user"`
 }
 
-func NewAuthHandlers(logger *zap.Logger, otpService *services.OTPService, jwtService *services.JWTService, userRepo UserRepository, otpRepo OTPRepository) *AuthHandlers {
+func NewAuthHandlers(logger *zap.Logger, otpService *services.OTPService, jwtService *services.JWTService, userRepo UserRepository, otpRepo OTPRepository, subscriptionService *services.SubscriptionService) *AuthHandlers {
 	return &AuthHandlers{
-		logger:     logger,
-		otpService: otpService,
-		jwtService: jwtService,
-		userRepo:   userRepo,
-		otpRepo:    otpRepo,
+		logger:              logger,
+		otpService:          otpService,
+		jwtService:          jwtService,
+		userRepo:            userRepo,
+		otpRepo:             otpRepo,
+		subscriptionService: subscriptionService,
 	}
 }
 
@@ -217,6 +219,19 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 				errorMsg := fmt.Sprintf("Failed to create user: %v", err)
 				h.writeError(w, http.StatusInternalServerError, errorMsg)
 				return
+			}
+			
+			// Create 7-day free trial for new user
+			// Email failures must NOT block signup
+			ctx := r.Context()
+			if err := h.subscriptionService.CreateTrial(ctx, user.ID, user.Email); err != nil {
+				h.logger.Error("Failed to create trial subscription",
+					zap.Error(err),
+					zap.String("user_id", user.ID),
+					zap.String("email", user.Email),
+				)
+				// Don't fail signup if trial creation fails - log and continue
+				// User can still sign up, but trial may need manual intervention
 			}
 		} else {
 			h.logger.Error("Failed to get user", 

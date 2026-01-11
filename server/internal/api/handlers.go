@@ -152,21 +152,22 @@ type HealthResponse struct {
 // Handlers
 
 type Handlers struct {
-	logger            *zap.Logger
-	logPersistence    LogPersistenceService
-	containerLogs     ContainerLogService
-	planEnforcement   PlanEnforcementService
-	billingService    BillingService
+	logger             *zap.Logger
+	logPersistence     LogPersistenceService
+	containerLogs      ContainerLogService
+	planEnforcement    PlanEnforcementService
+	billingService     BillingService
 	constraintsService ConstraintsService
-	appRepo           *AppRepo
-	deploymentRepo    *DeploymentRepo
-	envVarRepo        *EnvVarRepo
-	userRepo          *UserRepo
-	planRepo          *PlanRepo
-	userPlanRepo      *UserPlanRepo
-	taskEnqueue       *services.TaskEnqueueService
-	wsHub             *services.Hub
-	deploymentService DeploymentService
+	subscriptionService *services.SubscriptionService
+	appRepo            *AppRepo
+	deploymentRepo     *DeploymentRepo
+	envVarRepo         *EnvVarRepo
+	userRepo           *UserRepo
+	planRepo           *PlanRepo
+	userPlanRepo       *UserPlanRepo
+	taskEnqueue        *services.TaskEnqueueService
+	wsHub              *services.Hub
+	deploymentService  DeploymentService
 }
 
 // DeploymentService interface for deployment operations
@@ -243,23 +244,24 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, userRepo *UserRepo, planRepo *PlanRepo, userPlanRepo *UserPlanRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, subscriptionService *services.SubscriptionService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, userRepo *UserRepo, planRepo *PlanRepo, userPlanRepo *UserPlanRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
 	return &Handlers{
-		logger:            logger,
-		logPersistence:   logPersistence,
-		wsHub:            wsHub,
-		containerLogs:      containerLogs,
-		planEnforcement:  planEnforcement,
-		billingService:    billingService,
-		constraintsService: constraintsService,
-		appRepo:           appRepo,
-		deploymentRepo:    deploymentRepo,
-		envVarRepo:        envVarRepo,
-		userRepo:          userRepo,
-		planRepo:          planRepo,
-		userPlanRepo:      userPlanRepo,
-		taskEnqueue:       taskEnqueue,
-		deploymentService: deploymentService,
+		logger:              logger,
+		logPersistence:      logPersistence,
+		wsHub:               wsHub,
+		containerLogs:       containerLogs,
+		planEnforcement:     planEnforcement,
+		billingService:      billingService,
+		constraintsService:  constraintsService,
+		subscriptionService: subscriptionService,
+		appRepo:             appRepo,
+		deploymentRepo:      deploymentRepo,
+		envVarRepo:          envVarRepo,
+		userRepo:            userRepo,
+		planRepo:            planRepo,
+		userPlanRepo:        userPlanRepo,
+		taskEnqueue:         taskEnqueue,
+		deploymentService:   deploymentService,
 	}
 }
 
@@ -279,6 +281,32 @@ func (h *Handlers) getCurrentAppCount(ctx context.Context, userID string) (int, 
 		return 0, nil
 	}
 	return h.appRepo.GetAppCountByUserID(userID)
+}
+
+// getUserResourceUsage calculates total RAM and disk usage for a user's apps
+// Returns total RAM in MB and total disk in GB
+func (h *Handlers) getUserResourceUsage(ctx context.Context, userID string) (totalRAMMB, totalDiskGB int, err error) {
+	if h.appRepo == nil {
+		return 0, 0, nil
+	}
+
+	apps, err := h.appRepo.GetAppsByUserID(userID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Sum up resource usage from all apps
+	// Note: For MVP, we use default values (256 MB RAM, 1 GB Disk per app)
+	// In future, these values could be stored in the apps table or passed during app creation
+	defaultAppRAMMB := 256
+	defaultAppDiskGB := 1
+
+	for range apps {
+		totalRAMMB += defaultAppRAMMB
+		totalDiskGB += defaultAppDiskGB
+	}
+
+	return totalRAMMB, totalDiskGB, nil
 }
 
 // Helper to write JSON response
@@ -499,6 +527,36 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
+
+	// Check subscription status and resource limits before creating app
+	// Default app resource allocation (can be made configurable later)
+	defaultAppRAMMB := 256  // 256 MB per app
+	defaultAppDiskGB := 1   // 1 GB per app
+
+	// Get current resource usage for user's apps
+	currentRAMMB, currentDiskGB, err := h.getUserResourceUsage(r.Context(), userID)
+	if err != nil {
+		h.logger.Error("Failed to get user resource usage", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to check resource limits")
+		return
+	}
+
+	// Check resource limits (subscription service will check subscription status too)
+	// For MVP, we'll use a subscription service reference if available
+	// If not available, we'll skip resource limit checking (should not happen in production)
+	if h.subscriptionService != nil {
+		if err := h.subscriptionService.CheckResourceLimits(
+			r.Context(),
+			userID,
+			currentRAMMB,
+			currentDiskGB,
+			defaultAppRAMMB,
+			defaultAppDiskGB,
+		); err != nil {
+			h.writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
 
 	// Check max apps limit
 	if h.planEnforcement != nil {

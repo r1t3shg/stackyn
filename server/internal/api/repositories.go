@@ -1069,27 +1069,35 @@ func NewSubscriptionRepo(pool *pgxpool.Pool, logger *zap.Logger) *SubscriptionRe
 
 // Subscription represents a subscription from the database
 type Subscription struct {
-	ID             string    `json:"id"`
-	UserID         string    `json:"user_id"`
-	SubscriptionID string    `json:"subscription_id"` // External subscription ID (e.g., Lemon Squeezy)
-	Plan           string    `json:"plan"`            // Plan name
-	Status         string    `json:"status"`          // active, inactive, canceled, expired, past_due, trialing
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                 string     `json:"id"`
+	UserID             string     `json:"user_id"`
+	LemonSubscriptionID *string    `json:"lemon_subscription_id,omitempty"` // External subscription ID (e.g., Lemon Squeezy) - nullable
+	Plan               string     `json:"plan"`                             // Plan name (starter | pro)
+	Status             string     `json:"status"`                           // trial | active | expired | cancelled
+	TrialStartedAt     *time.Time `json:"trial_started_at,omitempty"`       // When trial started
+	TrialEndsAt        *time.Time `json:"trial_ends_at,omitempty"`          // When trial ends
+	RAMLimitMB         int        `json:"ram_limit_mb"`                     // RAM limit in MB
+	DiskLimitGB        int        `json:"disk_limit_gb"`                    // Disk limit in GB
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // GetSubscriptionByUserID retrieves a subscription for a user
 func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error) {
 	var sub Subscription
+	var lemonSubID sql.NullString
+	var trialStartedAt, trialEndsAt sql.NullTime
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, subscription_id, plan, status, created_at, updated_at
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
 		userID,
 	).Scan(
-		&sub.ID, &sub.UserID, &sub.SubscriptionID, &sub.Plan, &sub.Status,
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err != nil {
@@ -1099,38 +1107,110 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 		r.logger.Error("Failed to get subscription", zap.Error(err), zap.String("user_id", userID))
 		return nil, err
 	}
+	if lemonSubID.Valid {
+		sub.LemonSubscriptionID = &lemonSubID.String
+	}
+	if trialStartedAt.Valid {
+		sub.TrialStartedAt = &trialStartedAt.Time
+	}
+	if trialEndsAt.Valid {
+		sub.TrialEndsAt = &trialEndsAt.Time
+	}
 	return &sub, nil
 }
 
 // CreateSubscription creates a new subscription
-func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, subscriptionID, plan, status string) (*Subscription, error) {
+// If creating a trial, subscriptionID should be empty string and trial_started_at/trial_ends_at should be set
+func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error) {
 	var sub Subscription
+	var lemonSubID sql.NullString
+	var trialStart, trialEnd sql.NullTime
+	
+	// Handle nullable lemon_subscription_id
+	var lemonSubIDPtr interface{}
+	if lemonSubscriptionID != "" {
+		lemonSubIDPtr = lemonSubscriptionID
+	} else {
+		lemonSubIDPtr = nil
+	}
+	
+	// Handle nullable trial dates
+	var trialStartPtr, trialEndPtr interface{}
+	if trialStartedAt != nil {
+		trialStartPtr = *trialStartedAt
+	} else {
+		trialStartPtr = nil
+	}
+	if trialEndsAt != nil {
+		trialEndPtr = *trialEndsAt
+	} else {
+		trialEndPtr = nil
+	}
+	
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO subscriptions (user_id, subscription_id, plan, status)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, user_id, subscription_id, plan, status, created_at, updated_at`,
-		userID, subscriptionID, plan, status,
+		`INSERT INTO subscriptions (user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb, created_at, updated_at`,
+		userID, lemonSubIDPtr, plan, status, trialStartPtr, trialEndPtr, ramLimitMB, diskLimitGB,
 	).Scan(
-		&sub.ID, &sub.UserID, &sub.SubscriptionID, &sub.Plan, &sub.Status,
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStart, &trialEnd, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err != nil {
 		r.logger.Error("Failed to create subscription", zap.Error(err), zap.String("user_id", userID))
 		return nil, err
 	}
+	if lemonSubID.Valid {
+		sub.LemonSubscriptionID = &lemonSubID.String
+	}
+	if trialStart.Valid {
+		sub.TrialStartedAt = &trialStart.Time
+	}
+	if trialEnd.Valid {
+		sub.TrialEndsAt = &trialEnd.Time
+	}
 	return &sub, nil
 }
 
-// UpdateSubscription updates a subscription
-func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE subscriptions
-		 SET plan = COALESCE(NULLIF($2, ''), plan),
-		     status = COALESCE(NULLIF($3, ''), status),
-		     updated_at = NOW()
-		 WHERE id = $1`,
-		subscriptionID, plan, status,
-	)
+// UpdateSubscription updates a subscription by internal ID
+func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID *string) error {
+	setParts := []string{"updated_at = NOW()"}
+	args := []interface{}{subscriptionID}
+	argNum := 2
+	
+	if plan != "" {
+		setParts = append(setParts, fmt.Sprintf("plan = $%d", argNum))
+		args = append(args, plan)
+		argNum++
+	}
+	if status != "" {
+		setParts = append(setParts, fmt.Sprintf("status = $%d", argNum))
+		args = append(args, status)
+		argNum++
+	}
+	if ramLimitMB != nil {
+		setParts = append(setParts, fmt.Sprintf("ram_limit_mb = $%d", argNum))
+		args = append(args, *ramLimitMB)
+		argNum++
+	}
+	if diskLimitGB != nil {
+		setParts = append(setParts, fmt.Sprintf("disk_limit_gb = $%d", argNum))
+		args = append(args, *diskLimitGB)
+		argNum++
+	}
+	if lemonSubID != nil {
+		if *lemonSubID == "" {
+			setParts = append(setParts, fmt.Sprintf("lemon_subscription_id = NULL"))
+		} else {
+			setParts = append(setParts, fmt.Sprintf("lemon_subscription_id = $%d", argNum))
+			args = append(args, *lemonSubID)
+			argNum++
+		}
+	}
+	
+	query := fmt.Sprintf("UPDATE subscriptions SET %s WHERE id = $1", strings.Join(setParts, ", "))
+	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		r.logger.Error("Failed to update subscription", zap.Error(err), zap.String("subscription_id", subscriptionID))
 		return err
@@ -1139,20 +1219,101 @@ func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionI
 }
 
 // UpdateSubscriptionByUserID updates a user's subscription
-func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userID, plan, status string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE subscriptions
-		 SET plan = COALESCE(NULLIF($2, ''), plan),
-		     status = COALESCE(NULLIF($3, ''), status),
-		     updated_at = NOW()
-		 WHERE user_id = $1`,
-		userID, plan, status,
-	)
+func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID *string) error {
+	setParts := []string{"updated_at = NOW()"}
+	args := []interface{}{userID}
+	argNum := 2
+	
+	if plan != "" {
+		setParts = append(setParts, fmt.Sprintf("plan = $%d", argNum))
+		args = append(args, plan)
+		argNum++
+	}
+	if status != "" {
+		setParts = append(setParts, fmt.Sprintf("status = $%d", argNum))
+		args = append(args, status)
+		argNum++
+	}
+	if ramLimitMB != nil {
+		setParts = append(setParts, fmt.Sprintf("ram_limit_mb = $%d", argNum))
+		args = append(args, *ramLimitMB)
+		argNum++
+	}
+	if diskLimitGB != nil {
+		setParts = append(setParts, fmt.Sprintf("disk_limit_gb = $%d", argNum))
+		args = append(args, *diskLimitGB)
+		argNum++
+	}
+	if lemonSubID != nil {
+		if *lemonSubID == "" {
+			setParts = append(setParts, fmt.Sprintf("lemon_subscription_id = NULL"))
+		} else {
+			setParts = append(setParts, fmt.Sprintf("lemon_subscription_id = $%d", argNum))
+			args = append(args, *lemonSubID)
+			argNum++
+		}
+	}
+	
+	query := fmt.Sprintf("UPDATE subscriptions SET %s WHERE user_id = $1", strings.Join(setParts, ", "))
+	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		r.logger.Error("Failed to update subscription by user ID", zap.Error(err), zap.String("user_id", userID))
 		return err
 	}
 	return nil
+}
+
+// GetTrialSubscriptions retrieves all trial subscriptions that need processing
+// Used by cron job for trial lifecycle management
+func (r *SubscriptionRepo) GetTrialSubscriptions(ctx context.Context) ([]*Subscription, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		 FROM subscriptions
+		 WHERE status = 'trial'
+		 ORDER BY trial_ends_at ASC`,
+	)
+	if err != nil {
+		r.logger.Error("Failed to get trial subscriptions", zap.Error(err))
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscriptions []*Subscription
+	for rows.Next() {
+		var sub Subscription
+		var lemonSubID sql.NullString
+		var trialStartedAt, trialEndsAt sql.NullTime
+		
+		err := rows.Scan(
+			&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+			&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		)
+		if err != nil {
+			r.logger.Error("Failed to scan subscription", zap.Error(err))
+			continue
+		}
+		
+		if lemonSubID.Valid {
+			sub.LemonSubscriptionID = &lemonSubID.String
+		}
+		if trialStartedAt.Valid {
+			sub.TrialStartedAt = &trialStartedAt.Time
+		}
+		if trialEndsAt.Valid {
+			sub.TrialEndsAt = &trialEndsAt.Time
+		}
+		
+		subscriptions = append(subscriptions, &sub)
+	}
+
+	if err := rows.Err(); err != nil {
+		r.logger.Error("Error iterating subscriptions", zap.Error(err))
+		return nil, err
+	}
+
+	return subscriptions, nil
 }
 
 // UserPlanRepo implements user plan repository for getting plan_id from users table
