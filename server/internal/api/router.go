@@ -339,12 +339,14 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		// Users
 		r.Get("/users", handlers.AdminListUsers)
 		r.Patch("/users/{id}/plan", handlers.AdminUpdateUserPlan)
+		r.Delete("/users/{id}", handlers.AdminDeleteUser)
 		
 		// Apps
 		r.Get("/apps", handlers.AdminListApps)
 		r.Post("/apps/{id}/stop", handlers.AdminStopApp)
 		r.Post("/apps/{id}/start", handlers.AdminStartApp)
 		r.Post("/apps/{id}/redeploy", handlers.AdminRedeployApp)
+		r.Delete("/apps/{id}", handlers.AdminDeleteApp)
 	})
 
 	return r

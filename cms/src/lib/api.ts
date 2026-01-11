@@ -62,6 +62,13 @@ export const adminUsersApi = {
     });
     return handleResponse(response);
   },
+
+  delete: async (id: string): Promise<{ message: string; user_id: string; apps_deleted?: number }> => {
+    const response = await safeFetch(`${API_ENDPOINTS.admin.users}/${id}`, {
+      method: 'DELETE',
+    });
+    return handleResponse(response);
+  },
 };
 
 // Admin Apps API
@@ -92,6 +99,13 @@ export const adminAppsApi = {
   redeploy: async (id: string): Promise<{ message: string; app_id: number; deployment: any }> => {
     const response = await safeFetch(`${API_ENDPOINTS.admin.apps}/${id}/redeploy`, {
       method: 'POST',
+    });
+    return handleResponse(response);
+  },
+
+  delete: async (id: string): Promise<{ message: string; app_id: string }> => {
+    const response = await safeFetch(`${API_ENDPOINTS.admin.apps}/${id}`, {
+      method: 'DELETE',
     });
     return handleResponse(response);
   },

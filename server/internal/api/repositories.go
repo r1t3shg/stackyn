@@ -132,6 +132,20 @@ func (r *UserRepo) GetUserByID(userID string) (*User, error) {
 	return &user, nil
 }
 
+// DeleteUser deletes a user by ID (admin operation - cascades to apps, subscriptions, etc.)
+func (r *UserRepo) DeleteUser(ctx context.Context, userID string) error {
+	result, err := r.pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		r.logger.Error("Failed to delete user", zap.Error(err), zap.String("user_id", userID))
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	r.logger.Info("User deleted successfully", zap.String("user_id", userID))
+	return nil
+}
+
 // GetUserDates retrieves created_at and updated_at for a user
 func (r *UserRepo) GetUserDates(ctx context.Context, userID string) (createdAt, updatedAt time.Time, err error) {
 	err = r.pool.QueryRow(ctx,
@@ -289,6 +303,20 @@ func (r *UserRepo) ListAllUsers(limit, offset int, search string) ([]User, int, 
 	}
 
 	return users, total, nil
+}
+
+// DeleteUser deletes a user by ID (admin operation - cascades to apps, subscriptions, etc.)
+func (r *UserRepo) DeleteUser(ctx context.Context, userID string) error {
+	result, err := r.pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		r.logger.Error("Failed to delete user", zap.Error(err), zap.String("user_id", userID))
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	r.logger.Info("User deleted successfully", zap.String("user_id", userID))
+	return nil
 }
 
 // AppRepo implements AppRepository interface using database
@@ -557,6 +585,23 @@ func (r *AppRepo) CreateApp(userID, name, repoURL, branch string) (*App, error) 
 	app.UpdatedAt = updatedAt.Format(time.RFC3339)
 	
 	return &app, nil
+}
+
+// GetAppUserID gets the user_id for an app (for admin operations)
+func (r *AppRepo) GetAppUserID(ctx context.Context, appID string) (string, error) {
+	var userID string
+	err := r.pool.QueryRow(ctx,
+		"SELECT user_id FROM apps WHERE id = $1",
+		appID,
+	).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get app user_id", zap.Error(err), zap.String("app_id", appID))
+		return "", err
+	}
+	return userID, nil
 }
 
 // DeleteApp deletes an app by ID (must belong to the user)
@@ -1083,15 +1128,18 @@ type Subscription struct {
 }
 
 // GetSubscriptionByUserID retrieves a subscription for a user
+// Prefers active or trial subscriptions over expired/cancelled ones
 func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error) {
 	var sub Subscription
 	var lemonSubID sql.NullString
 	var trialStartedAt, trialEndsAt sql.NullTime
+	
+	// First try to get an active or trial subscription
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
 		        ram_limit_mb, disk_limit_gb, created_at, updated_at
 		 FROM subscriptions
-		 WHERE user_id = $1
+		 WHERE user_id = $1 AND status IN ('trial', 'active')
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
 		userID,
@@ -1100,6 +1148,23 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
+	
+	// If no active/trial subscription found, get the most recent one (might be expired)
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		err = r.pool.QueryRow(ctx,
+			`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+			        ram_limit_mb, disk_limit_gb, created_at, updated_at
+			 FROM subscriptions
+			 WHERE user_id = $1
+			 ORDER BY created_at DESC
+			 LIMIT 1`,
+			userID,
+		).Scan(
+			&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+			&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		)
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -1158,6 +1223,20 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err != nil {
+		// Check if error is due to unique constraint (user already has active/trial subscription)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Unique constraint violation - user already has an active/trial subscription
+			// Try to get the existing subscription
+			r.logger.Warn("Unique constraint violation creating subscription, fetching existing",
+				zap.String("user_id", userID),
+				zap.String("pg_error_code", pgErr.Code),
+			)
+			existingSub, getErr := r.GetSubscriptionByUserID(ctx, userID)
+			if getErr == nil {
+				return existingSub, nil
+			}
+		}
 		r.logger.Error("Failed to create subscription", zap.Error(err), zap.String("user_id", userID))
 		return nil, err
 	}

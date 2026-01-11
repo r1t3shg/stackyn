@@ -258,16 +258,102 @@ func (s *SubscriptionService) CancelSubscription(ctx context.Context, userID str
 
 // CheckResourceLimits checks if user's total resource usage is within subscription limits
 // Returns error if limits are exceeded
+// If no subscription exists, automatically creates a trial (resilient to signup failures)
 func (s *SubscriptionService) CheckResourceLimits(ctx context.Context, userID string, currentRAMMB, currentDiskGB int, newAppRAMMB, newAppDiskGB int) error {
 	sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 	if err != nil {
-		// If no subscription found, deny access (should not happen with trial)
-		return fmt.Errorf("subscription not found for user %s", userID)
+		// If no subscription found, automatically create a trial
+		// This handles cases where trial creation failed during signup
+		s.logger.Warn("No subscription found for user, creating trial automatically",
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
+		
+		// Get user email for trial creation
+		user, userErr := s.userRepo.GetUserByID(userID)
+		if userErr != nil {
+			s.logger.Error("Failed to get user for trial creation",
+				zap.Error(userErr),
+				zap.String("user_id", userID),
+			)
+			return fmt.Errorf("subscription not found and failed to get user: %w", userErr)
+		}
+		
+		// Create trial
+		if createErr := s.CreateTrial(ctx, userID, user.Email); createErr != nil {
+			s.logger.Error("Failed to create trial automatically",
+				zap.Error(createErr),
+				zap.String("user_id", userID),
+			)
+			// Check if error is due to unique constraint (user already has a subscription)
+			// In that case, try to get it again
+			if retrySub, retryErr := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID); retryErr == nil {
+				s.logger.Info("Found existing subscription after trial creation attempt",
+					zap.String("user_id", userID),
+					zap.String("subscription_id", retrySub.ID),
+					zap.String("status", retrySub.Status),
+				)
+				sub = retrySub
+			} else {
+				return fmt.Errorf("failed to create trial: %w", createErr)
+			}
+		} else {
+			// Retry getting subscription after successful creation
+			sub, err = s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+			if err != nil {
+				s.logger.Error("Failed to get subscription after creating trial",
+					zap.Error(err),
+					zap.String("user_id", userID),
+				)
+				return fmt.Errorf("subscription not found after trial creation: %w", err)
+			}
+			
+			s.logger.Info("Trial created automatically for user",
+				zap.String("user_id", userID),
+				zap.String("subscription_id", sub.ID),
+			)
+		}
 	}
 
 	// Check subscription status - only allow deployments for trial or active
 	if !s.IsSubscriptionActive(sub) {
-		return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
+		// If subscription exists but is expired/cancelled, try to create a new trial
+		// This handles cases where a user's trial expired but they should get a new one
+		if sub.Status == "expired" || sub.Status == "cancelled" {
+			s.logger.Info("User has expired/cancelled subscription, creating new trial",
+				zap.String("user_id", userID),
+				zap.String("old_status", sub.Status),
+			)
+			
+			// Get user email for trial creation
+			user, userErr := s.userRepo.GetUserByID(userID)
+			if userErr != nil {
+				return fmt.Errorf("subscription is not active (status: %s) and failed to get user: %w", sub.Status, userErr)
+			}
+			
+			// Create new trial
+			if createErr := s.CreateTrial(ctx, userID, user.Email); createErr != nil {
+				s.logger.Error("Failed to create new trial for expired subscription",
+					zap.Error(createErr),
+					zap.String("user_id", userID),
+				)
+				// If creation fails, still return the original error
+				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
+			}
+			
+			// Get the new subscription
+			sub, err = s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+			if err != nil {
+				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
+			}
+			
+			// Verify the new subscription is active
+			if !s.IsSubscriptionActive(sub) {
+				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
+			}
+		} else {
+			return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
+		}
 	}
 
 	// Calculate total usage after adding new app

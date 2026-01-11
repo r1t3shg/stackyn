@@ -44,6 +44,20 @@ export default function Apps() {
     }
   };
 
+  const handleDelete = async (appId: string, appName: string) => {
+    if (!confirm(`Are you sure you want to delete app "${appName}"? This will permanently delete the app and all its deployments. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await adminAppsApi.delete(appId);
+      // Reload apps after deletion
+      await loadApps();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete app');
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case 'running':
@@ -172,6 +186,12 @@ export default function Apps() {
                             className="text-indigo-600 hover:text-indigo-900"
                           >
                             Redeploy
+                          </button>
+                          <button
+                            onClick={() => handleDelete(app.id, app.name)}
+                            className="text-red-600 hover:text-red-900 font-semibold"
+                          >
+                            Delete
                           </button>
                         </td>
                       </tr>

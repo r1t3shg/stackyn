@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { appsApi, userApi } from '@/lib/api';
 import type { App, UserProfile } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
+import TrialBanner from '@/components/TrialBanner';
 import { useAuth } from '@/contexts/AuthContext';
 
 type SortField = 'name' | 'status' | 'last_deployed' | 'created_at';
@@ -191,6 +192,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[var(--app-bg)]">
+      {/* Trial Banner */}
+      <TrialBanner userProfile={userProfile} />
+      
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* User Profile CTA Section */}
         {userProfile && !profileLoading && (

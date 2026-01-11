@@ -40,6 +40,20 @@ export default function Users() {
     }
   };
 
+  const handleDelete = async (userId: string, userEmail: string) => {
+    if (!confirm(`Are you sure you want to delete user "${userEmail}"? This will permanently delete the user and all their apps. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await adminUsersApi.delete(userId);
+      // Reload users after deletion
+      await loadUsers();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete user');
+    }
+  };
+
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -135,7 +149,7 @@ export default function Users() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(user.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                           <button
                             onClick={() => {
                               // View user details - could open a modal
@@ -144,6 +158,12 @@ export default function Users() {
                             className="text-indigo-600 hover:text-indigo-900"
                           >
                             View
+                          </button>
+                          <button
+                            onClick={() => handleDelete(user.id, user.email)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Delete
                           </button>
                         </td>
                       </tr>

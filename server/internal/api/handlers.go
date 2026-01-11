@@ -118,6 +118,16 @@ type UserProfile struct {
 	CreatedAt    string    `json:"created_at"`
 	UpdatedAt    string    `json:"updated_at"`
 	Quota        *Quota    `json:"quota,omitempty"`
+	Subscription *SubscriptionInfo `json:"subscription,omitempty"`
+}
+
+type SubscriptionInfo struct {
+	Status         string  `json:"status"`          // trial, active, expired, cancelled
+	Plan           string  `json:"plan"`            // starter, pro
+	TrialStartedAt *string `json:"trial_started_at,omitempty"`
+	TrialEndsAt    *string `json:"trial_ends_at,omitempty"`
+	RAMLimitMB     int     `json:"ram_limit_mb"`
+	DiskLimitGB    int     `json:"disk_limit_gb"`
 }
 
 type Quota struct {
@@ -1568,6 +1578,17 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		updatedAt = time.Now()
 	}
 
+	// Get user's subscription (for trial info)
+	var subscription *Subscription
+	if h.subscriptionRepo != nil {
+		sub, subErr := h.subscriptionRepo.GetSubscriptionByUserID(r.Context(), userID)
+		if subErr != nil && !errors.Is(subErr, pgx.ErrNoRows) {
+			h.logger.Warn("Failed to get user subscription", zap.Error(subErr), zap.String("user_id", userID))
+		} else if subErr == nil {
+			subscription = sub
+		}
+	}
+
 	// Get user's plan
 	var planID string
 	var plan *Plan
@@ -1664,6 +1685,28 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build subscription info if available
+	var subscriptionInfo *SubscriptionInfo
+	if subscription != nil {
+		var trialStartedAt, trialEndsAt *string
+		if subscription.TrialStartedAt != nil {
+			startedAt := subscription.TrialStartedAt.Format(time.RFC3339)
+			trialStartedAt = &startedAt
+		}
+		if subscription.TrialEndsAt != nil {
+			endsAt := subscription.TrialEndsAt.Format(time.RFC3339)
+			trialEndsAt = &endsAt
+		}
+		subscriptionInfo = &SubscriptionInfo{
+			Status:         subscription.Status,
+			Plan:           subscription.Plan,
+			TrialStartedAt: trialStartedAt,
+			TrialEndsAt:    trialEndsAt,
+			RAMLimitMB:     subscription.RAMLimitMB,
+			DiskLimitGB:    subscription.DiskLimitGB,
+		}
+	}
+
 	// Build profile response with plan and quota information
 	profile := UserProfile{
 		ID:           user.ID,
@@ -1696,6 +1739,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 				ManualDeployOnly: plan.ManualDeployOnly,
 			},
 		},
+		Subscription: subscriptionInfo,
 	}
 
 	h.writeJSON(w, http.StatusOK, profile)
@@ -2435,6 +2479,141 @@ func (h *Handlers) AdminRedeployApp(w http.ResponseWriter, r *http.Request) {
 		"message":    "App redeployment initiated",
 		"app_id":     appID,
 		"deployment": map[string]interface{}{},
+	}
+	
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// DELETE /admin/apps/{id} - Delete app (admin version, no ownership check)
+func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "id")
+	
+	h.logger.Info("Admin deleting app", zap.String("app_id", appID))
+	
+	// Get app info before deletion (no ownership check for admin)
+	app, err := h.appRepo.GetAppByIDWithoutUserCheck(appID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app for deletion", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
+		return
+	}
+	
+	// Clean up deployment resources if deployment service is available
+	if h.deploymentService != nil {
+		if err := h.deploymentService.CleanupAppResources(r.Context(), appID); err != nil {
+			h.logger.Warn("Failed to cleanup app resources", zap.Error(err), zap.String("app_id", appID))
+			// Continue with deletion even if cleanup fails
+		}
+	}
+	
+	// Delete app from database (no ownership check - admin can delete any app)
+	// We need to get the user_id from the app to pass to DeleteApp
+	// But DeleteApp checks ownership, so we'll need a different approach
+	// For now, we'll use a direct database delete or modify DeleteApp to accept a skipOwnershipCheck flag
+	// Let's use the app's user_id from the app we just fetched
+	if h.appRepo == nil {
+		h.logger.Error("App repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "App repository not available")
+		return
+	}
+	
+	// Get user_id from app for deletion
+	// Since DeleteApp requires userID and checks ownership, we need to get it first
+	userID, err := h.appRepo.GetAppUserID(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to get app user_id", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
+		return
+	}
+	
+	// Delete app (this will cascade delete related records)
+	// Note: DeleteApp checks ownership, but since we're admin, we'll bypass that check
+	// by using the user_id from the app itself
+	err = h.appRepo.DeleteApp(appID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "App not found")
+			return
+		}
+		h.logger.Error("Failed to delete app", zap.Error(err), zap.String("app_id", appID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete app")
+		return
+	}
+	
+	h.logger.Info("App deleted successfully by admin",
+		zap.String("app_id", appID),
+		zap.String("app_name", app.Name),
+	)
+	
+	response := map[string]interface{}{
+		"message": "App deleted successfully",
+		"app_id":  appID,
+	}
+	
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// DELETE /admin/users/{id} - Delete user (admin only)
+func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	
+	h.logger.Info("Admin deleting user", zap.String("user_id", userID))
+	
+	// Verify user exists
+	if h.userRepo == nil {
+		h.logger.Error("User repository not initialized")
+		h.writeError(w, http.StatusInternalServerError, "User repository not available")
+		return
+	}
+	
+	user, err := h.userRepo.GetUserByID(userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.writeError(w, http.StatusNotFound, "User not found")
+			return
+		}
+		h.logger.Error("Failed to get user", zap.Error(err), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to get user")
+		return
+	}
+	
+	// Get user's apps count for logging
+	appCount := 0
+	if h.appRepo != nil {
+		if count, err := h.appRepo.GetAppCountByUserID(userID); err == nil {
+			appCount = count
+		}
+	}
+	
+	// Delete user (this will cascade delete related records: apps, subscriptions, etc.)
+	// We need to delete from database directly since there's no DeleteUser method
+	// Let's add a direct SQL delete with CASCADE
+	ctx := r.Context()
+	_, err = h.userRepo.pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		h.logger.Error("Failed to delete user", zap.Error(err), zap.String("user_id", userID))
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete user")
+		return
+	}
+	
+	h.logger.Info("User deleted successfully by admin",
+		zap.String("user_id", userID),
+		zap.String("user_email", user.Email),
+		zap.Int("apps_deleted", appCount),
+	)
+	
+	response := map[string]interface{}{
+		"message":     "User deleted successfully",
+		"user_id":     userID,
+		"apps_deleted": appCount,
 	}
 	
 	h.writeJSON(w, http.StatusOK, response)

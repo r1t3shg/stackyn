@@ -125,6 +125,14 @@ export interface UserProfile {
     total_ram_mb: number;
     total_disk_mb: number;
   };
+  subscription?: {
+    status: 'trial' | 'active' | 'expired' | 'cancelled';
+    plan: string;
+    trial_started_at?: string;
+    trial_ends_at?: string;
+    ram_limit_mb: number;
+    disk_limit_gb: number;
+  };
 }
 
 
