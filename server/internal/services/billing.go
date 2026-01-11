@@ -34,8 +34,9 @@ const (
 	SubscriptionStatusTrialing SubscriptionStatus = "trialing"
 )
 
-// Subscription represents a user's subscription
-type Subscription struct {
+// BillingSubscription represents a user's subscription (legacy stub - use SubscriptionService instead)
+// TODO: Deprecate this type in favor of SubscriptionService.Subscription
+type BillingSubscription struct {
 	UserID        string            `json:"user_id"`
 	SubscriptionID string            `json:"subscription_id"` // External subscription ID (e.g., Lemon Squeezy)
 	Plan          string            `json:"plan"`              // Plan name/identifier
@@ -46,7 +47,8 @@ type Subscription struct {
 
 // GetSubscription retrieves a subscription for a user
 // TODO: Query database when DB is connected
-func (s *BillingService) GetSubscription(ctx context.Context, userID string) (*Subscription, error) {
+// DEPRECATED: Use SubscriptionService instead
+func (s *BillingService) GetSubscription(ctx context.Context, userID string) (*BillingSubscription, error) {
 	// TODO: Query database
 	// subscription, err := s.subscriptionRepo.GetByUserID(ctx, userID)
 	// if err != nil {
@@ -55,7 +57,7 @@ func (s *BillingService) GetSubscription(ctx context.Context, userID string) (*S
 	// return subscription, nil
 
 	// Placeholder: return default subscription
-	return &Subscription{
+	return &BillingSubscription{
 		UserID:        userID,
 		SubscriptionID: "",
 		Plan:          "free",
@@ -67,7 +69,8 @@ func (s *BillingService) GetSubscription(ctx context.Context, userID string) (*S
 
 // UpdateSubscription updates a subscription
 // TODO: Update database when DB is connected
-func (s *BillingService) UpdateSubscription(ctx context.Context, subscription *Subscription) error {
+// DEPRECATED: Use SubscriptionService instead
+func (s *BillingService) UpdateSubscription(ctx context.Context, subscription *BillingSubscription) error {
 	// TODO: Update database
 	// return s.subscriptionRepo.Update(ctx, subscription)
 
@@ -83,7 +86,8 @@ func (s *BillingService) UpdateSubscription(ctx context.Context, subscription *S
 
 // CreateSubscription creates a new subscription
 // TODO: Insert into database when DB is connected
-func (s *BillingService) CreateSubscription(ctx context.Context, subscription *Subscription) error {
+// DEPRECATED: Use SubscriptionService instead
+func (s *BillingService) CreateSubscription(ctx context.Context, subscription *BillingSubscription) error {
 	// TODO: Insert into database
 	// return s.subscriptionRepo.Create(ctx, subscription)
 
@@ -164,7 +168,7 @@ func (s *BillingService) handleSubscriptionCreated(ctx context.Context, userID s
 		plan = planID
 	}
 
-	subscription := &Subscription{
+	subscription := &BillingSubscription{
 		UserID:        userID,
 		SubscriptionID: subscriptionID,
 		Plan:          plan,

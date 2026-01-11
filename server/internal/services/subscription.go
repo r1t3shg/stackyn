@@ -55,7 +55,7 @@ type UserRepository interface {
 func NewSubscriptionService(
 	subscriptionRepo SubscriptionRepo,
 	emailService *EmailService,
-	userRepo api.UserRepository,
+	userRepo UserRepository,
 	logger *zap.Logger,
 ) *SubscriptionService {
 	return &SubscriptionService{
@@ -117,13 +117,13 @@ func (s *SubscriptionService) CreateTrial(ctx context.Context, userID, userEmail
 }
 
 // GetSubscriptionByUserID retrieves a user's subscription
-func (s *SubscriptionService) GetSubscriptionByUserID(ctx context.Context, userID string) (*api.Subscription, error) {
+func (s *SubscriptionService) GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error) {
 	return s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 }
 
 // IsSubscriptionActive checks if a subscription allows deployments
 // Returns true if status is "trial" or "active"
-func (s *SubscriptionService) IsSubscriptionActive(sub *api.Subscription) bool {
+func (s *SubscriptionService) IsSubscriptionActive(sub *Subscription) bool {
 	if sub == nil {
 		return false
 	}
