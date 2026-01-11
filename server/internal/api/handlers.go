@@ -166,9 +166,10 @@ type Handlers struct {
 	logPersistence     LogPersistenceService
 	containerLogs      ContainerLogService
 	planEnforcement    PlanEnforcementService
-	billingService     BillingService
+	billingService      BillingService
 	constraintsService ConstraintsService
 	subscriptionService *services.SubscriptionService
+	subscriptionRepo   *SubscriptionRepo
 	appRepo            *AppRepo
 	deploymentRepo     *DeploymentRepo
 	envVarRepo         *EnvVarRepo
@@ -254,7 +255,7 @@ type LogEntry struct {
 // LogType represents the type of log (from services package)
 type LogType string
 
-func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, subscriptionService *services.SubscriptionService, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, userRepo *UserRepo, planRepo *PlanRepo, userPlanRepo *UserPlanRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
+func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, containerLogs ContainerLogService, planEnforcement PlanEnforcementService, billingService BillingService, constraintsService ConstraintsService, subscriptionService *services.SubscriptionService, subscriptionRepo *SubscriptionRepo, appRepo *AppRepo, deploymentRepo *DeploymentRepo, envVarRepo *EnvVarRepo, userRepo *UserRepo, planRepo *PlanRepo, userPlanRepo *UserPlanRepo, taskEnqueue *services.TaskEnqueueService, wsHub *services.Hub, deploymentService DeploymentService) *Handlers {
 	return &Handlers{
 		logger:              logger,
 		logPersistence:      logPersistence,
@@ -264,6 +265,7 @@ func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, conta
 		billingService:      billingService,
 		constraintsService:  constraintsService,
 		subscriptionService: subscriptionService,
+		subscriptionRepo:   subscriptionRepo,
 		appRepo:             appRepo,
 		deploymentRepo:      deploymentRepo,
 		envVarRepo:          envVarRepo,

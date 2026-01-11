@@ -305,20 +305,6 @@ func (r *UserRepo) ListAllUsers(limit, offset int, search string) ([]User, int, 
 	return users, total, nil
 }
 
-// DeleteUser deletes a user by ID (admin operation - cascades to apps, subscriptions, etc.)
-func (r *UserRepo) DeleteUser(ctx context.Context, userID string) error {
-	result, err := r.pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
-	if err != nil {
-		r.logger.Error("Failed to delete user", zap.Error(err), zap.String("user_id", userID))
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
-	r.logger.Info("User deleted successfully", zap.String("user_id", userID))
-	return nil
-}
-
 // AppRepo implements AppRepository interface using database
 type AppRepo struct {
 	pool   *pgxpool.Pool

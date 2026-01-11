@@ -260,7 +260,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 
 	// Initialize handlers with appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo and task enqueue service
 	// WebSocket removed - DB is single source of truth
-	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, subscriptionService, appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo, taskEnqueue, nil, nil)
+	handlers := NewHandlers(logger, logPersistence, containerLogs, planEnforcement, billingService, constraintsService, subscriptionService, subscriptionRepo, appRepo, deploymentRepo, envVarRepo, userRepo, planRepo, userPlanRepo, taskEnqueue, nil, nil)
 
 	// Initialize auth handlers
 	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo, subscriptionService)
