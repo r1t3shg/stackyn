@@ -186,7 +186,7 @@ type ConstraintsService interface {
 // BillingService interface for billing operations
 type BillingService interface {
 	ProcessLemonSqueezyWebhook(ctx context.Context, event *services.LemonSqueezyWebhookEvent) error
-	GetSubscription(ctx context.Context, userID string) (*services.Subscription, error)
+	GetSubscription(ctx context.Context, userID string) (*services.BillingSubscription, error)
 }
 
 // LogPersistenceService interface for log persistence

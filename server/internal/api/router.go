@@ -195,26 +195,6 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Initialize email service
 	emailService := services.NewEmailService(logger, config.Email.ResendAPIKey, config.Email.FromEmail)
 	
-	// Initialize subscription service for trial management
-	// Create adapters to convert api repositories to services interfaces
-	subscriptionRepoAdapter := NewSubscriptionRepoAdapter(&subscriptionRepo)
-	userRepoAdapter := NewUserRepoAdapter(&userRepo)
-	
-	subscriptionService := services.NewSubscriptionService(
-		subscriptionRepoAdapter,
-		emailService,
-		userRepoAdapter,
-		logger,
-	)
-	
-	// Initialize task enqueue service for triggering builds/deployments
-	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
-	if err != nil {
-		logger.Error("Failed to initialize task enqueue service", zap.Error(err))
-		// Continue without task enqueue - deployments will need to be triggered manually
-		taskEnqueue = nil
-	}
-	
 	// Initialize repositories (use pool directly)
 	otpRepo := NewOTPRepo(pool, logger)
 	userRepo := NewUserRepo(pool, logger)
@@ -228,10 +208,30 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Create adapters for plan enforcement service
 	// Use type assertion wrappers to match adapter interface
 	planRepoAdapter := services.NewPlanRepoAdapter(&planRepoInterfaceWrapper{repo: planRepo}, logger)
-	subscriptionRepoAdapter := services.NewSubscriptionRepoAdapter(&subscriptionRepoInterfaceWrapper{repo: subscriptionRepo}, logger)
+	planEnforcementSubRepoAdapter := services.NewSubscriptionRepoAdapter(&subscriptionRepoInterfaceWrapper{repo: subscriptionRepo}, logger)
 	
 	// Wire up plan enforcement service with repositories
-	planEnforcement.SetRepositories(planRepoAdapter, subscriptionRepoAdapter, userPlanRepo)
+	planEnforcement.SetRepositories(planRepoAdapter, planEnforcementSubRepoAdapter, userPlanRepo)
+	
+	// Initialize subscription service for trial management
+	// Create adapters to convert api repositories to services.SubscriptionRepo interface
+	subscriptionServiceRepoAdapter := NewSubscriptionRepoAdapter(&subscriptionRepo)
+	userRepoAdapter := NewUserRepoAdapter(&userRepo)
+	
+	subscriptionService := services.NewSubscriptionService(
+		subscriptionServiceRepoAdapter,
+		emailService,
+		userRepoAdapter,
+		logger,
+	)
+	
+	// Initialize task enqueue service for triggering builds/deployments
+	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
+	if err != nil {
+		logger.Error("Failed to initialize task enqueue service", zap.Error(err))
+		// Continue without task enqueue - deployments will need to be triggered manually
+		taskEnqueue = nil
+	}
 	
 	// Initialize OTP service
 	otpService := services.NewOTPService(logger, otpRepo, emailService)
