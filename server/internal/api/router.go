@@ -224,6 +224,12 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		userRepoAdapter,
 		logger,
 	)
+
+	// Initialize app stopper for stopping apps when trial expires
+	// Note: deploymentService is nil in API server, so app stopper will log warnings
+	// In production, you may want to use a message queue to trigger app stopping
+	appStopper := NewAppStopper(appRepo, nil, logger) // deploymentService is nil in API server
+	subscriptionService.SetAppStopper(appStopper)
 	
 	// Initialize task enqueue service for triggering builds/deployments
 	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)

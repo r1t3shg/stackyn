@@ -63,6 +63,8 @@ export default function Home() {
     try {
       setProfileLoading(true);
       const profile = await userApi.getProfile();
+      console.log('Loaded user profile:', profile);
+      console.log('Subscription data:', profile.subscription);
       setUserProfile(profile);
     } catch (err) {
       console.error('Error loading user profile:', err);
@@ -248,7 +250,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex gap-3">
-                {userProfile.plan === 'free' && (
+                {userProfile.subscription?.status === 'expired' && (
                   <button
                     onClick={() => window.location.href = '/pricing'}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"

@@ -1,11 +1,23 @@
 -- Add trial and resource limit fields to subscriptions table
 -- This migration adds support for 7-day free trials and resource limits
 
-ALTER TABLE subscriptions
-  -- Make subscription_id nullable (trials don't have external subscription ID initially)
-  ALTER COLUMN subscription_id DROP NOT NULL,
-  -- Rename subscription_id to lemon_subscription_id for clarity
-  RENAME COLUMN subscription_id TO lemon_subscription_id;
+-- Check if subscription_id column exists and rename it to lemon_subscription_id
+-- This makes the migration idempotent (safe to run multiple times)
+DO $$
+BEGIN
+  -- Check if subscription_id column exists
+  IF EXISTS (
+    SELECT 1 
+    FROM information_schema.columns 
+    WHERE table_name = 'subscriptions' 
+    AND column_name = 'subscription_id'
+  ) THEN
+    -- Make subscription_id nullable first (trials don't have external subscription ID initially)
+    ALTER TABLE subscriptions ALTER COLUMN subscription_id DROP NOT NULL;
+    -- Rename subscription_id to lemon_subscription_id for clarity
+    ALTER TABLE subscriptions RENAME COLUMN subscription_id TO lemon_subscription_id;
+  END IF;
+END $$;
 
 -- Add trial-related fields
 ALTER TABLE subscriptions

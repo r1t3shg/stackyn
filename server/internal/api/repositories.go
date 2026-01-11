@@ -162,7 +162,7 @@ func (r *UserRepo) GetUserDates(ctx context.Context, userID string) (createdAt, 
 	return createdAt, updatedAt, nil
 }
 
-// CreateUser creates a new user and assigns default free plan
+// CreateUser creates a new user (no default plan - trial is created separately)
 func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string) (*User, error) {
 	ctx := context.Background()
 	var user User
@@ -171,15 +171,9 @@ func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string)
 		hash = sql.NullString{String: passwordHash, Valid: true}
 	}
 	
-	// Get default free plan ID
+	// No default plan - users get a trial subscription instead
 	var planID sql.NullString
-	err := r.pool.QueryRow(ctx,
-		"SELECT id FROM plans WHERE name = 'free' LIMIT 1",
-	).Scan(&planID)
-	if err != nil {
-		r.logger.Warn("Failed to get free plan ID, creating user without plan", zap.Error(err))
-		planID = sql.NullString{Valid: false}
-	}
+	planID = sql.NullString{Valid: false}
 	
 	err = r.pool.QueryRow(ctx,
 		"INSERT INTO users (email, full_name, company_name, password_hash, plan_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, company_name, password_hash",
@@ -1079,9 +1073,9 @@ func (r *PlanRepo) GetPlanByName(ctx context.Context, planName string) (*Plan, e
 	return &plan, nil
 }
 
-// GetDefaultPlan retrieves the default (free) plan
+// GetDefaultPlan retrieves the default (starter) plan
 func (r *PlanRepo) GetDefaultPlan(ctx context.Context) (*Plan, error) {
-	return r.GetPlanByName(ctx, "free")
+	return r.GetPlanByName(ctx, "starter")
 }
 
 // SubscriptionRepo implements subscription repository using database

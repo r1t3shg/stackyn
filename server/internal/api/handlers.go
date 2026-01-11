@@ -1610,24 +1610,24 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If no plan found, use default free plan
+	// If no plan found, use default starter plan
 	var planName string
 	if plan == nil && h.planRepo != nil {
-		defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
+		defaultPlan, err := h.planRepo.GetPlanByName(r.Context(), "starter")
 		if err != nil {
-			h.logger.Warn("Failed to get default plan, using fallback free plan", zap.Error(err))
-			planName = "free"
+			h.logger.Warn("Failed to get starter plan, using fallback", zap.Error(err))
+			planName = "starter"
 			// Use fallback plan limits if database plan is not available
 			plan = &Plan{
-				Name:        "free",
-				DisplayName: "Free Plan",
-				Price:       0,
+				Name:        "starter",
+				DisplayName: "Starter",
+				Price:       1900,
 				MaxRAMMB:    512,
-				MaxDiskMB:   1024,
-				MaxApps:     3,
-				AlwaysOn:     false,
-				AutoDeploy:   false,
-				HealthChecks: false,
+				MaxDiskMB:   5120,
+				MaxApps:     1,
+				AlwaysOn:     true,
+				AutoDeploy:   true,
+				HealthChecks: true,
 				Logs:         true,
 				ZeroDowntime: false,
 				Workers:      false,
@@ -1641,18 +1641,18 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	} else if plan != nil {
 		planName = plan.Name
 	} else {
-		planName = "free"
+		planName = "starter"
 		// Use fallback plan limits if no plan repo available
 		plan = &Plan{
-			Name:        "free",
-			DisplayName: "Free Plan",
-			Price:       0,
+			Name:        "starter",
+			DisplayName: "Starter",
+			Price:       1900,
 			MaxRAMMB:    512,
-			MaxDiskMB:   1024,
-			MaxApps:     3,
-			AlwaysOn:     false,
-			AutoDeploy:   false,
-			HealthChecks: false,
+			MaxDiskMB:   5120,
+			MaxApps:     1,
+			AlwaysOn:     true,
+			AutoDeploy:   true,
+			HealthChecks: true,
 			Logs:         true,
 			ZeroDowntime: false,
 			Workers:      false,
@@ -2143,41 +2143,35 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 			updatedAt = time.Now()
 		}
 		
-		// Get user's plan
-		var planID string
+		// Get user's plan from subscription (not from user_plans table)
+		// Users have subscriptions (trial or paid), not direct plan assignments
 		var plan *Plan
-		planName := "free"
-		if h.userPlanRepo != nil {
-			planID, err = h.userPlanRepo.GetUserPlanID(r.Context(), user.ID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				h.logger.Warn("Failed to get user plan ID", zap.Error(err), zap.String("user_id", user.ID))
-			}
-		}
+		planName := "starter" // Default fallback
 		
-		if planID != "" && h.planRepo != nil {
-			plan, err = h.planRepo.GetPlanByID(r.Context(), planID)
-			if err != nil {
-				h.logger.Warn("Failed to get plan by ID", zap.Error(err), zap.String("plan_id", planID))
-				plan = nil
-			} else {
+		// Try to get plan from subscription if available
+		if subscription != nil && h.planRepo != nil {
+			subPlan, err := h.planRepo.GetPlanByName(r.Context(), subscription.Plan)
+			if err == nil {
+				plan = subPlan
 				planName = plan.Name
 			}
 		}
 		
+		// Fallback to starter plan if no subscription or plan not found
 		if plan == nil && h.planRepo != nil {
 			defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
 			if err != nil {
-				planName = "free"
+				planName = "starter"
 				plan = &Plan{
-					Name:        "free",
-					DisplayName: "Free Plan",
-					Price:       0,
+					Name:        "starter",
+					DisplayName: "Starter",
+					Price:       1900,
 					MaxRAMMB:    512,
-					MaxDiskMB:   1024,
-					MaxApps:     3,
-					AlwaysOn:     false,
-					AutoDeploy:   false,
-					HealthChecks: false,
+					MaxDiskMB:   5120,
+					MaxApps:     1,
+					AlwaysOn:     true,
+					AutoDeploy:   true,
+					HealthChecks: true,
 					Logs:         true,
 					ZeroDowntime: false,
 					Workers:      false,
@@ -2210,23 +2204,25 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		
+		// Final fallback if plan is still nil
 		if plan == nil {
 			plan = &Plan{
-				Name:        "free",
-				DisplayName: "Free Plan",
-				Price:       0,
+				Name:        "starter",
+				DisplayName: "Starter",
+				Price:       1900,
 				MaxRAMMB:    512,
-				MaxDiskMB:   1024,
-				MaxApps:     3,
-				AlwaysOn:     false,
-				AutoDeploy:   false,
-				HealthChecks: false,
+				MaxDiskMB:   5120,
+				MaxApps:     1,
+				AlwaysOn:     true,
+				AutoDeploy:   true,
+				HealthChecks: true,
 				Logs:         true,
 				ZeroDowntime: false,
 				Workers:      false,
 				PriorityBuilds: false,
 				ManualDeployOnly: false,
 			}
+			planName = "starter"
 		}
 		
 		adminUsers = append(adminUsers, AdminUserResponse{

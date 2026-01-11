@@ -480,99 +480,58 @@ export default function LandingPage() {
           </div>
 
           {/* Plans Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-20">
-            {/* Free Plan */}
-            <div className="border border-[var(--border-subtle)] rounded-lg p-6 bg-[var(--elevated)]">
-              <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Free</h3>
-              <ul className="space-y-3 mb-8">
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">128 MB RAM</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">1 app</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--text-muted)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">Sleeps</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--text-muted)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">No workers</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--text-muted)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">No domains</span>
-                </li>
-              </ul>
-              <div className="mb-6">
-                <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$0</div>
-              </div>
-              <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=free"}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (!user) {
-                    navigate('/signup?plan=free');
-                  } else {
-                    handleSignInClick(e);
-                  }
-                }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
-              >
-                Get Started
-              </a>
-            </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mb-20">
             {/* Starter Plan */}
-            <div className="border border-[var(--border-subtle)] rounded-lg p-6 bg-[var(--elevated)]">
-              <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Starter</h3>
-              <ul className="space-y-3 mb-8">
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="border border-[var(--border-subtle)] rounded-lg p-8 bg-[var(--elevated)]">
+              <h3 className="text-3xl font-bold text-[var(--text-primary)] mb-4">Starter</h3>
+              <div className="mb-6">
+                <div className="text-4xl font-bold text-[var(--text-primary)] mb-2">$19 <span className="text-xl font-normal text-[var(--text-muted)]">/ month</span></div>
+                <p className="text-sm text-[var(--text-muted)]">Perfect for getting started</p>
+              </div>
+              <ul className="space-y-4 mb-8">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">256 MB RAM</span>
+                  <span className="text-[var(--text-secondary)]">1 app, 1 VPS</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-[var(--text-secondary)]">512 MB RAM</span>
+                </li>
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-[var(--text-secondary)]">5 GB Disk</span>
+                </li>
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   <span className="text-[var(--text-secondary)]">Always-on</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">1 app</span>
+                  <span className="text-[var(--text-secondary)]">Auto-deploy</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">Custom domain</span>
+                  <span className="text-[var(--text-secondary)]">Health checks</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">Manual deploy</span>
+                  <span className="text-[var(--text-secondary)]">Logs & monitoring</span>
                 </li>
               </ul>
-              <div className="mb-6">
-                <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$5 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
-              </div>
               <a
                 href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=starter"}
                 onClick={(e) => {
@@ -583,107 +542,72 @@ export default function LandingPage() {
                     handleSignInClick(e);
                   }
                 }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
+                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
               >
-                Start Starter
-              </a>
-            </div>
-
-            {/* Builder Plan */}
-            <div className="border-2 border-[var(--primary)] rounded-lg p-6 bg-[var(--elevated)] relative">
-              <div className="absolute top-0 right-0 bg-[var(--primary)] text-[var(--app-bg)] px-3 py-1 rounded-bl-lg rounded-tr-lg text-xs font-medium">
-                Most Popular
-              </div>
-              <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Builder</h3>
-              <ul className="space-y-3 mb-8">
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">512 MB RAM</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">3 apps</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">Auto deploy</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">Health checks</span>
-                </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="text-[var(--text-secondary)]">Logs</span>
-                </li>
-              </ul>
-              <div className="mb-6">
-                <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$15 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
-              </div>
-              <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=builder"}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (!user) {
-                    navigate('/signup?plan=builder');
-                  } else {
-                    handleSignInClick(e);
-                  }
-                }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
-              >
-                Start Builder
+                Get Started
               </a>
             </div>
 
             {/* Pro Plan */}
-            <div className="border border-[var(--border-subtle)] rounded-lg p-6 bg-[var(--elevated)]">
-              <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Pro</h3>
-              <ul className="space-y-3 mb-8">
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="border-2 border-[var(--primary)] rounded-lg p-8 bg-[var(--elevated)] relative">
+              <div className="absolute top-0 right-0 bg-[var(--primary)] text-[var(--app-bg)] px-4 py-1 rounded-bl-lg rounded-tr-lg text-xs font-semibold">
+                Most Popular
+              </div>
+              <h3 className="text-3xl font-bold text-[var(--text-primary)] mb-4">Pro</h3>
+              <div className="mb-6">
+                <div className="text-4xl font-bold text-[var(--text-primary)] mb-2">$49 <span className="text-xl font-normal text-[var(--text-muted)]">/ month</span></div>
+                <p className="text-sm text-[var(--text-muted)]">For growing applications</p>
+              </div>
+              <ul className="space-y-4 mb-8">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">1 GB RAM</span>
+                  <span className="text-[var(--text-secondary)]">Up to 3 apps, 1 VPS</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">5 apps</span>
+                  <span className="text-[var(--text-secondary)]">2 GB RAM (shared)</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">Zero-downtime</span>
+                  <span className="text-[var(--text-secondary)]">20 GB Disk</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-[var(--text-secondary)]">Workers</span>
+                  <span className="text-[var(--text-secondary)]">Always-on</span>
                 </li>
-                <li className="flex items-start text-sm">
-                  <svg className="w-5 h-5 text-[var(--success)] mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-[var(--text-secondary)]">Auto-deploy</span>
+                </li>
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-[var(--text-secondary)]">Zero-downtime deployments</span>
+                </li>
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   <span className="text-[var(--text-secondary)]">Priority builds</span>
                 </li>
+                <li className="flex items-start">
+                  <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-[var(--text-secondary)]">All Starter features</span>
+                </li>
               </ul>
-              <div className="mb-6">
-                <div className="text-3xl font-bold text-[var(--text-primary)] mb-2">$29 <span className="text-lg font-normal text-[var(--text-muted)]">/ month</span></div>
-              </div>
               <a
                 href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=pro"}
                 onClick={(e) => {
@@ -694,11 +618,18 @@ export default function LandingPage() {
                     handleSignInClick(e);
                   }
                 }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-3 px-6 rounded-lg transition-colors"
+                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
               >
-                Start Pro
+                Get Started
               </a>
             </div>
+          </div>
+
+          {/* Trial Notice */}
+          <div className="text-center mb-12 p-6 rounded-lg border border-[var(--primary)]/20 bg-[var(--primary-muted)]/10">
+            <p className="text-lg text-[var(--text-primary)]">
+              <strong>7-day free trial</strong> — No credit card required. Try Pro features for free!
+            </p>
           </div>
 
           {/* FAQ Section */}

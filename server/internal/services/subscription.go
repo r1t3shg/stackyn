@@ -8,11 +8,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// AppStopper interface for stopping user apps
+type AppStopper interface {
+	StopAllUserApps(ctx context.Context, userID string) error
+}
+
 // SubscriptionService handles subscription and trial management
 type SubscriptionService struct {
 	subscriptionRepo SubscriptionRepo
 	emailService     *EmailService
 	userRepo         UserRepository
+	appStopper       AppStopper // Optional - for stopping apps when trial expires
 	logger           *zap.Logger
 }
 
@@ -62,8 +68,14 @@ func NewSubscriptionService(
 		subscriptionRepo: subscriptionRepo,
 		emailService:     emailService,
 		userRepo:         userRepo,
+		appStopper:       nil, // Can be set later if needed
 		logger:           logger,
 	}
+}
+
+// SetAppStopper sets the app stopper for stopping apps when trial expires
+func (s *SubscriptionService) SetAppStopper(appStopper AppStopper) {
+	s.appStopper = appStopper
 }
 
 // CreateTrial creates a 7-day free trial for a new user
@@ -210,6 +222,26 @@ func (s *SubscriptionService) ExpireTrial(ctx context.Context, userID, userEmail
 	s.logger.Info("Trial expired",
 		zap.String("user_id", userID),
 	)
+
+	// Stop all running apps for the user (non-blocking)
+	if s.appStopper != nil {
+		go func() {
+			if err := s.appStopper.StopAllUserApps(ctx, userID); err != nil {
+				s.logger.Warn("Failed to stop user apps after trial expiration",
+					zap.Error(err),
+					zap.String("user_id", userID),
+				)
+			} else {
+				s.logger.Info("Stopped all user apps after trial expiration",
+					zap.String("user_id", userID),
+				)
+			}
+		}()
+	} else {
+		s.logger.Warn("AppStopper not set - apps will not be stopped automatically",
+			zap.String("user_id", userID),
+		)
+	}
 
 	// Send trial expired email (non-blocking)
 	if userEmail != "" {

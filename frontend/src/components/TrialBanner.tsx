@@ -7,12 +7,35 @@ interface TrialBannerProps {
 
 export default function TrialBanner({ userProfile }: TrialBannerProps) {
   const trialInfo = useMemo(() => {
-    if (!userProfile?.subscription || userProfile.subscription.status !== 'trial') {
+    // Debug: Log subscription data to help diagnose
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[TrialBanner] userProfile:', userProfile);
+      console.log('[TrialBanner] subscription:', userProfile?.subscription);
+    }
+    
+    if (!userProfile?.subscription) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[TrialBanner] No subscription found in userProfile');
+      }
       return null;
     }
 
     const subscription = userProfile.subscription;
+    
+    if (subscription.status !== 'trial') {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[TrialBanner] Subscription status is not "trial":', subscription.status);
+      }
+      return null;
+    }
+
     if (!subscription.trial_started_at || !subscription.trial_ends_at) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[TrialBanner] Missing trial dates:', {
+          trial_started_at: subscription.trial_started_at,
+          trial_ends_at: subscription.trial_ends_at,
+        });
+      }
       return null;
     }
 
@@ -36,7 +59,17 @@ export default function TrialBanner({ userProfile }: TrialBannerProps) {
     };
   }, [userProfile]);
 
+  // Always render something in development to help debug
   if (!trialInfo) {
+    if (process.env.NODE_ENV === 'development' && userProfile) {
+      // Show debug info in development
+      return (
+        <div className="bg-yellow-50 border-b border-yellow-200 text-xs p-2">
+          <strong>Debug:</strong> Trial banner not showing. 
+          Subscription: {userProfile.subscription ? JSON.stringify(userProfile.subscription, null, 2) : 'null'}
+        </div>
+      );
+    }
     return null;
   }
 
