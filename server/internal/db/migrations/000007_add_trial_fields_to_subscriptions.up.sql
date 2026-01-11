@@ -2,6 +2,7 @@
 -- This migration adds support for 7-day free trials and resource limits
 
 -- Check if subscription_id column exists and rename it to lemon_subscription_id
+-- Or add lemon_subscription_id if neither exists
 -- This makes the migration idempotent (safe to run multiple times)
 DO $$
 BEGIN
@@ -16,6 +17,14 @@ BEGIN
     ALTER TABLE subscriptions ALTER COLUMN subscription_id DROP NOT NULL;
     -- Rename subscription_id to lemon_subscription_id for clarity
     ALTER TABLE subscriptions RENAME COLUMN subscription_id TO lemon_subscription_id;
+  ELSIF NOT EXISTS (
+    SELECT 1 
+    FROM information_schema.columns 
+    WHERE table_name = 'subscriptions' 
+    AND column_name = 'lemon_subscription_id'
+  ) THEN
+    -- Neither column exists, add lemon_subscription_id as nullable
+    ALTER TABLE subscriptions ADD COLUMN lemon_subscription_id VARCHAR(255);
   END IF;
 END $$;
 

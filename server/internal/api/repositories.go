@@ -608,7 +608,12 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		r.logger.Error("Failed to begin transaction for app deletion", zap.Error(err), zap.String("app_id", appID))
 		return err
 	}
-	defer tx.Rollback(ctx)
+	// Defer rollback - will be a no-op if Commit succeeds
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
+			r.logger.Warn("Transaction rollback error (may be expected if commit succeeded)", zap.Error(err))
+		}
+	}()
 	
 	// Step 1: Delete all app_logs associated with this app
 	// Note: app_logs uses TEXT for app_id, so it doesn't cascade automatically
@@ -624,6 +629,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 			// Table doesn't exist - this is fine, log persistence may not be enabled
 			r.logger.Debug("app_logs table does not exist, skipping log deletion", zap.String("app_id", appID))
 		} else {
+			// Transaction is aborted, return error (defer will handle rollback)
 			r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
 			return err
 		}
@@ -640,6 +646,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		appID, userID,
 	)
 	if err != nil {
+		// Transaction is aborted, return error (defer will handle rollback)
 		r.logger.Error("Failed to delete app", zap.Error(err), zap.String("app_id", appID), zap.String("user_id", userID))
 		return err
 	}
@@ -649,7 +656,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		return pgx.ErrNoRows
 	}
 	
-	// Commit transaction
+	// Commit transaction (this will prevent the defer rollback from executing)
 	if err := tx.Commit(ctx); err != nil {
 		r.logger.Error("Failed to commit transaction for app deletion", zap.Error(err), zap.String("app_id", appID))
 		return err
