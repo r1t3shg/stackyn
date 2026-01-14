@@ -618,26 +618,35 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 	// Step 1: Delete all app_logs associated with this app
 	// Note: app_logs uses TEXT for app_id, so it doesn't cascade automatically
 	// Note: app_logs table is optional (only exists if Postgres log persistence is enabled)
-	logsResult, err := tx.Exec(ctx,
-		"DELETE FROM app_logs WHERE app_id = $1",
-		appID,
-	)
+	// Check if table exists before attempting to delete
+	var tableExists bool
+	err = tx.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'app_logs'
+		)`,
+	).Scan(&tableExists)
 	if err != nil {
-		// Check if the error is because the table doesn't exist (42P01 = undefined_table)
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-			// Table doesn't exist - this is fine, log persistence may not be enabled
-			r.logger.Debug("app_logs table does not exist, skipping log deletion", zap.String("app_id", appID))
-		} else {
-			// Transaction is aborted, return error (defer will handle rollback)
+		r.logger.Error("Failed to check if app_logs table exists", zap.Error(err), zap.String("app_id", appID))
+		return err
+	}
+	
+	if tableExists {
+		logsResult, err := tx.Exec(ctx,
+			"DELETE FROM app_logs WHERE app_id = $1",
+			appID,
+		)
+		if err != nil {
 			r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
 			return err
 		}
-	} else {
 		r.logger.Info("Deleted app logs", 
 			zap.String("app_id", appID), 
 			zap.Int64("logs_deleted", logsResult.RowsAffected()),
 		)
+	} else {
+		r.logger.Debug("app_logs table does not exist, skipping log deletion", zap.String("app_id", appID))
 	}
 	
 	// Step 2: Delete the app (cascade will handle related records: build_jobs, deployments, env_vars, runtime_instances)
