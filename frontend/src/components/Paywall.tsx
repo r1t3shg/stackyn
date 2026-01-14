@@ -37,22 +37,6 @@ export default function Paywall({ userProfile, message }: PaywallProps) {
     return "Billing is inactive. Upgrade to continue.";
   };
 
-  const getUpgradeUrl = () => {
-    // In production, this would be the Lemon Squeezy checkout URL
-    // For testing, we can use a test mode checkout URL
-    const plan = userProfile?.subscription?.plan || userProfile?.plan || 'starter';
-    
-    // Lemon Squeezy test mode checkout URLs
-    // Replace with your actual Lemon Squeezy product IDs
-    const testCheckoutUrls: Record<string, string> = {
-      starter: 'https://stackyn.lemonsqueezy.com/checkout/buy/test-starter-id', // Replace with actual test product ID
-      pro: 'https://stackyn.lemonsqueezy.com/checkout/buy/test-pro-id', // Replace with actual test product ID
-    };
-
-    // For now, return pricing page - user can select plan there
-    return '/pricing';
-  };
-
   return (
     <div className="fixed inset-0 bg-[var(--app-bg)] z-50 flex items-center justify-center p-4">
       <div className="max-w-2xl w-full bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg p-8 shadow-xl">

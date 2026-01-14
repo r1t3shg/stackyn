@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { userApi } from '@/lib/api';
 
 interface BillingTestPanelProps {
   onUpdate?: () => void;
