@@ -353,6 +353,12 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/lemon-squeezy", webhookHandlers.LemonSqueezyWebhook)
 	})
 
+	// Test endpoints - for testing billing states (disabled in production)
+	r.Route("/api/v1/test", func(r chi.Router) {
+		r.Use(AuthMiddleware(jwtService, logger))
+		r.Post("/billing", handlers.TestBillingState)
+	})
+
 	// Admin routes - requires authentication
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(AuthMiddleware(jwtService, logger))

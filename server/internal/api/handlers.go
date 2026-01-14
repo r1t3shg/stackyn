@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -109,16 +110,17 @@ type CreateEnvVarRequest struct {
 }
 
 type UserProfile struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	FullName     string    `json:"full_name,omitempty"`
-	CompanyName  string    `json:"company_name,omitempty"`
-	EmailVerified bool     `json:"email_verified"`
-	Plan         string    `json:"plan"`
-	CreatedAt    string    `json:"created_at"`
-	UpdatedAt    string    `json:"updated_at"`
-	Quota        *Quota    `json:"quota,omitempty"`
-	Subscription *SubscriptionInfo `json:"subscription,omitempty"`
+	ID            string             `json:"id"`
+	Email         string             `json:"email"`
+	FullName      string             `json:"full_name,omitempty"`
+	CompanyName   string             `json:"company_name,omitempty"`
+	EmailVerified bool               `json:"email_verified"`
+	Plan          string             `json:"plan"`
+	BillingStatus string             `json:"billing_status,omitempty"` // trial | active | expired
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+	Quota         *Quota             `json:"quota,omitempty"`
+	Subscription  *SubscriptionInfo  `json:"subscription,omitempty"`
 }
 
 type SubscriptionInfo struct {
@@ -1703,14 +1705,15 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Build profile response with plan and quota information
 	profile := UserProfile{
-		ID:           user.ID,
-		Email:        user.Email,
-		FullName:     user.FullName,
-		CompanyName:  user.CompanyName,
+		ID:            user.ID,
+		Email:         user.Email,
+		FullName:      user.FullName,
+		CompanyName:   user.CompanyName,
 		EmailVerified: false, // TODO: Implement email verification check
-		Plan:         planName,
-		CreatedAt:    createdAt.Format(time.RFC3339),
-		UpdatedAt:    updatedAt.Format(time.RFC3339),
+		Plan:          planName,
+		BillingStatus: user.BillingStatus, // Include billing_status from users table
+		CreatedAt:     createdAt.Format(time.RFC3339),
+		UpdatedAt:     updatedAt.Format(time.RFC3339),
 		Quota: &Quota{
 			PlanName:    plan.Name,
 			AppCount:    appCount,
@@ -2617,6 +2620,106 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		"apps_deleted": appCount,
 	}
 	
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// POST /api/v1/test/billing - Test endpoint to simulate billing states
+// WARNING: This is for testing only! Should be disabled in production.
+func (h *Handlers) TestBillingState(w http.ResponseWriter, r *http.Request) {
+	// Only allow in development/test environments
+	if os.Getenv("ENV") == "production" {
+		h.writeError(w, http.StatusForbidden, "Test endpoint disabled in production")
+		return
+	}
+
+	userID := h.getUserIDFromContext(r)
+	if userID == "" {
+		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	var req struct {
+		BillingStatus string     `json:"billing_status"` // trial | active | expired
+		Plan          string     `json:"plan"`           // free_trial | starter | pro
+		TrialEndsAt   *time.Time `json:"trial_ends_at,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate billing_status
+	if req.BillingStatus != "" && req.BillingStatus != "trial" && req.BillingStatus != "active" && req.BillingStatus != "expired" {
+		h.writeError(w, http.StatusBadRequest, "Invalid billing_status. Must be: trial, active, or expired")
+		return
+	}
+
+	// Validate plan
+	if req.Plan != "" && req.Plan != "free_trial" && req.Plan != "starter" && req.Plan != "pro" {
+		h.writeError(w, http.StatusBadRequest, "Invalid plan. Must be: free_trial, starter, or pro")
+		return
+	}
+
+	// Get current user to preserve existing values
+	user, err := h.userRepo.GetUserByID(userID)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "Failed to get user")
+		return
+	}
+
+	// Update billing fields
+	billingStatus := req.BillingStatus
+	if billingStatus == "" {
+		billingStatus = user.BillingStatus
+	}
+
+	plan := req.Plan
+	if plan == "" {
+		plan = user.Plan
+	}
+
+	var trialEndsAt *time.Time
+	if req.TrialEndsAt != nil {
+		trialEndsAt = req.TrialEndsAt
+	} else if billingStatus == "trial" && user.TrialEndsAt == nil {
+		// Set trial to end in 7 days if not specified
+		endsAt := time.Now().Add(7 * 24 * time.Hour)
+		trialEndsAt = &endsAt
+	} else {
+		trialEndsAt = user.TrialEndsAt
+	}
+
+	var trialStartedAt *time.Time
+	if billingStatus == "trial" && user.TrialStartedAt == nil {
+		startedAt := time.Now()
+		trialStartedAt = &startedAt
+	} else {
+		trialStartedAt = user.TrialStartedAt
+	}
+
+	// Update user billing
+	if err := h.userRepo.UpdateUserBilling(r.Context(), userID, billingStatus, plan, user.SubscriptionID, trialStartedAt, trialEndsAt); err != nil {
+		h.logger.Error("Failed to update user billing", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "Failed to update billing status")
+		return
+	}
+
+	h.logger.Info("Test billing state updated",
+		zap.String("user_id", userID),
+		zap.String("billing_status", billingStatus),
+		zap.String("plan", plan),
+	)
+
+	response := map[string]interface{}{
+		"message":        "Billing state updated for testing",
+		"user_id":        userID,
+		"billing_status": billingStatus,
+		"plan":           plan,
+		"trial_ends_at":  trialEndsAt,
+		"warning":        "This is a test endpoint. Changes will persist in the database.",
+	}
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 

@@ -4,6 +4,9 @@ import { appsApi, userApi } from '@/lib/api';
 import type { App, UserProfile } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import TrialBanner from '@/components/TrialBanner';
+import Paywall from '@/components/Paywall';
+import BillingTestPanel from '@/components/BillingTestPanel';
+import { shouldShowPaywall } from '@/lib/billing';
 import { useAuth } from '@/contexts/AuthContext';
 
 type SortField = 'name' | 'status' | 'last_deployed' | 'created_at';
@@ -197,6 +200,16 @@ export default function Home() {
       {/* Trial Banner */}
       <TrialBanner userProfile={userProfile} />
       
+      {/* Billing Test Panel (dev only) */}
+      <BillingTestPanel onUpdate={loadUserProfile} />
+      
+      {/* Show paywall if billing is inactive */}
+      {shouldShowPaywall(userProfile) && (
+        <Paywall userProfile={userProfile} />
+      )}
+      
+      {/* Hide main content if paywall is shown */}
+      {!shouldShowPaywall(userProfile) && (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* User Profile CTA Section */}
         {userProfile && !profileLoading && (
@@ -518,6 +531,7 @@ export default function Home() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

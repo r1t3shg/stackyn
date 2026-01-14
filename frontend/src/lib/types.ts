@@ -101,6 +101,7 @@ export interface UserProfile {
   company_name?: string;
   email_verified: boolean;
   plan: string;
+  billing_status?: 'trial' | 'active' | 'expired'; // Billing status from users table
   created_at: string;
   updated_at: string;
   quota?: {
