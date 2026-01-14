@@ -30,8 +30,6 @@ export default function AppDetailsPage() {
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   
   const loadApp = useCallback(async () => {
     try {
