@@ -4,6 +4,7 @@ import { appsApi, deploymentsApi } from '@/lib/api';
 import type { App, Deployment, EnvVar, DeploymentLogs } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import LogsViewer from '@/components/LogsViewer';
+import ConfirmModal from '@/components/ConfirmModal';
 import { extractString } from '@/lib/types';
 
 type Tab = 'overview' | 'deployments' | 'metrics' | 'settings';
@@ -27,6 +28,10 @@ export default function AppDetailsPage() {
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const runtimeLogsContainerRef = useRef<HTMLDivElement>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const loadApp = useCallback(async () => {
     try {
@@ -284,10 +289,12 @@ export default function AppDetailsPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this app? This action cannot be undone and will remove all deployments and data.')) {
-      return;
-    }
+  const handleDeleteClick = () => {
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    setIsDeleting(true);
     setActionLoading('delete');
     try {
       await appsApi.delete(appId);
@@ -295,7 +302,15 @@ export default function AppDetailsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete app');
       console.error('Error deleting app:', err);
+      setIsDeleting(false);
       setActionLoading(null);
+      setShowDeleteModal(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    if (!isDeleting) {
+      setShowDeleteModal(false);
     }
   };
 
@@ -496,12 +511,12 @@ export default function AppDetailsPage() {
                 {actionLoading === 'redeploy' ? 'Redeploying...' : 'Redeploy'}
               </button>
               <button
-                onClick={handleDelete}
+                onClick={handleDeleteClick}
                 disabled={actionLoading !== null}
                 className="px-4 py-2 bg-[var(--error)] hover:bg-[var(--error)]/80 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Delete app"
               >
-                {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
+                Delete
               </button>
             </div>
           </div>
@@ -1061,6 +1076,19 @@ export default function AppDetailsPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        title="Delete App"
+        message={`Are you sure you want to delete "${app?.name}"? This action cannot be undone and will permanently remove all deployments, logs, and data associated with this app.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDeleteConfirm}
+        onCancel={handleDeleteCancel}
+        isLoading={isDeleting}
+        variant="danger"
+      />
     </div>
   );
 }
