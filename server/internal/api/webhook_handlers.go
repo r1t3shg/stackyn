@@ -74,7 +74,7 @@ func (h *WebhookHandlers) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Req
 	// Process webhook event based on type
 	ctx := r.Context()
 	switch payload.Meta.EventName {
-	case "subscription_created", "subscription_updated":
+	case "subscription_created", "subscription_updated", "invoice_paid":
 		if err := h.handleSubscriptionEvent(ctx, payload); err != nil {
 			h.logger.Error("Failed to handle subscription event",
 				zap.Error(err),
@@ -83,7 +83,7 @@ func (h *WebhookHandlers) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Req
 			h.writeError(w, http.StatusInternalServerError, "Failed to process webhook")
 			return
 		}
-	case "subscription_cancelled", "subscription_expired":
+	case "subscription_cancelled", "subscription_expired", "invoice_failed":
 		if err := h.handleSubscriptionCancellation(ctx, payload); err != nil {
 			h.logger.Error("Failed to handle subscription cancellation",
 				zap.Error(err),
@@ -176,6 +176,7 @@ func (h *WebhookHandlers) handleSubscriptionEvent(ctx context.Context, payload L
 // handleSubscriptionCancellation handles subscription cancellation/expiration events
 func (h *WebhookHandlers) handleSubscriptionCancellation(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
 	customerID := payload.Data.Attributes.CustomerID
+	eventName := payload.Meta.EventName
 
 	// Get user by customer ID
 	user, err := h.userRepo.GetUserByEmail(customerID) // Assuming customerID is email for MVP
@@ -183,9 +184,17 @@ func (h *WebhookHandlers) handleSubscriptionCancellation(ctx context.Context, pa
 		return fmt.Errorf("failed to find user for customer ID %s: %w", customerID, err)
 	}
 
-	// Cancel subscription
-	if err := h.subscriptionService.CancelSubscription(ctx, user.ID); err != nil {
-		return fmt.Errorf("failed to cancel subscription: %w", err)
+	// Handle invoice_failed differently - mark as expired and stop apps
+	if eventName == "invoice_failed" {
+		// Mark subscription as expired (payment failed)
+		if err := h.subscriptionService.ExpireSubscription(ctx, user.ID, user.Email); err != nil {
+			return fmt.Errorf("failed to expire subscription: %w", err)
+		}
+	} else {
+		// Cancel subscription (user-initiated cancellation)
+		if err := h.subscriptionService.CancelSubscription(ctx, user.ID); err != nil {
+			return fmt.Errorf("failed to cancel subscription: %w", err)
+		}
 	}
 
 	return nil

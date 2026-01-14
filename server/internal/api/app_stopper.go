@@ -41,12 +41,23 @@ func (s *AppStopperImpl) StopAllUserApps(ctx context.Context, userID string) err
 		zap.Int("app_count", len(apps)),
 	)
 
-	// Stop each app
+	// Stop each app and mark as disabled
 	for _, app := range apps {
+		// Mark app as disabled in database (idempotent - safe to run multiple times)
+		if err := s.appRepo.UpdateApp(app.ID, "disabled", ""); err != nil {
+			s.logger.Warn("Failed to mark app as disabled",
+				zap.Error(err),
+				zap.String("app_id", app.ID),
+				zap.String("app_name", app.Name),
+				zap.String("user_id", userID),
+			)
+			// Continue stopping other apps even if marking fails
+		}
+
 		if s.deploymentService != nil {
 			// Cleanup app resources (stops containers)
 			if err := s.deploymentService.CleanupAppResources(ctx, app.ID); err != nil {
-				s.logger.Warn("Failed to stop app",
+				s.logger.Warn("Failed to stop app containers",
 					zap.Error(err),
 					zap.String("app_id", app.ID),
 					zap.String("app_name", app.Name),
@@ -54,18 +65,24 @@ func (s *AppStopperImpl) StopAllUserApps(ctx context.Context, userID string) err
 				)
 				// Continue stopping other apps even if one fails
 			} else {
-				s.logger.Info("Stopped app",
+				s.logger.Info("Stopped app containers",
 					zap.String("app_id", app.ID),
 					zap.String("app_name", app.Name),
 					zap.String("user_id", userID),
 				)
 			}
 		} else {
-			s.logger.Warn("Deployment service not available, cannot stop app",
+			s.logger.Warn("Deployment service not available, cannot stop app containers",
 				zap.String("app_id", app.ID),
 				zap.String("user_id", userID),
 			)
 		}
+
+		s.logger.Info("App disabled and stopped",
+			zap.String("app_id", app.ID),
+			zap.String("app_name", app.Name),
+			zap.String("user_id", userID),
+		)
 	}
 
 	return nil

@@ -18,7 +18,8 @@ type SubscriptionService struct {
 	subscriptionRepo SubscriptionRepo
 	emailService     *EmailService
 	userRepo         UserRepository
-	appStopper       AppStopper // Optional - for stopping apps when trial expires
+	billingUpdater   UserBillingUpdater // Optional - for syncing billing fields to users table
+	appStopper       AppStopper         // Optional - for stopping apps when trial expires
 	logger           *zap.Logger
 }
 
@@ -57,6 +58,12 @@ type UserRepository interface {
 	GetUserByEmail(email string) (*User, error)
 }
 
+// UserBillingUpdater interface for updating user billing fields
+// This allows the subscription service to sync billing status to users table
+type UserBillingUpdater interface {
+	UpdateUserBilling(ctx context.Context, userID, billingStatus, plan, subscriptionID string, trialStartedAt, trialEndsAt *time.Time) error
+}
+
 // NewSubscriptionService creates a new subscription service
 func NewSubscriptionService(
 	subscriptionRepo SubscriptionRepo,
@@ -68,9 +75,15 @@ func NewSubscriptionService(
 		subscriptionRepo: subscriptionRepo,
 		emailService:     emailService,
 		userRepo:         userRepo,
+		billingUpdater:   nil, // Can be set later if needed
 		appStopper:       nil, // Can be set later if needed
 		logger:           logger,
 	}
+}
+
+// SetBillingUpdater sets the billing updater for syncing billing fields to users table
+func (s *SubscriptionService) SetBillingUpdater(updater UserBillingUpdater) {
+	s.billingUpdater = updater
 }
 
 // SetAppStopper sets the app stopper for stopping apps when trial expires
@@ -109,6 +122,17 @@ func (s *SubscriptionService) CreateTrial(ctx context.Context, userID, userEmail
 		zap.String("subscription_id", subscription.ID),
 		zap.Time("trial_ends_at", trialEndsAt),
 	)
+
+	// Sync billing fields to users table (non-blocking)
+	if s.billingUpdater != nil {
+		if err := s.billingUpdater.UpdateUserBilling(ctx, userID, "trial", "free_trial", "", &now, &trialEndsAt); err != nil {
+			s.logger.Warn("Failed to sync billing fields to users table",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Non-critical - subscription table is source of truth
+		}
+	}
 
 	// Send trial started email (non-blocking - don't fail signup if email fails)
 	go func() {
@@ -181,6 +205,17 @@ func (s *SubscriptionService) ActivateSubscription(ctx context.Context, userID, 
 		zap.String("lemon_sub_id", lemonSubID),
 	)
 
+	// Sync billing fields to users table (non-blocking)
+	if s.billingUpdater != nil {
+		if err := s.billingUpdater.UpdateUserBilling(ctx, userID, "active", plan, lemonSubID, nil, nil); err != nil {
+			s.logger.Warn("Failed to sync billing fields to users table",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Non-critical - subscription table is source of truth
+		}
+	}
+
 	// Send subscription activated email (non-blocking)
 	if userEmail != "" {
 		go func() {
@@ -223,20 +258,36 @@ func (s *SubscriptionService) ExpireTrial(ctx context.Context, userID, userEmail
 		zap.String("user_id", userID),
 	)
 
-	// Stop all running apps for the user (non-blocking)
+	// Sync billing fields to users table (non-blocking)
+	if s.billingUpdater != nil {
+		// Get current subscription to preserve plan
+		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+		plan := ""
+		if err == nil && sub != nil {
+			plan = sub.Plan
+		}
+		if err := s.billingUpdater.UpdateUserBilling(ctx, userID, "expired", plan, "", nil, nil); err != nil {
+			s.logger.Warn("Failed to sync billing fields to users table",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Non-critical - subscription table is source of truth
+		}
+	}
+
+	// Stop all running apps for the user (blocking - must complete before continuing)
 	if s.appStopper != nil {
-		go func() {
-			if err := s.appStopper.StopAllUserApps(ctx, userID); err != nil {
-				s.logger.Warn("Failed to stop user apps after trial expiration",
-					zap.Error(err),
-					zap.String("user_id", userID),
-				)
-			} else {
-				s.logger.Info("Stopped all user apps after trial expiration",
-					zap.String("user_id", userID),
-				)
-			}
-		}()
+		if err := s.appStopper.StopAllUserApps(ctx, userID); err != nil {
+			s.logger.Warn("Failed to stop user apps after trial expiration",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Continue anyway - don't fail trial expiration if app stopping fails
+		} else {
+			s.logger.Info("Stopped all user apps after trial expiration",
+				zap.String("user_id", userID),
+			)
+		}
 	} else {
 		s.logger.Warn("AppStopper not set - apps will not be stopped automatically",
 			zap.String("user_id", userID),
@@ -284,6 +335,89 @@ func (s *SubscriptionService) CancelSubscription(ctx context.Context, userID str
 	s.logger.Info("Subscription cancelled",
 		zap.String("user_id", userID),
 	)
+
+	return nil
+}
+
+// ExpireSubscription expires a subscription (payment failed or subscription expired)
+// Stops all apps and sends email notification
+func (s *SubscriptionService) ExpireSubscription(ctx context.Context, userID, userEmail string) error {
+	err := s.subscriptionRepo.UpdateSubscriptionByUserID(
+		ctx,
+		userID,
+		"",    // Don't change plan
+		"expired",
+		nil,   // Don't change RAM limit
+		nil,   // Don't change disk limit
+		nil,   // Don't change lemon_subscription_id
+	)
+	if err != nil {
+		s.logger.Error("Failed to expire subscription",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
+		return fmt.Errorf("failed to expire subscription: %w", err)
+	}
+
+	s.logger.Info("Subscription expired",
+		zap.String("user_id", userID),
+	)
+
+	// Sync billing fields to users table (non-blocking)
+	if s.billingUpdater != nil {
+		// Get current subscription to preserve plan
+		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+		plan := ""
+		subscriptionID := ""
+		if err == nil && sub != nil {
+			plan = sub.Plan
+			if sub.LemonSubscriptionID != nil {
+				subscriptionID = *sub.LemonSubscriptionID
+			}
+		}
+		if err := s.billingUpdater.UpdateUserBilling(ctx, userID, "expired", plan, subscriptionID, nil, nil); err != nil {
+			s.logger.Warn("Failed to sync billing fields to users table",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Non-critical - subscription table is source of truth
+		}
+	}
+
+	// Stop all running apps for the user (blocking - must complete)
+	if s.appStopper != nil {
+		if err := s.appStopper.StopAllUserApps(ctx, userID); err != nil {
+			s.logger.Warn("Failed to stop user apps after subscription expiration",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+			// Continue anyway - don't fail expiration if app stopping fails
+		} else {
+			s.logger.Info("Stopped all user apps after subscription expiration",
+				zap.String("user_id", userID),
+			)
+		}
+	} else {
+		s.logger.Warn("AppStopper not set - apps will not be stopped automatically",
+			zap.String("user_id", userID),
+		)
+	}
+
+	// Send payment failed email (non-blocking)
+	if userEmail != "" {
+		go func() {
+			if err := s.emailService.SendPaymentFailedEmail(userEmail); err != nil {
+				s.logger.Warn("Failed to send payment failed email",
+					zap.Error(err),
+					zap.String("user_email", userEmail),
+				)
+			} else {
+				s.logger.Info("Payment failed email sent",
+					zap.String("user_email", userEmail),
+				)
+			}
+		}()
+	}
 
 	return nil
 }

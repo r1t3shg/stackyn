@@ -28,17 +28,24 @@ func (h *AuthHandlers) GetJWTService() *services.JWTService {
 }
 
 type User struct {
-	ID           string `json:"id"`
-	Email        string `json:"email"`
-	FullName     string `json:"full_name,omitempty"`
-	CompanyName  string `json:"company_name,omitempty"`
-	PasswordHash string `json:"-"` // Never return password hash in JSON
+	ID             string     `json:"id"`
+	Email          string     `json:"email"`
+	FullName       string     `json:"full_name,omitempty"`
+	CompanyName    string     `json:"company_name,omitempty"`
+	PasswordHash   string     `json:"-"` // Never return password hash in JSON
+	BillingStatus  string     `json:"billing_status,omitempty"` // trial | active | expired
+	Plan           string     `json:"plan,omitempty"`           // free_trial | starter | pro
+	TrialStartedAt *time.Time `json:"trial_started_at,omitempty"`
+	TrialEndsAt    *time.Time `json:"trial_ends_at,omitempty"`
+	SubscriptionID string     `json:"subscription_id,omitempty"`
 }
 
 type UserRepository interface {
 	GetUserByEmail(email string) (*User, error)
+	GetUserByID(userID string) (*User, error)
 	CreateUser(email, fullName, companyName, passwordHash string) (*User, error)
 	UpdateUser(userID, fullName, companyName, passwordHash string) (*User, error)
+	UpdateUserBilling(ctx context.Context, userID, billingStatus, plan, subscriptionID string, trialStartedAt, trialEndsAt *time.Time) error
 }
 
 type OTPRepository interface {
@@ -232,6 +239,18 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 				)
 				// Don't fail signup if trial creation fails - log and continue
 				// User can still sign up, but trial may need manual intervention
+			} else {
+				// Sync billing fields to users table for fast access
+				// Trial was created successfully, update user billing fields
+				now := time.Now()
+				trialEndsAt := now.Add(7 * 24 * time.Hour)
+				if updateErr := h.userRepo.UpdateUserBilling(ctx, user.ID, "trial", "free_trial", "", &now, &trialEndsAt); updateErr != nil {
+					h.logger.Warn("Failed to sync billing fields to users table",
+						zap.Error(updateErr),
+						zap.String("user_id", user.ID),
+					)
+					// Non-critical - subscription table is source of truth
+				}
 			}
 		} else {
 			h.logger.Error("Failed to get user", 

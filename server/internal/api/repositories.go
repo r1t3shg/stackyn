@@ -93,10 +93,15 @@ func (r *UserRepo) GetUserByEmail(email string) (*User, error) {
 	ctx := context.Background()
 	var user User
 	var passwordHash sql.NullString
+	var billingStatus, plan, subscriptionID sql.NullString
+	var trialStartedAt, trialEndsAt sql.NullTime
 	err := r.pool.QueryRow(ctx,
-		"SELECT id, email, full_name, company_name, password_hash FROM users WHERE email = $1",
+		`SELECT id, email, full_name, company_name, password_hash, 
+		        billing_status, plan, trial_started_at, trial_ends_at, subscription_id 
+		 FROM users WHERE email = $1`,
 		email,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash,
+		&billingStatus, &plan, &trialStartedAt, &trialEndsAt, &subscriptionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -107,6 +112,21 @@ func (r *UserRepo) GetUserByEmail(email string) (*User, error) {
 	if passwordHash.Valid {
 		user.PasswordHash = passwordHash.String
 	}
+	if billingStatus.Valid {
+		user.BillingStatus = billingStatus.String
+	}
+	if plan.Valid {
+		user.Plan = plan.String
+	}
+	if subscriptionID.Valid {
+		user.SubscriptionID = subscriptionID.String
+	}
+	if trialStartedAt.Valid {
+		user.TrialStartedAt = &trialStartedAt.Time
+	}
+	if trialEndsAt.Valid {
+		user.TrialEndsAt = &trialEndsAt.Time
+	}
 	return &user, nil
 }
 
@@ -115,10 +135,15 @@ func (r *UserRepo) GetUserByID(userID string) (*User, error) {
 	ctx := context.Background()
 	var user User
 	var passwordHash sql.NullString
+	var billingStatus, plan, subscriptionID sql.NullString
+	var trialStartedAt, trialEndsAt sql.NullTime
 	err := r.pool.QueryRow(ctx,
-		"SELECT id, email, full_name, company_name, password_hash FROM users WHERE id = $1",
+		`SELECT id, email, full_name, company_name, password_hash, 
+		        billing_status, plan, trial_started_at, trial_ends_at, subscription_id 
+		 FROM users WHERE id = $1`,
 		userID,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.CompanyName, &passwordHash,
+		&billingStatus, &plan, &trialStartedAt, &trialEndsAt, &subscriptionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -128,6 +153,21 @@ func (r *UserRepo) GetUserByID(userID string) (*User, error) {
 	}
 	if passwordHash.Valid {
 		user.PasswordHash = passwordHash.String
+	}
+	if billingStatus.Valid {
+		user.BillingStatus = billingStatus.String
+	}
+	if plan.Valid {
+		user.Plan = plan.String
+	}
+	if subscriptionID.Valid {
+		user.SubscriptionID = subscriptionID.String
+	}
+	if trialStartedAt.Valid {
+		user.TrialStartedAt = &trialStartedAt.Time
+	}
+	if trialEndsAt.Valid {
+		user.TrialEndsAt = &trialEndsAt.Time
 	}
 	return &user, nil
 }
@@ -232,6 +272,54 @@ func (r *UserRepo) UpdateUserPassword(userID, passwordHash string) error {
 	)
 	if err != nil {
 		r.logger.Error("Failed to update user password", zap.Error(err), zap.String("user_id", userID))
+		return err
+	}
+	return nil
+}
+
+// UpdateUserBilling updates a user's billing fields
+func (r *UserRepo) UpdateUserBilling(ctx context.Context, userID, billingStatus, plan, subscriptionID string, trialStartedAt, trialEndsAt *time.Time) error {
+	setParts := []string{"updated_at = NOW()"}
+	args := []interface{}{userID}
+	argNum := 2
+
+	if billingStatus != "" {
+		setParts = append(setParts, fmt.Sprintf("billing_status = $%d", argNum))
+		args = append(args, billingStatus)
+		argNum++
+	}
+	if plan != "" {
+		setParts = append(setParts, fmt.Sprintf("plan = $%d", argNum))
+		args = append(args, plan)
+		argNum++
+	}
+	if subscriptionID != "" {
+		setParts = append(setParts, fmt.Sprintf("subscription_id = $%d", argNum))
+		args = append(args, subscriptionID)
+		argNum++
+	} else {
+		// Allow setting to NULL
+		setParts = append(setParts, "subscription_id = NULL")
+	}
+	if trialStartedAt != nil {
+		setParts = append(setParts, fmt.Sprintf("trial_started_at = $%d", argNum))
+		args = append(args, *trialStartedAt)
+		argNum++
+	} else {
+		setParts = append(setParts, "trial_started_at = NULL")
+	}
+	if trialEndsAt != nil {
+		setParts = append(setParts, fmt.Sprintf("trial_ends_at = $%d", argNum))
+		args = append(args, *trialEndsAt)
+		argNum++
+	} else {
+		setParts = append(setParts, "trial_ends_at = NULL")
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $1", strings.Join(setParts, ", "))
+	_, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		r.logger.Error("Failed to update user billing", zap.Error(err), zap.String("user_id", userID))
 		return err
 	}
 	return nil

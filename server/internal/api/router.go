@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
+	"stackyn/server/internal/workers"
 )
 
 // Wrapper types for adapter compatibility
@@ -230,6 +231,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// In production, you may want to use a message queue to trigger app stopping
 	appStopper := NewAppStopper(appRepo, nil, logger) // deploymentService is nil in API server
 	subscriptionService.SetAppStopper(appStopper)
+	// Set billing updater to sync billing fields to users table
+	subscriptionService.SetBillingUpdater(userRepoAdapter)
 	
 	// Initialize task enqueue service for triggering builds/deployments
 	taskEnqueue, err := services.NewTaskEnqueueService(config.Redis.Addr, config.Redis.Password, logger, planEnforcement)
@@ -271,6 +274,16 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	// Initialize auth handlers
 	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo, subscriptionService)
 
+	// Start billing worker for trial expiration (runs every 30 minutes)
+	// This worker checks for expired trials and stops apps
+	go func() {
+		ctx := context.Background()
+		billingWorker := workers.NewBillingWorker(pool, subscriptionService, logger)
+		if err := billingWorker.Start(ctx); err != nil {
+			logger.Error("Billing worker stopped", zap.Error(err))
+		}
+	}()
+
 	// Health check
 	r.Get("/health", handlers.HealthCheck)
 
@@ -295,13 +308,15 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/me", handlers.GetUserProfile)
 	})
 
-	// Apps routes - /api/apps (for listing) - requires authentication
+	// Apps routes - /api/apps (for listing) - requires authentication only (no billing check for read-only)
 	r.With(AuthMiddleware(jwtService, logger)).Get("/api/apps", handlers.ListApps)
 
-	// Apps routes - /api/v1/apps (for CRUD operations) - requires authentication
+	// Apps routes - /api/v1/apps (for CRUD operations) - requires authentication and active billing
 	r.Route("/api/v1/apps", func(r chi.Router) {
 		// Apply authentication middleware to all routes
 		r.Use(AuthMiddleware(jwtService, logger))
+		// Apply billing middleware to enforce active billing for deployments
+		r.Use(BillingMiddleware(userRepo, logger))
 		
 		r.Get("/{id}", handlers.GetAppByID)
 		r.Post("/", handlers.CreateApp)

@@ -104,3 +104,8 @@ func (a *UserRepoAdapter) GetUserByEmail(email string) (*services.User, error) {
 	}, nil
 }
 
+// UpdateUserBilling implements services.UserBillingUpdater interface
+func (a *UserRepoAdapter) UpdateUserBilling(ctx context.Context, userID, billingStatus, plan, subscriptionID string, trialStartedAt, trialEndsAt *time.Time) error {
+	return a.repo.UpdateUserBilling(ctx, userID, billingStatus, plan, subscriptionID, trialStartedAt, trialEndsAt)
+}
+

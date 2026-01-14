@@ -332,3 +332,87 @@ func (s *EmailService) SendSubscriptionActivatedEmail(email, planName string, ra
 	return s.sendEmail(email, subject, htmlBody)
 }
 
+// SendPaymentFailedEmail sends an email when payment fails
+func (s *EmailService) SendPaymentFailedEmail(email string) error {
+	subject := "Payment Failed - Action Required"
+	htmlBody := fmt.Sprintf(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		</head>
+		<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+			<div style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+				<h1 style="color: white; margin: 0; font-size: 28px;">Payment Failed</h1>
+			</div>
+			<div style="background: #ffffff; padding: 40px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+				<h2 style="color: #333; margin-top: 0;">We couldn't process your payment</h2>
+				<p style="color: #666; font-size: 16px;">Your recent payment attempt failed. Here's what happens next:</p>
+				
+				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 20px; margin: 30px 0;">
+					<h3 style="color: #333; margin-top: 0;">What happens now:</h3>
+					<ul style="color: #666; margin: 10px 0; padding-left: 20px;">
+						<li><strong>Your apps will be stopped</strong> until payment is resolved</li>
+						<li><strong>No data loss</strong> - all your apps and data are safe</li>
+						<li><strong>Update your payment method</strong> to restore service</li>
+					</ul>
+				</div>
+
+				<p style="color: #666; font-size: 16px;">Please update your payment method to continue using Stackyn.</p>
+				
+				<div style="text-align: center; margin: 30px 0;">
+					<a href="https://stackyn.com/billing" style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Update Payment Method</a>
+				</div>
+
+				<p style="color: #999; font-size: 12px; margin-top: 30px; border-top: 1px solid #e0e0e0; padding-top: 20px;">If you have any questions, feel free to reach out to our support team.</p>
+			</div>
+		</body>
+		</html>
+	`)
+
+	return s.sendEmail(email, subject, htmlBody)
+}
+
+// SendSubscriptionExpiredEmail sends an email when subscription expires
+func (s *EmailService) SendSubscriptionExpiredEmail(email string) error {
+	subject := "Your Stackyn subscription has expired"
+	htmlBody := fmt.Sprintf(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		</head>
+		<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+			<div style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+				<h1 style="color: white; margin: 0; font-size: 28px;">Subscription Expired</h1>
+			</div>
+			<div style="background: #ffffff; padding: 40px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+				<h2 style="color: #333; margin-top: 0;">Your subscription has expired</h2>
+				<p style="color: #666; font-size: 16px;">Your Stackyn subscription has expired. Here's what happens next:</p>
+				
+				<div style="background: #f5f5f5; border-left: 4px solid #667eea; padding: 20px; margin: 30px 0;">
+					<h3 style="color: #333; margin-top: 0;">What happens now:</h3>
+					<ul style="color: #666; margin: 10px 0; padding-left: 20px;">
+						<li><strong>All apps are stopped</strong> until you resubscribe</li>
+						<li><strong>No data loss</strong> - all your apps and data are safe</li>
+						<li><strong>Resubscribe anytime</strong> to restore service</li>
+					</ul>
+				</div>
+
+				<p style="color: #666; font-size: 16px;">Resubscribe to continue using Stackyn and restore your apps.</p>
+				
+				<div style="text-align: center; margin: 30px 0;">
+					<a href="https://stackyn.com/pricing" style="background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Resubscribe Now</a>
+				</div>
+
+				<p style="color: #999; font-size: 12px; margin-top: 30px; border-top: 1px solid #e0e0e0; padding-top: 20px;">If you have any questions, feel free to reach out to our support team.</p>
+			</div>
+		</body>
+		</html>
+	`)
+
+	return s.sendEmail(email, subject, htmlBody)
+}
+
