@@ -2,10 +2,10 @@ package workers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"stackyn/server/internal/services"
@@ -94,7 +94,7 @@ func (w *BillingWorker) processExpiredTrials(ctx context.Context) error {
 			TrialStartedAt *time.Time
 			TrialEndsAt    *time.Time
 		}
-		var trialStartedAt, trialEndsAt pgx.NullTime
+		var trialStartedAt, trialEndsAt sql.NullTime
 
 		if err := rows.Scan(&user.ID, &user.Email, &user.BillingStatus, &user.Plan, &trialStartedAt, &trialEndsAt); err != nil {
 			w.logger.Error("Failed to scan expired trial user", zap.Error(err))
