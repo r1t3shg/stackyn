@@ -43,7 +43,7 @@ jobs:
         working-directory: ./frontend
         run: npm run build
         env:
-          VITE_API_BASE_URL: ${{ secrets.FRONTEND_API_URL || 'https://api.dev.stackyn.com' }}
+          VITE_API_BASE_URL: ${{ secrets.FRONTEND_API_URL || 'https://api.stackyn.com' }}
 
       # Backend: Build verification
       - name: Setup Go
@@ -214,6 +214,15 @@ jobs:
               fi
             fi
           fi
+
+            # FORCE UPDATE to production domains
+            echo "🔧 Enforcing production domains in .env..."
+            sed -i 's|FRONTEND_API_URL=.*|FRONTEND_API_URL=https://api.stackyn.com|g' .env
+            sed -i 's|FRONTEND_DOMAIN=.*|FRONTEND_DOMAIN=stackyn.com|g' .env
+            sed -i 's|API_DOMAIN=.*|API_DOMAIN=api.stackyn.com|g' .env
+            sed -i 's|CONSOLE_DOMAIN=.*|CONSOLE_DOMAIN=console.stackyn.com|g' .env
+            sed -i 's|APP_BASE_DOMAIN=.*|APP_BASE_DOMAIN=stackyn.com|g' .env
+            echo "✅ Updated .env to use stackyn.com domains"
           
           # Verify critical environment variables are set
           echo "✅ Verifying critical environment variables..."
