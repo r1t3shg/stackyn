@@ -1,9 +1,9 @@
-name: Deploy to Develop
+name: Deploy to Main
 
 on:
   push:
     branches:
-      - develop
+      - main
 
 env:
   NODE_VERSION: '20'
@@ -66,7 +66,7 @@ jobs:
   deploy:
     needs: ci
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -208,9 +208,9 @@ jobs:
                 grep "^APP_BASE_DOMAIN=" env.example >> .env
                 echo "✅ Added APP_BASE_DOMAIN to .env"
               else
-                # Add default value (use dev.stackyn.com as default)
-                echo "APP_BASE_DOMAIN=dev.stackyn.com" >> .env
-                echo "✅ Added APP_BASE_DOMAIN=dev.stackyn.com to .env"
+                # Add default value (use stackyn.com as default)
+                echo "APP_BASE_DOMAIN=stackyn.com" >> .env
+                echo "✅ Added APP_BASE_DOMAIN=stackyn.com to .env"
               fi
             fi
           fi
@@ -380,7 +380,7 @@ jobs:
           # Verify API is responding
           echo "🔍 Verifying API health..."
           sleep 10  # Wait for API to be ready
-          API_URL="https://${API_DOMAIN:-api.dev.stackyn.com}/health"
+          API_URL="https://${API_DOMAIN:-api.stackyn.com}/health"
           if curl -f -s "$API_URL" > /dev/null 2>&1; then
             echo "✅ API health check passed"
           else
@@ -396,8 +396,8 @@ jobs:
           echo ""
           echo "✅ Deployment completed successfully!"
           echo "🌐 Access your application at:"
-          echo "   - Landing: https://${FRONTEND_DOMAIN:-dev.stackyn.com}"
-          echo "   - API: https://${API_DOMAIN:-api.dev.stackyn.com}"
+          echo "   - Landing: https://${FRONTEND_DOMAIN:-stackyn.com}"
+          echo "   - API: https://${API_DOMAIN:-api.stackyn.com}"
           echo ""
           echo "💡 Note: SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT
