@@ -14,6 +14,18 @@ export interface App {
     active_deployment_id: string | null;
     last_deployed_at: string | null;
     state: string;
+    resource_limits?: {
+      memory_mb: number;
+      cpu: number;
+      disk_gb: number;
+    };
+    usage_stats?: {
+      memory_usage_mb: number;
+      memory_usage_percent: number;
+      disk_usage_gb: number;
+      disk_usage_percent: number;
+      restart_count: number;
+    };
   };
 }
 
@@ -26,11 +38,12 @@ interface NullString {
 export interface Deployment {
   id: number;
   app_id: number;
-  status: 'pending' | 'building' | 'running' | 'failed' | 'stopped';
+  status: 'pending' | 'building' | 'deploying' | 'running' | 'failed' | 'stopped';
   image_name?: string | null | NullString;
   container_id?: string | null | NullString;
   subdomain?: string | null | NullString;
   build_log?: string | null | NullString;
+  runtime_log?: string | null | NullString;
   error_message?: string | null | NullString;
   created_at: string;
   updated_at: string;
@@ -50,6 +63,7 @@ export interface DeploymentLogs {
   deployment_id: number;
   status: string;
   build_log?: string | null;
+  runtime_log?: string | null;
   error_message?: string | null;
 }
 
@@ -57,12 +71,69 @@ export interface CreateAppRequest {
   name: string;
   repo_url: string;
   branch: string;
+  env_vars?: Array<{ key: string; value: string }>; // Optional environment variables
 }
 
 export interface CreateAppResponse {
   app: App;
   deployment: Deployment;
   error?: string;
+}
+
+export interface EnvVar {
+  id: number;
+  app_id: number;
+  key: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEnvVarRequest {
+  key: string;
+  value: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name?: string;
+  company_name?: string;
+  email_verified: boolean;
+  plan: string;
+  billing_status?: 'trial' | 'active' | 'expired'; // Billing status from users table
+  created_at: string;
+  updated_at: string;
+  quota?: {
+    plan_name: string;
+    plan: {
+      name: string;
+      display_name: string;
+      price: number;
+      max_ram_mb: number;
+      max_disk_mb: number;
+      max_apps: number;
+      always_on: boolean;
+      auto_deploy: boolean;
+      health_checks: boolean;
+      logs: boolean;
+      zero_downtime: boolean;
+      workers: boolean;
+      priority_builds: boolean;
+      manual_deploy_only: boolean;
+    };
+    app_count: number;
+    total_ram_mb: number;
+    total_disk_mb: number;
+  };
+  subscription?: {
+    status: 'trial' | 'active' | 'expired' | 'cancelled';
+    plan: string;
+    trial_started_at?: string;
+    trial_ends_at?: string;
+    ram_limit_mb: number;
+    disk_limit_gb: number;
+  };
 }
 
 

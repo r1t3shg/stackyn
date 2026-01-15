@@ -1,5 +1,5 @@
 import { API_ENDPOINTS } from './config';
-import type { App, Deployment, DeploymentLogs, CreateAppRequest, CreateAppResponse } from './types';
+import type { App, Deployment, DeploymentLogs, CreateAppRequest, CreateAppResponse, EnvVar, CreateEnvVarRequest } from './types';
 
 // Helper function to handle API responses
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -87,6 +87,37 @@ export const appsApi = {
   getDeployments: async (id: string | number): Promise<Deployment[]> => {
     const response = await safeFetch(`${API_ENDPOINTS.apps}/${id}/deployments`);
     return handleResponse<Deployment[]>(response);
+  },
+
+  // Get environment variables for an app
+  getEnvVars: async (id: string | number): Promise<EnvVar[]> => {
+    const response = await safeFetch(`${API_ENDPOINTS.apps}/${id}/env`);
+    const data = await handleResponse<EnvVar[]>(response);
+    // Ensure we always return an array, never null or undefined
+    return Array.isArray(data) ? data : [];
+  },
+
+  // Create or update an environment variable
+  createEnvVar: async (id: string | number, data: CreateEnvVarRequest): Promise<EnvVar> => {
+    const response = await safeFetch(`${API_ENDPOINTS.apps}/${id}/env`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<EnvVar>(response);
+  },
+
+  // Delete an environment variable
+  deleteEnvVar: async (id: string | number, key: string): Promise<void> => {
+    const response = await safeFetch(`${API_ENDPOINTS.apps}/${id}/env/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.error || `HTTP error! status: ${response.status}`);
+    }
   },
 };
 

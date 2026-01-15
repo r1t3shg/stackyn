@@ -1,148 +1,123 @@
-# VPS Deployment Checklist
+# Stackyn VPS Deployment Checklist
 
-Use this checklist when deploying Stackyn to a VPS.
+Use this checklist to ensure you complete all deployment steps.
 
 ## Pre-Deployment
 
-- [ ] Server has Docker and Docker Compose installed
-- [ ] Ports 80, 443 (and optionally 8080) are open
-- [ ] Domain DNS is pointing to server IP
-- [ ] Git repository cloned or files uploaded
+- [ ] VPS provisioned (Ubuntu 20.04+ recommended)
+- [ ] Root/sudo access confirmed
+- [ ] SSH access configured
+- [ ] Domain name configured (optional)
 
-## File Structure Setup
+## Step 1: System Setup
 
-- [ ] Create required directories:
-  ```bash
-  mkdir -p traefik/{dynamic,acme}
-  mkdir -p volumes/{db,redis,logs}
-  mkdir -p apps
-  mkdir -p backend/config
-  ```
+- [ ] System updated (`apt update && apt upgrade`)
+- [ ] Basic tools installed (git, curl, wget, build-essential)
 
-- [ ] Create `.gitkeep` files for empty directories (if needed):
-  ```bash
-  touch traefik/acme/.gitkeep
-  touch volumes/{db,redis,logs}/.gitkeep
-  touch apps/.gitkeep
-  ```
+## Step 2: Install Dependencies
 
-## Configuration Files
+- [ ] Go installed and in PATH
+- [ ] Docker installed and user added to docker group
+- [ ] PostgreSQL installed and running
+- [ ] Redis installed and running
+- [ ] Traefik installed (optional)
 
-- [ ] Create `backend/config/prod.env`:
-  ```bash
-  cp backend/config/prod.env.example backend/config/prod.env
-  # Edit with actual values
-  ```
+## Step 3: Database Setup
 
-- [ ] Update `traefik/traefik.yml`:
-  - [ ] Set email for Let's Encrypt
-  - [ ] Configure dashboard (secure in production)
+- [ ] PostgreSQL database `stackyn` created
+- [ ] PostgreSQL user `stackyn_user` created
+- [ ] Database permissions granted
+- [ ] Database connection tested
 
-- [ ] Update `traefik/dynamic/routers.yml`:
-  - [ ] Replace `stackyn.local` with your domain
-  - [ ] Replace `staging.stackyn.com` with production domain
+## Step 4: Project Setup
 
-- [ ] Update `docker-compose.yml`:
-  - [ ] Update `VITE_API_BASE_URL` build arg for frontend
-  - [ ] Update environment variables
-  - [ ] Review service labels
+- [ ] Repository cloned to `/opt/stackyn`
+- [ ] Environment file created from `configs/env.example`
+- [ ] All environment variables configured:
+  - [ ] `POSTGRES_PASSWORD` set
+  - [ ] `REDIS_PASSWORD` set (if using password)
+  - [ ] `JWT_SECRET` generated (use `openssl rand -base64 32`)
+  - [ ] `DOCKER_HOST` set correctly
+  - [ ] Other variables configured
 
-## SSL Certificates
+## Step 5: Build Application
 
-- [ ] Create ACME directory:
-  ```bash
-  touch traefik/acme/acme.json
-  chmod 600 traefik/acme/acme.json
-  ```
+- [ ] Go dependencies downloaded (`go mod download`)
+- [ ] API binary built (`go build -o bin/api ./cmd/api`)
+- [ ] Build worker binary built
+- [ ] Deploy worker binary built
+- [ ] Cleanup worker binary built
+- [ ] All binaries verified in `bin/` directory
 
-## Security
+## Step 6: Database Migrations
 
-- [ ] Change default passwords in `backend/config/prod.env`
-- [ ] Review Traefik dashboard access (disable or secure)
-- [ ] Set proper file permissions:
-  ```bash
-  chmod 600 traefik/acme/acme.json
-  chmod 600 backend/config/prod.env
-  ```
+- [ ] Migrations run successfully
+- [ ] Database tables created
+- [ ] Database connection verified from application
 
-## Build and Deploy
+## Step 7: Systemd Services
 
-- [ ] Build images:
-  ```bash
-  docker compose build
-  ```
+- [ ] `stackyn-api.service` created
+- [ ] `stackyn-build-worker.service` created
+- [ ] `stackyn-deploy-worker.service` created
+- [ ] `stackyn-cleanup-worker.service` created
+- [ ] Services enabled (`systemctl enable`)
+- [ ] Services started (`systemctl start`)
+- [ ] All services show "active (running)" status
 
-- [ ] Start services:
-  ```bash
-  docker compose up -d
-  ```
+## Step 8: Verification
 
-- [ ] Verify services are running:
-  ```bash
-  docker compose ps
-  ```
+- [ ] API server responding (test with `curl http://localhost:8080`)
+- [ ] Workers running (check logs)
+- [ ] Docker accessible
+- [ ] PostgreSQL accessible
+- [ ] Redis accessible
+- [ ] No errors in service logs
 
-## Verification
+## Step 9: Security
 
-- [ ] Check Traefik logs:
-  ```bash
-  docker compose logs traefik
-  ```
+- [ ] Firewall configured (UFW or similar)
+- [ ] Only necessary ports exposed
+- [ ] Strong passwords set for all services
+- [ ] SSH key authentication configured (disable password auth)
+- [ ] Regular user created (not using root for daily tasks)
 
-- [ ] Check Backend logs:
-  ```bash
-  docker compose logs backend
-  ```
+## Step 10: Monitoring & Maintenance
 
-- [ ] Check Frontend logs:
-  ```bash
-  docker compose logs frontend
-  ```
-
-- [ ] Test Frontend:
-  - [ ] Access `https://your-domain.com`
-  - [ ] Verify SSL certificate is valid
-
-- [ ] Test Backend API:
-  - [ ] Access `https://api.your-domain.com/health`
-  - [ ] Verify SSL certificate is valid
-
-- [ ] Test Database:
-  ```bash
-  docker compose exec postgres psql -U stackyn -d stackyn -c "SELECT 1;"
-  ```
+- [ ] Log rotation configured
+- [ ] Backup strategy planned
+- [ ] Monitoring setup (optional)
+- [ ] Update script created (`/opt/stackyn/update.sh`)
 
 ## Post-Deployment
 
-- [ ] Set up log rotation
-- [ ] Configure backups for:
-  - [ ] Database (`volumes/db/`)
-  - [ ] Configuration files
-  - [ ] SSL certificates
-- [ ] Set up monitoring
-- [ ] Document any custom configurations
+- [ ] Test creating an app via API
+- [ ] Test build process
+- [ ] Test deployment process
+- [ ] Verify logs are being captured
+- [ ] Check resource usage (CPU, RAM, disk)
 
-## Files NOT on VPS
+## Troubleshooting Notes
 
-These files are in `.gitignore` and should NOT be on VPS:
-- ❌ `node_modules/` - Install via `npm install`
-- ❌ `frontend/dist/` - Build via `npm run build` or Docker
-- ❌ `backend/bin/` - Build via `go build` or Docker
-- ❌ `*.exe` - Windows executables
-- ❌ `.env` files - Create from `.example` files
-- ❌ `traefik/acme/acme.json` - Auto-generated by Traefik
-- ❌ `volumes/` - Created at runtime
-- ❌ `apps/*/` - User apps created at runtime
-- ❌ Old Next.js files - Not needed after migration
+If services fail to start:
+1. Check logs: `sudo journalctl -u stackyn-api -n 50`
+2. Verify environment variables: `sudo systemctl show stackyn-api --property=Environment`
+3. Test binary manually: `cd /opt/stackyn/server && ./bin/api`
+4. Check dependencies: PostgreSQL, Redis, Docker all running
 
-## Troubleshooting
+## Quick Commands Reference
 
-If something doesn't work:
+```bash
+# Check all services
+sudo systemctl status stackyn-api stackyn-build-worker stackyn-deploy-worker stackyn-cleanup-worker
 
-1. Check logs: `docker compose logs -f [service]`
-2. Verify configuration files exist
-3. Check file permissions
-4. Verify DNS is correct
-5. Check firewall rules
-6. Review Traefik dashboard (if enabled)
+# View logs
+sudo journalctl -u stackyn-api -f
+
+# Restart services
+sudo systemctl restart stackyn-api stackyn-build-worker stackyn-deploy-worker stackyn-cleanup-worker
+
+# Update deployment
+cd /opt/stackyn && git pull && cd server && go build -o bin/api ./cmd/api && sudo systemctl restart stackyn-api
+```
 

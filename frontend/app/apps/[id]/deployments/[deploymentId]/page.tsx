@@ -139,7 +139,7 @@ export default function DeploymentDetailsPage() {
             </div>
           </div>
 
-          {logs?.error_message && (
+          {logs?.error_message && deployment.status !== 'stopped' && (
             <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
               <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
               <p className="text-red-800">{extractString(logs.error_message)}</p>
@@ -155,9 +155,22 @@ export default function DeploymentDetailsPage() {
             </div>
           )}
 
-          {(!logs || !extractString(logs.build_log)) && (
+          {logs && !extractString(logs.build_log) && (
             <div className="bg-white rounded-lg shadow-md p-8 text-center">
               <p className="text-gray-600">No build logs available yet</p>
+            </div>
+          )}
+
+          {logs && extractString(logs.runtime_log) && (
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Runtime Logs</h2>
+              <LogsViewer logs={extractString(logs.runtime_log)} title="Runtime Logs" />
+            </div>
+          )}
+
+          {logs && !extractString(logs.runtime_log) && (
+            <div className="bg-white rounded-lg shadow-md p-8 text-center">
+              <p className="text-gray-600">No runtime logs available yet</p>
             </div>
           )}
         </div>

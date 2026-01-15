@@ -18,26 +18,26 @@ export default function DeploymentCard({ deployment, appId }: DeploymentCardProp
 
   return (
     <Link to={`/apps/${appId}/deployments/${deployment.id}`}>
-      <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer">
+      <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 hover:border-[var(--border-strong)] transition-colors cursor-pointer">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
               Deployment #{deployment.id}
             </h3>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-[var(--text-secondary)]">
               Created: {formatDate(deployment.created_at)}
             </p>
           </div>
           <StatusBadge status={deployment.status} />
         </div>
         {subdomain && (
-          <p className="text-sm text-gray-600 mb-2">
+          <p className="text-sm text-[var(--text-secondary)] mb-2">
             <span className="font-medium">Subdomain:</span> {subdomain}
           </p>
         )}
-        {errorMessage && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
-            <p className="text-sm text-red-800">{errorMessage}</p>
+        {errorMessage && deployment.status !== 'stopped' && (
+          <div className="mt-3 p-3 bg-[var(--error)]/10 border border-[var(--error)] rounded">
+            <p className="text-sm text-[var(--error)]">{errorMessage}</p>
           </div>
         )}
       </div>

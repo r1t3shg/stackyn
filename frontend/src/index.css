@@ -1,32 +1,125 @@
 @import "tailwindcss";
 
+/* Stackyn Dark Theme Design Tokens */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primary Colors */
+  --primary: #2CFF05;
+  --primary-hover: #4DFF2A;
+  --primary-active: #1FCC00;
+  --primary-muted: #163A12;
+  
+  /* Backgrounds */
+  --app-bg: #0B0F14;
+  --surface: #121821;
+  --elevated: #161E2B;
+  --sidebar: #0E1420;
+  --terminal-bg: #0A0E13;
+  
+  /* Borders */
+  --border-subtle: #1F2A3A;
+  --border-strong: #2A3A52;
+  --focus-border: #2CFF05;
+  
+  /* Text */
+  --text-primary: #E6EDF3;
+  --text-secondary: #9FB0C3;
+  --text-muted: #6B7C93;
+  --text-disabled: #4A5A70;
+  
+  /* Status Colors */
+  --success: #2CFF05;
+  --warning: #FBC531;
+  --error: #FF5C5C;
+  --info: #4F9DFF;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Primary Colors */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-muted: var(--primary-muted);
+  
+  /* Backgrounds */
+  --color-app-bg: var(--app-bg);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-sidebar: var(--sidebar);
+  --color-terminal-bg: var(--terminal-bg);
+  
+  /* Borders */
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-focus-border: var(--focus-border);
+  
+  /* Text */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  
+  /* Status Colors */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   min-height: 100vh;
+  background: var(--app-bg);
 }
 
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--app-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Text selection styling */
+::selection {
+  background-color: var(--primary);
+  color: var(--app-bg);
+}
+
+::-moz-selection {
+  background-color: var(--primary);
+  color: var(--app-bg);
+}
+
+/* Thin focus border for inputs */
+input:focus,
+textarea:focus {
+  border-width: 1px;
+  box-shadow: 0 0 0 0.5px var(--focus-border);
+}
 
