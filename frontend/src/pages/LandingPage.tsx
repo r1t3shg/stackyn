@@ -18,7 +18,7 @@ export default function LandingPage() {
       if (isLocal || import.meta.env.DEV) {
         navigate('/apps');
       } else {
-        window.location.href = 'https://console.dev.stackyn.com/';
+        window.location.href = 'https://console.stackyn.com/';
       }
     } else {
       navigate('/login');
@@ -86,7 +86,7 @@ export default function LandingPage() {
                       if (isLocal || import.meta.env.DEV) {
                         navigate('/apps');
                       } else {
-                        window.location.href = 'https://console.dev.stackyn.com/';
+                        window.location.href = 'https://console.stackyn.com/';
                       }
                     }}
                     style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
@@ -187,7 +187,7 @@ export default function LandingPage() {
                         if (isLocal || import.meta.env.DEV) {
                           navigate('/apps');
                         } else {
-                          window.location.href = 'https://console.dev.stackyn.com/';
+                          window.location.href = 'https://console.stackyn.com/';
                         }
                       }}
                       style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
@@ -220,7 +220,7 @@ export default function LandingPage() {
             </h1>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
                 onClick={(e) => {
                   if (!user) {
                     e.preventDefault();
@@ -581,7 +581,7 @@ export default function LandingPage() {
               </div>
 
               <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=starter"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup?plan=starter"}
                 onClick={(e) => {
                   e.preventDefault();
                   if (!user) {
@@ -682,7 +682,7 @@ export default function LandingPage() {
               </div>
 
               <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup?plan=pro"}
+                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup?plan=pro"}
                 onClick={(e) => {
                   e.preventDefault();
                   if (!user) {
@@ -837,7 +837,7 @@ export default function LandingPage() {
               Start shipping, not configuring servers.
             </h2>
             <a
-              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup"}
+              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
               onClick={(e) => {
                 e.preventDefault();
                 if (!user) {
@@ -913,7 +913,7 @@ export default function LandingPage() {
           </h2>
           <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6">
             <a
-            href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.dev.stackyn.com/') : "/signup"}
+            href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
             onClick={(e) => {
               if (!user) {
                 e.preventDefault();

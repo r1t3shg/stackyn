@@ -15,7 +15,7 @@ import PricingRedirect from './components/PricingRedirect';
 function App() {
   // Check if we're on the console subdomain
   const isConsoleSubdomain = typeof window !== 'undefined' && 
-    window.location.hostname === 'console.dev.stackyn.com';
+    window.location.hostname === 'console.stackyn.com';
 
   return (
     <Routes>
