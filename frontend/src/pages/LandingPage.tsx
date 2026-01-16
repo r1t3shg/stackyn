@@ -32,10 +32,10 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-8">
-            {/* Logo */}
-            <div className="flex-shrink-0">
+              {/* Logo */}
+              <div className="flex-shrink-0">
                 <Logo />
-            </div>
+              </div>
 
               {/* Desktop Navigation Links - Left Aligned */}
               <nav className="hidden md:flex items-center space-x-6">
@@ -66,10 +66,10 @@ export default function LandingPage() {
                     e.preventDefault();
                     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
                   }}
-              >
-                Pricing
+                >
+                  Pricing
                 </a>
-            </nav>
+              </nav>
             </div>
 
             {/* Desktop CTA - Right Side */}
@@ -104,11 +104,11 @@ export default function LandingPage() {
               ) : (
                 <a
                   href="/login"
-                onClick={handleSignInClick}
+                  onClick={handleSignInClick}
                   className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"
-              >
-                Login
-              </a>
+                >
+                  Login
+                </a>
               )}
             </div>
 
@@ -199,11 +199,11 @@ export default function LandingPage() {
                 ) : (
                   <a
                     href="/login"
-                  onClick={handleSignInClick}
+                    onClick={handleSignInClick}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center"
-                >
-                  Login
-                </a>
+                  >
+                    Login
+                  </a>
                 )}
               </nav>
             </div>
@@ -279,8 +279,8 @@ export default function LandingPage() {
               <h3 className="text-2xl font-semibold text-[var(--text-primary)] mb-3">1. Connect Your Repo</h3>
               <p className="text-lg text-[var(--text-secondary)]">
                 Push your code from GitHub, GitLab, or Bitbucket.
-            </p>
-          </div>
+              </p>
+            </div>
 
             <div className="text-center">
               <div className="w-20 h-20 bg-[var(--primary-muted)] rounded-full flex items-center justify-center mx-auto mb-6">
@@ -580,20 +580,12 @@ export default function LandingPage() {
                 <p className="text-sm text-[var(--text-secondary)]">MVPs, personal projects, early testing</p>
               </div>
 
-              <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup?plan=starter"}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (!user) {
-                    navigate('/signup?plan=starter');
-                  } else {
-                    handleSignInClick(e);
-                  }
-                }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
+              <button
+                disabled
+                className="block w-full text-center bg-[var(--primary)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg opacity-50 cursor-not-allowed"
               >
-                Get Started
-              </a>
+                Billing Launching Soon
+              </button>
             </div>
 
             {/* Pro Plan */}
@@ -681,20 +673,12 @@ export default function LandingPage() {
                 <p className="text-sm text-[var(--text-secondary)]">Startups, paid products, production workloads</p>
               </div>
 
-              <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup?plan=pro"}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (!user) {
-                    navigate('/signup?plan=pro');
-                  } else {
-                    handleSignInClick(e);
-                  }
-                }}
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
+              <button
+                disabled
+                className="block w-full text-center bg-[var(--primary)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg opacity-50 cursor-not-allowed"
               >
-                Get Started
-              </a>
+                Billing Launching Soon
+              </button>
             </div>
           </div>
 
@@ -851,14 +835,14 @@ export default function LandingPage() {
               Get Started Free
             </a>
             <p className="text-sm text-[var(--text-muted)]">No credit card required</p>
-              </div>
+          </div>
 
           {/* Founder Note */}
           <div className="max-w-3xl mx-auto p-8 rounded-lg border-l-4 border-[var(--primary)] bg-[var(--primary-muted)]/20">
             <p className="text-[var(--text-primary)] italic text-lg">
               "Stackyn is built for developers who want clarity, speed, and control — without becoming DevOps engineers."
-              </p>
-            </div>
+            </p>
+          </div>
         </div>
       </section>
 
@@ -913,16 +897,16 @@ export default function LandingPage() {
           </h2>
           <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6">
             <a
-            href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
-            onClick={(e) => {
-              if (!user) {
-                e.preventDefault();
-                navigate('/signup');
-              } else {
-                e.preventDefault();
-                handleSignInClick(e);
-              }
-            }}
+              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
+              onClick={(e) => {
+                if (!user) {
+                  e.preventDefault();
+                  navigate('/signup');
+                } else {
+                  e.preventDefault();
+                  handleSignInClick(e);
+                }
+              }}
               className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
             >
               Get Started Free
@@ -972,6 +956,11 @@ export default function LandingPage() {
                   </a>
                 </li>
                 <li>
+                  <Link to="/about" className="hover:text-[var(--text-primary)] transition-colors">
+                    About Us
+                  </Link>
+                </li>
+                <li>
                   <Link to="/terms" className="hover:text-[var(--text-primary)] transition-colors">
                     Terms of Service
                   </Link>
@@ -1005,9 +994,9 @@ export default function LandingPage() {
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
                   </svg>
-              </a>
+                </a>
+              </div>
             </div>
-          </div>
           </div>
           <div className="pt-8 border-t border-[var(--border-subtle)] text-center text-sm">
             <p>&copy; {new Date().getFullYear()} Stackyn. All rights reserved.</p>

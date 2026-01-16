@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import RefundPolicy from './pages/RefundPolicy';
+import AboutUs from './pages/AboutUs';
 import Home from './pages/Home';
 import NewApp from './pages/NewApp';
 import AppDetails from './pages/AppDetails';
@@ -14,14 +16,14 @@ import PricingRedirect from './components/PricingRedirect';
 
 function App() {
   // Check if we're on the console subdomain
-  const isConsoleSubdomain = typeof window !== 'undefined' && 
+  const isConsoleSubdomain = typeof window !== 'undefined' &&
     window.location.hostname === 'console.stackyn.com';
 
   return (
     <Routes>
       {/* On console subdomain, root shows apps list; otherwise show landing page */}
-      <Route 
-        path="/" 
+      <Route
+        path="/"
         element={
           isConsoleSubdomain ? (
             <ProtectedRoute>
@@ -30,10 +32,12 @@ function App() {
           ) : (
             <LandingPage />
           )
-        } 
+        }
       />
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/refund" element={<RefundPolicy />} />
+      <Route path="/about" element={<AboutUs />} />
       <Route path="/pricing" element={<PricingRedirect />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<SignUp />} />

@@ -117,126 +117,149 @@ export default function PrivacyPolicy() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h1 className="text-4xl font-bold text-[var(--text-primary)] mb-8">Privacy Policy</h1>
         <div className="prose prose-lg max-w-none">
-          <p className="text-[var(--text-secondary)] mb-6">Last updated: {new Date().toLocaleDateString()}</p>
+          <p className="text-[var(--text-secondary)] mb-6">Effective Date: January 2026</p>
+
+          <p className="text-[var(--text-primary)] mb-4">
+            Stackyn ("we", "our", or "us") respects your privacy. This Privacy Policy explains how we collect, use, and protect your information when you use the Stackyn platform ("Service").
+          </p>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">1. Introduction</h2>
-            <p className="text-[var(--text-primary)] mb-4">
-              Stackyn ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy
-              explains how we collect, use, disclose, and safeguard your information when you use our
-              Platform-as-a-Service.
-            </p>
-          </section>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">1. Information We Collect</h2>
 
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">2. Information We Collect</h2>
-            <p className="text-[var(--text-primary)] mb-4">We collect information that you provide directly to us:</p>
+            <h3 className="text-xl font-medium text-[var(--text-primary)] mb-2">a. Information You Provide</h3>
             <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
-              <li><strong>Account Information:</strong> Email address, password, and other registration details</li>
-              <li><strong>Application Data:</strong> Information about your applications, deployments, and configurations</li>
-              <li><strong>Usage Data:</strong> Information about how you use the Service, including logs and metrics</li>
-              <li><strong>Payment Information:</strong> Billing details processed through secure payment processors</li>
+              <li>Email address</li>
+              <li>Account details</li>
+              <li>Application configuration data</li>
+              <li>Support communications</li>
+            </ul>
+
+            <h3 className="text-xl font-medium text-[var(--text-primary)] mb-2">b. Automatically Collected Information</h3>
+            <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
+              <li>IP address</li>
+              <li>Browser type and device information</li>
+              <li>Usage data and logs related to deployments</li>
+            </ul>
+
+            <h3 className="text-xl font-medium text-[var(--text-primary)] mb-2">c. Payment Information</h3>
+            <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
+              <li>Payments are processed by Lemon Squeezy.</li>
+              <li>We do not store or process credit card details.</li>
             </ul>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">3. How We Use Your Information</h2>
-            <p className="text-[var(--text-primary)] mb-4">We use the information we collect to:</p>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">2. How We Use Your Information</h2>
+            <p className="text-[var(--text-primary)] mb-4">
+              We use your information to:
+            </p>
             <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
-              <li>Provide, maintain, and improve our Service</li>
-              <li>Process transactions and send related information</li>
-              <li>Send technical notices, updates, and support messages</li>
-              <li>Respond to your comments, questions, and requests</li>
-              <li>Monitor and analyze trends, usage, and activities</li>
-              <li>Detect, prevent, and address technical issues</li>
+              <li>Create and manage your account</li>
+              <li>Provide and operate the Service</li>
+              <li>Manage subscriptions and billing status</li>
+              <li>Send transactional emails (trial start, trial end, billing)</li>
+              <li>Improve platform performance and reliability</li>
             </ul>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">4. Information Sharing and Disclosure</h2>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">3. Email Communications</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              We do not sell, trade, or rent your personal information to third parties. We may share your
-              information only in the following circumstances:
+              We send service-related emails using Resend, including:
             </p>
             <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
-              <li><strong>Service Providers:</strong> With third-party vendors who perform services on our behalf</li>
-              <li><strong>Legal Requirements:</strong> When required by law or to protect our rights</li>
-              <li><strong>Business Transfers:</strong> In connection with any merger, sale, or acquisition</li>
-              <li><strong>With Your Consent:</strong> When you explicitly authorize us to share information</li>
+              <li>Account verification</li>
+              <li>Trial expiration notices</li>
+              <li>Subscription and billing updates</li>
+              <li>Critical service notifications</li>
+            </ul>
+            <p className="text-[var(--text-primary)] mb-4">
+              You may not opt out of essential service emails.
+            </p>
+          </section>
+
+          <section className="mb-8">
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">4. Data Sharing</h2>
+            <p className="text-[var(--text-primary)] mb-4">
+              We only share data with trusted third parties necessary to operate Stackyn, including:
+            </p>
+            <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
+              <li>Lemon Squeezy (payments & subscriptions)</li>
+              <li>Infrastructure providers (hosting & networking)</li>
+              <li>Email service providers (transactional emails)</li>
+            </ul>
+            <p className="text-[var(--text-primary)] mb-4">
+              We do not sell or rent your personal data.
+            </p>
+          </section>
+
+          <section className="mb-8">
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">5. Cookies & Tracking</h2>
+            <p className="text-[var(--text-primary)] mb-4">
+              We use cookies for:
+            </p>
+            <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
+              <li>Authentication</li>
+              <li>Session management</li>
+              <li>Basic analytics</li>
+            </ul>
+            <p className="text-[var(--text-primary)] mb-4">
+              You may disable cookies, but some features may not function properly.
+            </p>
+          </section>
+
+          <section className="mb-8">
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">6. Data Security</h2>
+            <p className="text-[var(--text-primary)] mb-4">
+              We take reasonable steps to protect your data using industry-standard security measures.
+              However, no method of transmission or storage is 100% secure.
+            </p>
+          </section>
+
+          <section className="mb-8">
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">7. Data Retention</h2>
+            <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
+              <li>We retain data while your account is active</li>
+              <li>Trial accounts may be deleted after extended inactivity</li>
+              <li>You may request account deletion by contacting support</li>
             </ul>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">5. Data Security</h2>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">8. Your Rights</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              We implement appropriate technical and organizational security measures to protect your personal
-              information. However, no method of transmission over the Internet or electronic storage is
-              100% secure, and we cannot guarantee absolute security.
+              Depending on your location, you may have the right to:
             </p>
-          </section>
-
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">6. Data Retention</h2>
-            <p className="text-[var(--text-primary)] mb-4">
-              We retain your personal information for as long as necessary to provide the Service and
-              fulfill the purposes outlined in this Privacy Policy, unless a longer retention period is
-              required or permitted by law.
-            </p>
-          </section>
-
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">7. Your Rights</h2>
-            <p className="text-[var(--text-primary)] mb-4">You have the right to:</p>
             <ul className="list-disc list-inside text-[var(--text-primary)] mb-4 space-y-2">
-              <li>Access and receive a copy of your personal information</li>
-              <li>Rectify inaccurate or incomplete information</li>
-              <li>Request deletion of your personal information</li>
-              <li>Object to processing of your personal information</li>
-              <li>Request restriction of processing your personal information</li>
-              <li>Data portability - receive your data in a structured format</li>
+              <li>Access your personal data</li>
+              <li>Request correction or deletion</li>
+              <li>Withdraw consent where applicable</li>
             </ul>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">8. Cookies and Tracking Technologies</h2>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">9. Children's Privacy</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              We use cookies and similar tracking technologies to track activity on our Service and hold
-              certain information. You can instruct your browser to refuse all cookies or to indicate when
-              a cookie is being sent.
+              Stackyn is not intended for individuals under the age of 18.
+              We do not knowingly collect data from minors.
             </p>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">9. Third-Party Links</h2>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">10. Changes to This Policy</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              Our Service may contain links to third-party websites or services. We are not responsible
-              for the privacy practices of these third parties. We encourage you to read their privacy
-              policies.
+              We may update this Privacy Policy from time to time.
+              Continued use of the Service constitutes acceptance of any changes.
             </p>
           </section>
 
           <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">10. Children's Privacy</h2>
+            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">11. Contact Us</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              Our Service is not intended for children under the age of 13. We do not knowingly collect
-              personal information from children under 13. If you are a parent or guardian and believe
-              your child has provided us with personal information, please contact us.
+              If you have questions about this Privacy Policy:
             </p>
-          </section>
-
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">11. Changes to This Privacy Policy</h2>
             <p className="text-[var(--text-primary)] mb-4">
-              We may update our Privacy Policy from time to time. We will notify you of any changes by
-              posting the new Privacy Policy on this page and updating the "Last updated" date.
-            </p>
-          </section>
-
-          <section className="mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--text-primary)] mb-4">12. Contact Us</h2>
-            <p className="text-[var(--text-primary)] mb-4">
-              If you have any questions about this Privacy Policy, please contact us through our support
-              channels.
+              <strong><a href="mailto:support@stackyn.com" className="text-[var(--primary)] hover:underline">support@stackyn.com</a></strong>
             </p>
           </section>
         </div>
@@ -250,11 +273,17 @@ export default function PrivacyPolicy() {
               <p>&copy; {new Date().getFullYear()} Stackyn. All rights reserved.</p>
             </div>
             <div className="flex items-center gap-6 text-sm">
+              <Link to="/about" className="hover:text-[var(--text-primary)] transition-colors">
+                About Us
+              </Link>
               <Link to="/terms" className="hover:text-[var(--text-primary)] transition-colors">
                 Terms of Service
               </Link>
               <Link to="/privacy" className="hover:text-[var(--text-primary)] transition-colors">
                 Privacy Policy
+              </Link>
+              <Link to="/refund" className="hover:text-[var(--text-primary)] transition-colors">
+                Refund Policy
               </Link>
             </div>
           </div>
@@ -263,4 +292,3 @@ export default function PrivacyPolicy() {
     </div>
   );
 }
-
