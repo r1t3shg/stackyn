@@ -971,6 +971,11 @@ export default function LandingPage() {
                   </Link>
                 </li>
                 <li>
+                  <Link to="/refund" className="hover:text-[var(--text-primary)] transition-colors">
+                    Refund Policy
+                  </Link>
+                </li>
+                <li>
                   <a href="#" className="hover:text-[var(--text-primary)] transition-colors">
                     Contact
                   </a>

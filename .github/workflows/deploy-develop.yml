@@ -175,8 +175,8 @@ jobs:
           
           # Pull latest code
           echo "📥 Pulling latest code..."
-          git checkout develop
-          git pull origin develop
+          git checkout main
+          git pull origin main
           NEW_COMMIT=$(git rev-parse HEAD)
           echo "New commit: $NEW_COMMIT"
           

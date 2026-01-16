@@ -19,6 +19,7 @@ import './index.css';
 
 // Log API URL for debugging
 // Note: VITE_API_BASE_URL must be set at build time (not runtime)
+// Debug: ensuring updates are picked up
 console.log('API Base URL:', import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080');
 
 createRoot(document.getElementById('root')!).render(
