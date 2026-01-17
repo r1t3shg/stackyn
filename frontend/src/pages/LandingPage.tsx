@@ -5,6 +5,7 @@ import Logo from '@/components/Logo';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [contactModalOpen, setContactModalOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -107,7 +108,7 @@ export default function LandingPage() {
                   onClick={handleSignInClick}
                   className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"
                 >
-                  Login
+                  Sign In
                 </a>
               )}
             </div>
@@ -202,7 +203,7 @@ export default function LandingPage() {
                     onClick={handleSignInClick}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center"
                   >
-                    Login
+                    Sign In
                   </a>
                 )}
               </nav>
@@ -244,7 +245,7 @@ export default function LandingPage() {
               <div className="bg-[var(--terminal-bg)] rounded-lg p-6 font-mono text-sm text-[var(--text-primary)]">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-3 h-3 rounded-full bg-[var(--success)]"></div>
-                  <span className="text-[var(--text-muted)]">app.example.com</span>
+                  <span className="text-[var(--text-muted)]">app.stackyn.com</span>
                   <span className="text-[var(--text-muted)]">•</span>
                   <span className="text-[var(--success)]">Healthy</span>
                 </div>
@@ -252,7 +253,7 @@ export default function LandingPage() {
                   <div className="text-[var(--text-secondary)]">$ git push origin main</div>
                   <div className="text-[var(--success)]">✓ Building...</div>
                   <div className="text-[var(--success)]">✓ Deploying...</div>
-                  <div className="text-[var(--success)]">✓ Live at https://app.example.com</div>
+                  <div className="text-[var(--success)]">✓ Live at https://app.stackyn.com</div>
                 </div>
               </div>
             </div>
@@ -278,7 +279,7 @@ export default function LandingPage() {
               </div>
               <h3 className="text-2xl font-semibold text-[var(--text-primary)] mb-3">1. Connect Your Repo</h3>
               <p className="text-lg text-[var(--text-secondary)]">
-                Push your code from GitHub, GitLab, or Bitbucket.
+                Push your code from GitHub.
               </p>
             </div>
 
@@ -351,7 +352,7 @@ export default function LandingPage() {
               </div>
               <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-2">Logs & Monitoring</h3>
               <p className="text-[var(--text-secondary)]">
-                Real-time logs, health status, and error tracking.
+                Real-time logs and health status.
               </p>
             </div>
 
@@ -361,9 +362,9 @@ export default function LandingPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-2">Git-First Workflow</h3>
+              <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-2">Manual Deployment Control</h3>
               <p className="text-[var(--text-secondary)]">
-                Automatic builds on push to main/develop.
+                Deploy on your schedule with one-click redeploy.
               </p>
             </div>
 
@@ -487,7 +488,6 @@ export default function LandingPage() {
             <div className="border border-[var(--border-subtle)] rounded-lg p-8 bg-[var(--elevated)]">
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-2xl">🟢</span>
                   <h3 className="text-2xl font-bold text-[var(--text-primary)]">Starter</h3>
                 </div>
                 <div className="text-4xl font-bold text-[var(--text-primary)] mb-1">$19 <span className="text-xl font-normal text-[var(--text-muted)]">/ month</span></div>
@@ -519,19 +519,7 @@ export default function LandingPage() {
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Automatic builds from Git</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
                     <span className="text-[var(--text-secondary)] text-sm">One-click deploy to VPS</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Custom domain support</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -566,15 +554,6 @@ export default function LandingPage() {
                 </ul>
               </div>
 
-              <div className="mb-6 pt-6 border-t border-[var(--border-subtle)]">
-                <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-3 uppercase tracking-wide">Limits</h4>
-                <ul className="space-y-2 text-sm text-[var(--text-secondary)]">
-                  <li>• Single app</li>
-                  <li>• Shared infrastructure</li>
-                  <li>• Community support</li>
-                </ul>
-              </div>
-
               <div className="mb-8 pt-6 border-t border-[var(--border-subtle)]">
                 <p className="text-sm font-medium text-[var(--text-primary)] mb-1">Perfect for</p>
                 <p className="text-sm text-[var(--text-secondary)]">MVPs, personal projects, early testing</p>
@@ -595,7 +574,6 @@ export default function LandingPage() {
               </div>
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-2xl">🔵</span>
                   <h3 className="text-2xl font-bold text-[var(--text-primary)]">Pro</h3>
                 </div>
                 <div className="text-4xl font-bold text-[var(--text-primary)] mb-1">$49 <span className="text-xl font-normal text-[var(--text-muted)]">/ month</span></div>
@@ -627,43 +605,37 @@ export default function LandingPage() {
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Faster builds & deploys</span>
+                    <span className="text-[var(--text-secondary)] text-sm">One-click deploy to VPS</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Zero-downtime deploys</span>
+                    <span className="text-[var(--text-secondary)] text-sm">Free SSL (auto-managed)</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Background workers support</span>
+                    <span className="text-[var(--text-secondary)] text-sm">Environment variables</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Staging & production apps</span>
+                    <span className="text-[var(--text-secondary)] text-sm">App logs</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Deployment history</span>
+                    <span className="text-[var(--text-secondary)] text-sm">Restart & redeploy anytime</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Priority support</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 text-[var(--success)] mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-[var(--text-secondary)] text-sm">Higher rate limits</span>
+                    <span className="text-[var(--text-secondary)] text-sm">7-day free trial</span>
                   </li>
                 </ul>
               </div>
@@ -679,99 +651,6 @@ export default function LandingPage() {
               >
                 Billing Launching Soon
               </button>
-            </div>
-          </div>
-
-          {/* Comparison Table */}
-          <div className="max-w-4xl mx-auto mb-16">
-            <h2 className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] text-center mb-8">
-              Comparison table
-            </h2>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse bg-[var(--elevated)] rounded-lg overflow-hidden">
-                <thead>
-                  <tr className="bg-[var(--surface)] border-b border-[var(--border-subtle)]">
-                    <th className="text-left py-4 px-6 text-[var(--text-primary)] font-semibold">Feature</th>
-                    <th className="text-center py-4 px-6 text-[var(--text-primary)] font-semibold">Starter ($19)</th>
-                    <th className="text-center py-4 px-6 text-[var(--text-primary)] font-semibold">Pro ($49)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Apps</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">1</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">3</td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">RAM</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">512 MB</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">2 GB</td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Disk</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">5 GB</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">20 GB</td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Custom Domain</td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">SSL</td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Workers</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-muted)]">❌</td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Zero-Downtime Deploy</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-muted)]">❌</td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--border-subtle)]">
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Priority Support</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-muted)]">❌</td>
-                    <td className="py-4 px-6 text-center">
-                      <svg className="w-5 h-5 text-[var(--success)] mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="py-4 px-6 text-[var(--text-secondary)]">Trial</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">7 days</td>
-                    <td className="py-4 px-6 text-center text-[var(--text-primary)]">7 days</td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
           </div>
 
@@ -846,49 +725,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section className="py-24 bg-[var(--app-bg)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[var(--text-primary)] mb-4">
-              Loved by Developers Around the World
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <div className="p-8 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]">
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 rounded-full bg-[var(--primary-muted)] flex items-center justify-center mr-4">
-                  <span className="text-[var(--primary)] font-semibold">IH</span>
-                </div>
-                <div>
-                  <div className="font-semibold text-[var(--text-primary)]">Indie Hacker</div>
-                  <div className="text-sm text-[var(--text-muted)]">Developer</div>
-                </div>
-              </div>
-              <p className="text-[var(--text-secondary)] italic">
-                "Stackyn made deploying my API effortless. I saved hours of setup."
-              </p>
-            </div>
-
-            <div className="p-8 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]">
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 rounded-full bg-[var(--primary-muted)] flex items-center justify-center mr-4">
-                  <span className="text-[var(--primary)] font-semibold">SF</span>
-                </div>
-                <div>
-                  <div className="font-semibold text-[var(--text-primary)]">SaaS Founder</div>
-                  <div className="text-sm text-[var(--text-muted)]">Founder</div>
-                </div>
-              </div>
-              <p className="text-[var(--text-secondary)] italic">
-                "Finally, a PaaS that feels designed for backend developers."
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* CTA / Closing Section */}
       <section className="py-24 bg-[var(--surface)]">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -923,7 +759,7 @@ export default function LandingPage() {
             </a>
           </div>
           <p className="text-sm text-[var(--text-muted)]">
-            No credit card required • Works with GitHub, GitLab, Bitbucket
+            No credit card required • Works with GitHub
           </p>
         </div>
       </section>
@@ -976,9 +812,12 @@ export default function LandingPage() {
                   </Link>
                 </li>
                 <li>
-                  <a href="#" className="hover:text-[var(--text-primary)] transition-colors">
+                  <button
+                    onClick={() => setContactModalOpen(true)}
+                    className="hover:text-[var(--text-primary)] transition-colors text-left"
+                  >
                     Contact
-                  </a>
+                  </button>
                 </li>
               </ul>
             </div>
@@ -1000,6 +839,11 @@ export default function LandingPage() {
                     <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
                   </svg>
                 </a>
+                <a href="#" className="hover:text-[var(--text-primary)] transition-colors" aria-label="Instagram">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+                  </svg>
+                </a>
               </div>
             </div>
           </div>
@@ -1008,6 +852,54 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Contact Modal */}
+      {contactModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setContactModalOpen(false)}
+        >
+          <div
+            className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-[var(--text-primary)]">Contact Us</h3>
+              <button
+                onClick={() => setContactModalOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="mb-6">
+              <p className="text-[var(--text-secondary)] mb-4">
+                Have a question or need support? Reach out to us at:
+              </p>
+              <div className="flex items-center gap-3 p-4 bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)]">
+                <svg className="w-5 h-5 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <a
+                  href="mailto:support@stackyn.com"
+                  className="text-[var(--primary)] hover:text-[var(--primary-hover)] font-medium text-lg"
+                >
+                  support@stackyn.com
+                </a>
+              </div>
+            </div>
+            <button
+              onClick={() => setContactModalOpen(false)}
+              className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-4 rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

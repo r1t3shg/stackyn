@@ -13,6 +13,7 @@ import SignUp from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
 import ProtectedRoute from './components/ProtectedRoute';
 import PricingRedirect from './components/PricingRedirect';
+import ScrollToTop from './components/ScrollToTop';
 
 function App() {
   // Check if we're on the console subdomain
@@ -20,7 +21,9 @@ function App() {
     window.location.hostname === 'console.stackyn.com';
 
   return (
-    <Routes>
+    <>
+      <ScrollToTop />
+      <Routes>
       {/* On console subdomain, root shows apps list; otherwise show landing page */}
       <Route
         path="/"
@@ -76,6 +79,7 @@ function App() {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 
