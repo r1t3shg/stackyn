@@ -19,10 +19,30 @@ export default function LandingPage() {
       if (isLocal || import.meta.env.DEV) {
         navigate('/apps');
       } else {
-        window.location.href = 'https://console.stackyn.com/';
+        // Pass auth token when redirecting to console subdomain
+        const token = localStorage.getItem('auth_token');
+        const consoleUrl = token 
+          ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
+          : 'https://console.stackyn.com/';
+        window.location.href = consoleUrl;
       }
     } else {
       navigate('/login');
+    }
+  };
+
+  const handleConsoleRedirect = () => {
+    const hostname = window.location.hostname;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+    if (isLocal || import.meta.env.DEV) {
+      navigate('/apps');
+    } else {
+      // Pass auth token when redirecting to console subdomain
+      const token = localStorage.getItem('auth_token');
+      const consoleUrl = token 
+        ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
+        : 'https://console.stackyn.com/';
+      window.location.href = consoleUrl;
     }
   };
 
@@ -87,7 +107,12 @@ export default function LandingPage() {
                       if (isLocal || import.meta.env.DEV) {
                         navigate('/apps');
                       } else {
-                        window.location.href = 'https://console.stackyn.com/';
+                        // Pass auth token when redirecting to console subdomain
+                        const token = localStorage.getItem('auth_token');
+                        const consoleUrl = token 
+                          ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
+                          : 'https://console.stackyn.com/';
+                        window.location.href = consoleUrl;
                       }
                     }}
                     style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
@@ -183,13 +208,7 @@ export default function LandingPage() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        const hostname = window.location.hostname;
-                        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
-                        if (isLocal || import.meta.env.DEV) {
-                          navigate('/apps');
-                        } else {
-                          window.location.href = 'https://console.stackyn.com/';
-                        }
+                        handleConsoleRedirect();
                       }}
                       style={{ cursor: 'pointer', pointerEvents: 'auto', position: 'relative', zIndex: 100 }}
                       className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors text-center w-full"
@@ -220,20 +239,29 @@ export default function LandingPage() {
               Deploy your backend apps in <span className="text-[var(--primary)]">one click</span> — no DevOps, no servers, no hassle.
             </h1>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
-              <a
-                href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
-                onClick={(e) => {
-                  if (!user) {
+              {user ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleConsoleRedirect();
+                  }}
+                  className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
+                >
+                  Go to Console
+                </button>
+              ) : (
+                <a
+                  href="/signup"
+                  onClick={(e) => {
                     e.preventDefault();
                     navigate('/signup');
-                  } else {
-                    handleSignInClick(e);
-                  }
-                }}
-                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
-              >
-                Get Started Free
-              </a>
+                  }}
+                  className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
+                >
+                  Get Started Free
+                </a>
+              )}
               <button
                 className="bg-[var(--elevated)] hover:bg-[var(--surface)] text-[var(--text-primary)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg border border-[var(--border-subtle)]"
               >
@@ -699,20 +727,35 @@ export default function LandingPage() {
             <h2 className="text-3xl sm:text-4xl font-bold text-[var(--text-primary)] mb-6">
               Start shipping, not configuring servers.
             </h2>
-            <a
-              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
-              onClick={(e) => {
-                e.preventDefault();
-                if (!user) {
+            {user ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const hostname = window.location.hostname;
+                  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+                  if (isLocal || import.meta.env.DEV) {
+                    navigate('/apps');
+                  } else {
+                    window.location.href = 'https://console.stackyn.com/';
+                  }
+                }}
+                className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg mb-4"
+              >
+                Go to Console
+              </button>
+            ) : (
+              <a
+                href="/signup"
+                onClick={(e) => {
+                  e.preventDefault();
                   navigate('/signup');
-                } else {
-                  handleSignInClick(e);
-                }
-              }}
-              className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg mb-4"
-            >
-              Get Started Free
-            </a>
+                }}
+                className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg mb-4"
+              >
+                Get Started Free
+              </a>
+            )}
             <p className="text-sm text-[var(--text-muted)]">No credit card required</p>
           </div>
 
@@ -732,21 +775,35 @@ export default function LandingPage() {
             Launch your app in minutes. Stop managing infrastructure.
           </h2>
           <div className="flex flex-col sm:flex-row justify-center gap-4 mb-6">
-            <a
-              href={user ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/') : "/signup"}
-              onClick={(e) => {
-                if (!user) {
+            {user ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const hostname = window.location.hostname;
+                  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.');
+                  if (isLocal || import.meta.env.DEV) {
+                    navigate('/apps');
+                  } else {
+                    window.location.href = 'https://console.stackyn.com/';
+                  }
+                }}
+                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
+              >
+                Go to Console
+              </button>
+            ) : (
+              <a
+                href="/signup"
+                onClick={(e) => {
                   e.preventDefault();
                   navigate('/signup');
-                } else {
-                  e.preventDefault();
-                  handleSignInClick(e);
-                }
-              }}
-              className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
-            >
-              Get Started Free
-            </a>
+                }}
+                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"
+              >
+                Get Started Free
+              </a>
+            )}
             <a
               href="#pricing"
               className="bg-[var(--elevated)] hover:bg-[var(--surface)] text-[var(--text-primary)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg border border-[var(--border-subtle)]"

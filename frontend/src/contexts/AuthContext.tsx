@@ -29,6 +29,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth state from localStorage
   useEffect(() => {
+    // First, check for token in URL parameter (for cross-subdomain authentication)
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenParam = urlParams.get('token');
+    
+    if (tokenParam) {
+      // Store token from URL parameter and remove it from URL
+      try {
+        localStorage.setItem('auth_token', tokenParam);
+        // Fetch user info with the token
+        fetch(`${API_BASE_URL}/api/user/me`, {
+          headers: {
+            'Authorization': `Bearer ${tokenParam}`,
+          },
+        })
+          .then(response => {
+            if (response.ok) {
+              return response.json();
+            }
+            throw new Error('Failed to fetch user info');
+          })
+          .then(userData => {
+            localStorage.setItem('auth_user', JSON.stringify(userData));
+            setToken(tokenParam);
+            setUser(userData);
+            // Clean up URL
+            window.history.replaceState({}, '', window.location.pathname);
+          })
+          .catch(err => {
+            console.error('Failed to fetch user info:', err);
+            localStorage.removeItem('auth_token');
+            // Clean up URL
+            window.history.replaceState({}, '', window.location.pathname);
+          })
+          .finally(() => {
+            setIsLoading(false);
+          });
+        return; // Early return to prevent checking localStorage
+      } catch (e) {
+        console.error('Failed to handle token parameter:', e);
+        localStorage.removeItem('auth_token');
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+        setIsLoading(false);
+      }
+    }
+    
     // Check localStorage for stored JWT tokens
     const storedToken = localStorage.getItem('auth_token');
     const storedUser = localStorage.getItem('auth_user');

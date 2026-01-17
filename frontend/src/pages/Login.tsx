@@ -1,22 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { authApi } from '@/lib/api';
 import Logo from '@/components/Logo';
 
-type LoginMethod = 'password' | 'otp';
-
 export default function Login() {
-  const [loginMethod, setLoginMethod] = useState<LoginMethod>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const { user, login, loginWithToken, isLoading } = useAuth();
+  const { user, login, isLoading } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already logged in
@@ -26,15 +19,7 @@ export default function Login() {
     }
   }, [user, isLoading, navigate]);
 
-  // Resend cooldown timer
-  useEffect(() => {
-    if (resendCooldown > 0) {
-      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [resendCooldown]);
-
-  const handlePasswordLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
@@ -44,72 +29,11 @@ export default function Login() {
       navigate('/apps');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred during login';
-      
-      // If password not set, switch to OTP login mode
-      if (errorMessage.includes('Password not set')) {
-        setError('Password not set for this account. Please use OTP login instead.');
-        setLoginMethod('otp');
-      } else {
-        setError(errorMessage);
-      }
+      setError(errorMessage);
       console.error('Login error:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSendOTP = async () => {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Please enter a valid email address');
-      return;
-    }
-
-    setError(null);
-    setLoading(true);
-    try {
-      await authApi.sendOTP(email);
-      setOtpSent(true);
-      setResendCooldown(60); // 60 second cooldown
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOTPLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!otp || otp.length !== 6) {
-      setError('Please enter a valid 6-digit OTP');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await authApi.verifyOTP(email, otp);
-      // Store token and update auth context
-      loginWithToken(response.token, response.user);
-      navigate('/apps');
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to verify OTP';
-      if (errorMessage.includes('expired')) {
-        setError('OTP has expired. Please request a new one.');
-      } else if (errorMessage.includes('Invalid')) {
-        setError('Invalid OTP. Please check and try again.');
-      } else {
-        setError(errorMessage);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResendOTP = async () => {
-    if (resendCooldown > 0) return;
-    await handleSendOTP();
   };
 
   // Show loading state while checking auth
@@ -142,41 +66,6 @@ export default function Login() {
           </p>
         </div>
 
-        {/* Login Method Toggle */}
-        <div className="flex items-center justify-center gap-4 mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setLoginMethod('password');
-              setOtpSent(false);
-              setOtp('');
-              setError(null);
-            }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              loginMethod === 'password'
-                ? 'bg-[var(--primary)] text-[var(--app-bg)]'
-                : 'bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--elevated)]'
-            }`}
-          >
-            Password
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setLoginMethod('otp');
-              setPassword('');
-              setError(null);
-            }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              loginMethod === 'otp'
-                ? 'bg-[var(--primary)] text-[var(--app-bg)]'
-                : 'bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--elevated)]'
-            }`}
-          >
-            OTP
-          </button>
-        </div>
-
         {/* Login Form */}
         <div className="bg-[var(--surface)] rounded-lg border border-[var(--border-subtle)] p-8">
           {error && (
@@ -185,8 +74,7 @@ export default function Login() {
             </div>
           )}
 
-          {loginMethod === 'password' ? (
-            <form className="space-y-6" onSubmit={handlePasswordLogin}>
+          <form className="space-y-6" onSubmit={handleLogin}>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
                   Email address
@@ -248,107 +136,14 @@ export default function Login() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {loading ? 'Signing in...' : 'Sign in'}
-              </button>
-            </form>
-          ) : (
-            <div className="space-y-6">
-              {!otpSent ? (
-                <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); handleSendOTP(); }}>
-                  <div>
-                    <label htmlFor="email-otp" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                      Email address
-                    </label>
-                    <input
-                      id="email-otp"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors"
-                      placeholder="you@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || !email}
-                    className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loading ? 'Sending code...' : 'Send verification code'}
-                  </button>
-                </form>
-              ) : (
-                <form className="space-y-6" onSubmit={handleOTPLogin}>
-                  <div>
-                    <label htmlFor="otp" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                      Verification code
-                    </label>
-                    <input
-                      id="otp"
-                      name="otp"
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      required
-                      value={otp}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                        setOtp(value);
-                      }}
-                      className="w-full px-4 py-3 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:outline-none focus:border-[var(--focus-border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] transition-colors text-center text-2xl tracking-widest font-mono"
-                      placeholder="000000"
-                      autoFocus
-                    />
-                    <p className="mt-2 text-sm text-[var(--text-muted)] text-center">
-                      Enter the 6-digit code sent to {email}
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || otp.length !== 6}
-                    className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loading ? 'Verifying...' : 'Verify and sign in'}
-                  </button>
-
-                  <div className="text-center">
-                    <button
-                      type="button"
-                      onClick={handleResendOTP}
-                      disabled={resendCooldown > 0 || loading}
-                      className="text-sm text-[var(--primary)] hover:text-[var(--primary-hover)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed transition-colors"
-                    >
-                      {resendCooldown > 0
-                        ? `Resend code in ${resendCooldown}s`
-                        : "Didn't receive code? Resend"}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOtpSent(false);
-                      setOtp('');
-                      setError(null);
-                    }}
-                    className="w-full py-3 px-4 border border-[var(--border-subtle)] text-sm font-medium rounded-lg text-[var(--text-primary)] bg-[var(--surface)] hover:bg-[var(--elevated)] focus:outline-none transition-colors"
-                  >
-                    Change email
-                  </button>
-                </form>
-              )}
-            </div>
-          )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-[var(--app-bg)] bg-[var(--primary)] hover:bg-[var(--primary-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+            </button>
+          </form>
         </div>
 
         {/* Sign Up Link */}
