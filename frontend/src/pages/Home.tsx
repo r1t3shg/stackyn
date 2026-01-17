@@ -203,13 +203,13 @@ export default function Home() {
       {/* Billing Test Panel (dev only) */}
       <BillingTestPanel onUpdate={loadUserProfile} />
       
-      {/* Show paywall if billing is inactive */}
-      {shouldShowPaywall(userProfile) && (
+      {/* Show paywall if billing is inactive - only show after profile is loaded */}
+      {!profileLoading && shouldShowPaywall(userProfile) && (
         <Paywall userProfile={userProfile} />
       )}
       
-      {/* Hide main content if paywall is shown */}
-      {!shouldShowPaywall(userProfile) && (
+      {/* Hide main content if paywall is shown - wait for profile to load */}
+      {!profileLoading && !shouldShowPaywall(userProfile) && (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* User Profile CTA Section */}
         {userProfile && !profileLoading && (
