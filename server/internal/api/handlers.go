@@ -584,7 +584,17 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		h.logger.Info("Checking max apps limit",
+			zap.String("user_id", userID),
+			zap.Int("current_app_count", currentAppCount),
+		)
+
 		if err := h.planEnforcement.CheckMaxApps(r.Context(), userID, currentAppCount); err != nil {
+			h.logger.Warn("Max apps limit exceeded",
+				zap.String("user_id", userID),
+				zap.Int("current_app_count", currentAppCount),
+				zap.Error(err),
+			)
 			if planErr, ok := GetPlanLimitError(err); ok {
 				h.writeError(w, http.StatusForbidden, planErr.Message)
 				return
@@ -592,6 +602,10 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, http.StatusForbidden, "Plan limit exceeded")
 			return
 		}
+	} else {
+		h.logger.Warn("Plan enforcement service not available - skipping max apps check",
+			zap.String("user_id", userID),
+		)
 	}
 
 	// Create app in database

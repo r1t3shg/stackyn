@@ -105,16 +105,18 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 	}
 
 	// Try to get plan from subscription first
+	// Check both "active" and "trial" subscriptions (trial users should have plan limits enforced)
 	var plan *PlanData
 	if s.subscriptionRepo != nil {
 		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
-		if err == nil && sub != nil && sub.Status == "active" {
+		if err == nil && sub != nil && (sub.Status == "active" || sub.Status == "trial") {
 			// Get plan by name from subscription
 			plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
 			if err == nil && plan != nil {
 				s.logger.Debug("Retrieved plan from subscription",
 					zap.String("user_id", userID),
 					zap.String("plan_name", plan.Name),
+					zap.String("subscription_status", sub.Status),
 				)
 				return s.planDataToLimits(plan), nil
 			}
@@ -185,14 +187,32 @@ func (s *PlanEnforcementService) planDataToLimits(plan *PlanData) *PlanLimits {
 	}
 }
 
-// CheckMaxApps checks if user has reached max apps limit
+// CheckMaxApps checks if user can create another app (accounts for the new app being created)
 func (s *PlanEnforcementService) CheckMaxApps(ctx context.Context, userID string, currentAppCount int) error {
 	limits, err := s.GetPlanLimits(ctx, userID)
 	if err != nil {
+		s.logger.Error("Failed to get plan limits for max apps check",
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
 		return fmt.Errorf("failed to get plan limits: %w", err)
 	}
 
-	if currentAppCount >= limits.MaxApps {
+	s.logger.Info("Checking max apps limit",
+		zap.String("user_id", userID),
+		zap.Int("current_app_count", currentAppCount),
+		zap.Int("max_apps", limits.MaxApps),
+	)
+
+	// Check if creating a new app would exceed the limit
+	// currentAppCount is the count BEFORE creating the new app
+	// So we check if currentAppCount + 1 > maxApps
+	if currentAppCount+1 > limits.MaxApps {
+		s.logger.Warn("Max apps limit exceeded",
+			zap.String("user_id", userID),
+			zap.Int("current_app_count", currentAppCount),
+			zap.Int("max_apps", limits.MaxApps),
+		)
 		return &PlanLimitError{
 			Limit:     "max_apps",
 			Current:   currentAppCount,
@@ -201,6 +221,12 @@ func (s *PlanEnforcementService) CheckMaxApps(ctx context.Context, userID string
 			Message:   fmt.Sprintf("You have reached the maximum number of apps (%d) for your plan. Please upgrade your plan to create more apps.", limits.MaxApps),
 		}
 	}
+
+	s.logger.Debug("Max apps check passed",
+		zap.String("user_id", userID),
+		zap.Int("current_app_count", currentAppCount),
+		zap.Int("max_apps", limits.MaxApps),
+	)
 
 	return nil
 }
