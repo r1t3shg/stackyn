@@ -255,103 +255,11 @@ jobs:
           # Build and deploy
           echo "🔨 Building and deploying containers..."
           
-          # ZERO-DOWNTIME DEPLOYMENT STRATEGY
-          # This ensures stackyn.com stays up during deployments
-          echo "🚀 Starting zero-downtime deployment..."
-          
-          # Configuration for zero-downtime deployment
-          # We alternate between two project names to achieve zero-downtime
-          PROJECT_NAME="stackyn"
-          ALT_PROJECT_NAME="stackyn-alt"
           COMPOSE_FILE="docker-compose.yml"
-          MAX_HEALTH_CHECK_WAIT=120  # 2 minutes
-          HEALTH_CHECK_INTERVAL=3    # 3 seconds
           
-          # Determine which project name is currently running (old) and which is new
-          # Check which one has running containers
-          if docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
-            OLD_PROJECT_NAME="$PROJECT_NAME"
-            NEW_PROJECT_NAME="$ALT_PROJECT_NAME"
-          elif docker compose -f "$COMPOSE_FILE" -p "$ALT_PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
-            OLD_PROJECT_NAME="$ALT_PROJECT_NAME"
-            NEW_PROJECT_NAME="$PROJECT_NAME"
-          else
-            # First deployment or no containers running - use default
-            OLD_PROJECT_NAME="$PROJECT_NAME"
-            NEW_PROJECT_NAME="$ALT_PROJECT_NAME"
-          fi
-          
-          echo "📋 Deployment plan:"
-          echo "   Old project name: $OLD_PROJECT_NAME"
-          echo "   New project name: $NEW_PROJECT_NAME"
-          
-          # Critical services that must be healthy before switching
-          # Note: traefik, postgres, redis are shared infrastructure (not swapped)
-          CRITICAL_SERVICES=("frontend" "api")
-          
-          # Function to check container health by service name
-          check_container_health() {
-            local service_name=$1
-            local elapsed=0
-            
-            echo "⏳ Waiting for $service_name to be healthy..."
-            
-            while [ $elapsed -lt $MAX_HEALTH_CHECK_WAIT ]; do
-              # Find container by service name (docker compose uses service name in container name)
-              local container_id=$(docker ps --filter "name=${service_name}" --format "{{.ID}}" | head -1)
-              
-              if [ -z "$container_id" ]; then
-                sleep $HEALTH_CHECK_INTERVAL
-                elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
-                continue
-              fi
-              
-              # Check Docker health status
-              local health_status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "none")
-              
-              if [ "$health_status" = "healthy" ]; then
-                echo "✅ $service_name is healthy"
-                return 0
-              elif [ "$health_status" = "unhealthy" ]; then
-                echo "⚠️  $service_name is unhealthy, waiting for recovery..."
-              else
-                # No health check configured, perform manual check
-                if [ "$service_name" = "frontend" ]; then
-                  if docker exec "$container_id" wget --quiet --tries=1 --spider --timeout=3 http://localhost:3000/ >/dev/null 2>&1; then
-                    echo "✅ $service_name passed manual health check"
-                    return 0
-                  fi
-                elif [ "$service_name" = "api" ]; then
-                  if docker exec "$container_id" wget --quiet --tries=1 --spider --timeout=3 http://localhost:8080/health >/dev/null 2>&1; then
-                    echo "✅ $service_name passed manual health check"
-                    return 0
-                  fi
-                elif [ "$service_name" = "traefik" ]; then
-                  if docker exec "$container_id" traefik healthcheck --ping >/dev/null 2>&1; then
-                    echo "✅ $service_name passed manual health check"
-                    return 0
-                  fi
-                else
-                  # For other services, just check if container is running
-                  if docker ps --format "{{.ID}}" | grep -q "^${container_id}"; then
-                    echo "✅ $service_name is running"
-                    return 0
-                  fi
-                fi
-              fi
-              
-              sleep $HEALTH_CHECK_INTERVAL
-              elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
-            done
-            
-            echo "⚠️  $service_name health check timed out after ${MAX_HEALTH_CHECK_WAIT}s, but continuing..."
-            return 1
-          }
-          
-          # Step 1: Ensure SSL certificate volume exists and is preserved
-          # Note: We use a fixed volume name for SSL certificates (not project-specific)
+          # Ensure SSL certificate volume exists and is preserved
           SSL_VOLUME_NAME="stackyn_traefik_data"
-          echo "🔐 Step 1: Ensuring SSL certificates are ready..."
+          echo "🔐 Ensuring SSL certificates are ready..."
           docker volume inspect "$SSL_VOLUME_NAME" >/dev/null 2>&1 && echo "✅ SSL certificate volume exists and will be preserved" || echo "⚠️  SSL certificate volume not found (will be created)"
           
           docker volume inspect "$SSL_VOLUME_NAME" >/dev/null 2>&1 || docker volume create "$SSL_VOLUME_NAME"
@@ -375,155 +283,37 @@ jobs:
             fi
           " || true
           
-          # Step 2: Build new images (OLD CONTAINERS STILL RUNNING - NO DOWNTIME)
-          echo "📦 Step 2: Building new images (no downtime yet)..."
+          # Build new images
+          echo "📦 Building new images..."
           if ! docker compose -f "$COMPOSE_FILE" build --no-cache; then
             echo "❌ Build failed. Showing recent logs:"
             docker compose build --no-cache 2>&1 | tail -n 100
             exit 1
           fi
           
-          # Step 3: Ensure shared infrastructure is running (traefik, postgres, redis)
-          # These have fixed container names and are NOT part of blue-green swap
-          echo "🔧 Step 3a: Ensuring shared infrastructure is running..."
-          if ! docker ps --filter "name=stackyn-traefik" --format "{{.Names}}" | grep -q "stackyn-traefik"; then
-            echo "🚀 Starting shared infrastructure services (traefik, postgres, redis)..."
-            docker compose -f "$COMPOSE_FILE" up -d postgres redis traefik || {
-              echo "⚠️  Warning: Some infrastructure services may already be running"
-            }
-          else
-            echo "✅ Shared infrastructure is already running"
-          fi
-          
-          # Step 3b: Blue-green deployment for application services only
-          # Start new application containers with different project name (old ones keep running)
-          echo "🚀 Step 3b: Starting new application containers with project name: $NEW_PROJECT_NAME (old containers still running)..."
-          
-          # Clean up any partially created containers from previous failed attempts
-          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" rm -f postgres redis traefik 2>/dev/null || true
-          
-          # Start only application services with new project name - they'll have same Traefik labels
-          # Traefik will automatically route to both old and new containers during transition
-          # Use --no-deps to prevent Docker Compose from starting dependencies (infrastructure services)
-          # Application services will connect to existing infrastructure via network
-          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d --no-deps api frontend cms build-worker deploy-worker cleanup-worker --remove-orphans
+          # Stop old containers and start new ones
+          echo "🚀 Starting containers..."
+          docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
           
           # Wait for containers to start
+          echo "⏳ Waiting for containers to start..."
           sleep 10
           
-          # Step 4: Wait for critical services to be healthy (OLD CONTAINERS STILL SERVING TRAFFIC)
-          echo "🏥 Step 4: Waiting for critical application services to be healthy (old containers still serving traffic)..."
-          for service in "${CRITICAL_SERVICES[@]}"; do
-            # Check health of new container (with NEW_PROJECT_NAME prefix)
-            NEW_CONTAINER_ID=$(docker ps --filter "name=${NEW_PROJECT_NAME}-${service}" --format "{{.ID}}" | head -1)
-            
-            if [ ! -z "$NEW_CONTAINER_ID" ]; then
-              echo "⏳ Waiting for new $service container to be healthy..."
-              elapsed=0
-              
-              while [ $elapsed -lt $MAX_HEALTH_CHECK_WAIT ]; do
-                health_status=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_CONTAINER_ID" 2>/dev/null || echo "none")
-                
-                if [ "$health_status" = "healthy" ]; then
-                  echo "✅ New $service container is healthy"
-                  break
-                elif [ "$health_status" = "unhealthy" ]; then
-                  echo "⚠️  New $service container is unhealthy, waiting for recovery..."
-                else
-                  # Manual health check
-                  if [ "$service" = "frontend" ]; then
-                    if docker exec "$NEW_CONTAINER_ID" wget --quiet --tries=1 --spider --timeout=3 http://localhost:3000/ >/dev/null 2>&1; then
-                      echo "✅ New $service container passed manual health check"
-                      break
-                    fi
-                  elif [ "$service" = "api" ]; then
-                    if docker exec "$NEW_CONTAINER_ID" wget --quiet --tries=1 --spider --timeout=3 http://localhost:8080/health >/dev/null 2>&1; then
-                      echo "✅ New $service container passed manual health check"
-                      break
-                    fi
-                  else
-                    # Just check if running
-                    if docker ps --format "{{.ID}}" | grep -q "^${NEW_CONTAINER_ID}"; then
-                      echo "✅ New $service container is running"
-                      break
-                    fi
-                  fi
-                fi
-                
-                sleep $HEALTH_CHECK_INTERVAL
-                elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
-              done
-            fi
-          done
-          
-          # Additional wait for Traefik to register new containers
-          echo "⏳ Waiting for Traefik to register new containers..."
-          sleep 15
-          
-          # Step 5: Stop old application containers (ONLY AFTER NEW ONES ARE HEALTHY)
-          # Note: We do NOT stop infrastructure services (traefik, postgres, redis) - they're shared
-          echo "🔄 Step 5: Stopping old application containers (new containers are healthy and ready)..."
-          
-          if docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" ps -q api frontend cms build-worker deploy-worker cleanup-worker 2>/dev/null | grep -q .; then
-            echo "🛑 Stopping old application containers gracefully (project: $OLD_PROJECT_NAME)..."
-            # Only stop application services, not infrastructure
-            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" stop api frontend cms build-worker deploy-worker cleanup-worker || true
-            
-            # Wait for graceful shutdown
-            sleep 5
-            
-            # Remove old application containers
-            echo "🧹 Removing old application containers..."
-            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" rm -f api frontend cms build-worker deploy-worker cleanup-worker || true
-          else
-            echo "✅ No old application containers found to stop"
-          fi
-          
-          # Step 6: Verify new containers are serving traffic
-          echo "🔄 Step 6: Verifying new containers are serving traffic..."
-          
-          # Check that new containers are running and healthy
-          for service in "${CRITICAL_SERVICES[@]}"; do
-            NEW_CONTAINER_ID=$(docker ps --filter "name=${NEW_PROJECT_NAME}-${service}" --format "{{.ID}}" | head -1)
-            if [ ! -z "$NEW_CONTAINER_ID" ]; then
-              echo "✅ New $service container is running (ID: ${NEW_CONTAINER_ID:0:12})"
-            fi
-          done
-          
-          # At this point:
-          # - New containers are running and healthy (serving traffic via Traefik)
-          # - Old containers are stopped
-          # - Traffic is being routed to new containers (zero downtime achieved!)
-          
-          # Step 7: Verify deployment is complete
-          # At this point:
-          # - New containers with NEW_PROJECT_NAME are running and healthy
-          # - Old containers with PROJECT_NAME are stopped and removed
-          # - Traffic is being served by new containers (ZERO DOWNTIME ACHIEVED!)
-          # - We keep new containers with NEW_PROJECT_NAME for true zero-downtime
-          #   (Project name doesn't affect functionality - only container naming)
-          
-          echo "🔄 Step 7: Deployment complete - new containers are serving traffic!"
-          echo "✅ Zero-downtime achieved - old containers stopped, new containers running"
-          
-          # Verify new containers are running
-          if COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps | grep -q "Up"; then
-            echo "✅ All new services are running"
-            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps
+          # Verify containers are running
+          echo "🔍 Verifying containers are running..."
+          if docker compose -f "$COMPOSE_FILE" ps | grep -q "Up"; then
+            echo "✅ All services are running"
+            docker compose -f "$COMPOSE_FILE" ps
           else
             echo "❌ Some services failed to start"
-            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps
+            docker compose -f "$COMPOSE_FILE" ps
             echo "📋 Recent logs:"
-            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" logs --tail=50
+            docker compose -f "$COMPOSE_FILE" logs --tail=50
             exit 1
           fi
           
-          # Note: For subsequent deployments, we'll need to handle the project name
-          # For now, we leave containers with NEW_PROJECT_NAME running
-          # Next deployment will use PROJECT_NAME as "old" and create a new NEW_PROJECT_NAME
-          
-          # Step 8: Final health check
-          echo "🏥 Step 8: Final health check..."
+          # Final health check
+          echo "🏥 Final health check..."
           sleep 10
           
           # Verify API is responding
@@ -539,16 +329,14 @@ jobs:
           
           # Show recent logs
           echo "📋 Recent logs:"
-          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" logs --tail=20
+          docker compose -f "$COMPOSE_FILE" logs --tail=20
           
           echo ""
-          echo "✅ Zero-downtime deployment completed successfully!"
+          echo "✅ Deployment completed successfully!"
           echo "🌐 Access your application at:"
           echo "   - Landing: https://${FRONTEND_DOMAIN:-stackyn.com}"
           echo "   - API: https://${API_DOMAIN:-api.stackyn.com}"
           echo ""
-          echo "💡 Note: Containers are running with project name '$NEW_PROJECT_NAME' for zero-downtime"
-          echo "   This doesn't affect functionality - Traefik routes by labels, not container names"
           echo "💡 SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT
 

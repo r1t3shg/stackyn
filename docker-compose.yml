@@ -5,7 +5,6 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: stackyn-postgres  # Fixed name - shared infrastructure, not part of blue-green
     environment:
       POSTGRES_DB: stackyn
       POSTGRES_USER: stackyn_user
@@ -28,7 +27,6 @@ services:
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: stackyn-redis  # Fixed name - shared infrastructure, not part of blue-green
     command: 
       - redis-server
       - --requirepass
@@ -51,7 +49,6 @@ services:
   # Traefik Reverse Proxy
   traefik:
     image: traefik:v3.6.6
-    container_name: stackyn-traefik  # Fixed name - shared infrastructure, not part of blue-green
     command:
       - "--api.dashboard=true"
       - "--api.insecure=true"
