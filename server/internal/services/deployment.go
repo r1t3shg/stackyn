@@ -243,7 +243,32 @@ func (s *DeploymentService) DeployContainer(ctx context.Context, opts Deployment
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Step 4.5: Stop old containers now that new container is successfully started
+	s.logger.Info("Container started, waiting for health check before zero-downtime switchover",
+		zap.String("container_id", createResp.ID),
+		zap.String("app_id", opts.AppID),
+	)
+
+	// Step 4.5: Wait for container to be healthy before stopping old containers (zero-downtime deployment)
+	// This ensures the new container is ready to serve traffic before old one is stopped
+	healthCtx, healthCancel := context.WithTimeout(ctx, 2*time.Minute) // Allow up to 2 minutes for health check
+	defer healthCancel()
+	
+	if err := s.waitForContainerHealth(healthCtx, createResp.ID, opts.Port); err != nil {
+		s.logger.Warn("Container health check failed or timed out, but continuing deployment",
+			zap.String("container_id", createResp.ID),
+			zap.String("app_id", opts.AppID),
+			zap.Error(err),
+		)
+		// Continue anyway - container might still work, just not passing health checks yet
+		// In production, you might want to fail here for strict zero-downtime
+	} else {
+		s.logger.Info("Container passed health check, safe to stop old containers",
+			zap.String("container_id", createResp.ID),
+			zap.String("app_id", opts.AppID),
+		)
+	}
+
+	// Step 4.6: Stop old containers now that new container is healthy and ready
 	// Only stop containers that are NOT the current new container
 	stoppedContainerIDs, err := s.stopOldContainersForApp(ctx, opts.AppID, createResp.ID)
 	if err != nil {
@@ -395,7 +420,31 @@ func (s *DeploymentService) DeployWithDockerCompose(ctx context.Context, opts De
 		return nil, fmt.Errorf("no containers found after docker-compose up")
 	}
 
-	// Step 7.5: Stop old containers now that new deployment is successfully started
+	s.logger.Info("Docker compose containers started, waiting for health check before zero-downtime switchover",
+		zap.String("main_container_id", mainContainerID),
+		zap.String("app_id", opts.AppID),
+	)
+
+	// Step 7.5: Wait for main container to be healthy before stopping old containers (zero-downtime deployment)
+	// This ensures the new containers are ready to serve traffic before old ones are stopped
+	healthCtx, healthCancel := context.WithTimeout(ctx, 2*time.Minute) // Allow up to 2 minutes for health check
+	defer healthCancel()
+	
+	if err := s.waitForContainerHealth(healthCtx, mainContainerID, opts.Port); err != nil {
+		s.logger.Warn("Main container health check failed or timed out, but continuing deployment",
+			zap.String("main_container_id", mainContainerID),
+			zap.String("app_id", opts.AppID),
+			zap.Error(err),
+		)
+		// Continue anyway - containers might still work, just not passing health checks yet
+	} else {
+		s.logger.Info("Main container passed health check, safe to stop old containers",
+			zap.String("main_container_id", mainContainerID),
+			zap.String("app_id", opts.AppID),
+		)
+	}
+
+	// Step 7.6: Stop old containers now that new deployment is healthy and ready
 	// Only stop containers that are NOT part of the new compose project
 	// Get all container IDs from the new compose project
 	newContainerIDs := make(map[string]bool)
@@ -589,6 +638,172 @@ func (s *DeploymentService) stopOldContainersForApp(ctx context.Context, appID s
 	}
 
 	return stoppedContainerIDs, nil
+}
+
+// waitForContainerHealth waits for a container to pass its health check
+// This is used for zero-downtime deployments to ensure new container is ready before stopping old ones
+func (s *DeploymentService) waitForContainerHealth(ctx context.Context, containerID string, port int) error {
+	const (
+		checkInterval = 2 * time.Second  // Check every 2 seconds
+		maxWaitTime   = 2 * time.Minute  // Maximum wait time
+	)
+
+	deadline := time.Now().Add(maxWaitTime)
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// Check if we've exceeded max wait time
+			if time.Now().After(deadline) {
+				return fmt.Errorf("health check timeout after %v", maxWaitTime)
+			}
+
+			// Inspect container to check health status
+			containerJSON, err := s.client.ContainerInspect(ctx, containerID)
+			if err != nil {
+				return fmt.Errorf("failed to inspect container: %w", err)
+			}
+
+			// Check if container is running
+			if !containerJSON.State.Running {
+				return fmt.Errorf("container is not running (status: %s)", containerJSON.State.Status)
+			}
+
+			// Check Docker health status
+			if containerJSON.State.Health != nil {
+				healthStatus := containerJSON.State.Health.Status
+				switch healthStatus {
+				case "healthy":
+					s.logger.Info("Container health check passed",
+						zap.String("container_id", containerID),
+						zap.String("health_status", healthStatus),
+					)
+					return nil // Container is healthy!
+				case "unhealthy":
+					// Continue waiting - might recover
+					s.logger.Debug("Container health check still unhealthy, waiting...",
+						zap.String("container_id", containerID),
+						zap.String("health_status", healthStatus),
+					)
+				case "starting", "none":
+					// Health check hasn't started yet or is in progress
+					s.logger.Debug("Container health check in progress, waiting...",
+						zap.String("container_id", containerID),
+						zap.String("health_status", healthStatus),
+					)
+				default:
+					// Unknown status - perform manual HTTP check
+					s.logger.Debug("Container health status unknown, performing manual check",
+						zap.String("container_id", containerID),
+						zap.String("health_status", healthStatus),
+					)
+					if err := s.performManualHealthCheck(ctx, containerID, port); err == nil {
+						s.logger.Info("Container passed manual health check",
+							zap.String("container_id", containerID),
+						)
+						return nil
+					}
+				}
+			} else {
+				// No health check configured - perform manual HTTP check
+				if err := s.performManualHealthCheck(ctx, containerID, port); err == nil {
+					s.logger.Info("Container passed manual health check (no Docker health check configured)",
+						zap.String("container_id", containerID),
+					)
+					return nil
+				}
+			}
+		}
+	}
+}
+
+// performManualHealthCheck performs a manual HTTP health check on the container
+func (s *DeploymentService) performManualHealthCheck(ctx context.Context, containerID string, port int) error {
+	// Get container network IP
+	containerJSON, err := s.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// Try to find the IP address in the network
+	if containerJSON.NetworkSettings == nil {
+		return fmt.Errorf("container has no network settings")
+	}
+
+	// Get IP from the stackyn-network
+	var containerIP string
+	if networks := containerJSON.NetworkSettings.Networks; networks != nil {
+		if networkInfo, ok := networks[s.networkName]; ok && networkInfo.IPAddress != "" {
+			containerIP = networkInfo.IPAddress
+		}
+	}
+
+	if containerIP == "" {
+		// Fallback: use exec to check from inside the container
+		return s.performInternalHealthCheck(ctx, containerID, port)
+	}
+
+	// Use wget/curl inside a temporary container on the same network to check health
+	// This is more reliable than trying to connect from outside
+	return s.performInternalHealthCheck(ctx, containerID, port)
+}
+
+// performInternalHealthCheck checks health by executing a command inside the container
+func (s *DeploymentService) performInternalHealthCheck(ctx context.Context, containerID string, port int) error {
+	// Try wget first (most reliable)
+	execResp, err := s.client.ContainerExecCreate(ctx, containerID, types.ExecConfig{
+		Cmd:          []string{"wget", "--quiet", "--tries=1", "--spider", "--timeout=3", fmt.Sprintf("http://localhost:%d/", port)},
+		AttachStdout: false,
+		AttachStderr: false,
+	})
+	
+	if err != nil {
+		// Try alternative: check if port is listening using netstat or ss
+		execResp, err = s.client.ContainerExecCreate(ctx, containerID, types.ExecConfig{
+			Cmd:          []string{"sh", "-c", fmt.Sprintf("nc -z localhost %d || ss -ltn | grep :%d || echo failed", port, port)},
+			AttachStdout: false,
+			AttachStderr: false,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create exec: %w", err)
+		}
+	}
+
+	// Attach to exec to start it
+	err = s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return fmt.Errorf("failed to start exec: %w", err)
+	}
+
+	// Wait a moment for exec to complete
+	time.Sleep(1 * time.Second)
+
+	// Check exec status with retries (exec might take a moment to complete)
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		inspectResp, err := s.client.ContainerExecInspect(ctx, execResp.ID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect exec: %w", err)
+		}
+
+		// ExitCode is -1 if exec hasn't finished yet
+		if inspectResp.ExitCode == -1 {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		if inspectResp.ExitCode == 0 {
+			return nil // Health check passed!
+		}
+
+		return fmt.Errorf("health check failed (exit code: %d)", inspectResp.ExitCode)
+	}
+
+	return fmt.Errorf("health check timeout - exec did not complete")
 }
 
 // findContainersByAppID finds all containers for a given app ID

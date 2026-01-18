@@ -524,17 +524,21 @@ export default function AppDetailsPage() {
             <div>
               <div className="text-xs text-[var(--text-muted)] mb-1">RAM Used</div>
               <div className="text-lg font-semibold text-[var(--text-primary)]">
-                {app.deployment?.usage_stats?.memory_usage_mb !== undefined
+                {app.deployment?.usage_stats?.memory_usage_mb !== undefined && app.deployment.usage_stats.memory_usage_mb > 0
                   ? `${app.deployment.usage_stats.memory_usage_mb} MB`
-                  : 'N/A'}
+                  : app.deployment?.resource_limits?.memory_mb
+                  ? `${app.deployment.resource_limits.memory_mb} MB (allocated)`
+                  : '0 MB'}
               </div>
             </div>
             <div>
               <div className="text-xs text-[var(--text-muted)] mb-1">Disk Used</div>
               <div className="text-lg font-semibold text-[var(--text-primary)]">
-                {app.deployment?.usage_stats?.disk_usage_gb !== undefined
+                {app.deployment?.usage_stats?.disk_usage_gb !== undefined && app.deployment.usage_stats.disk_usage_gb > 0
                   ? `${app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB`
-                  : 'N/A'}
+                  : app.deployment?.resource_limits?.disk_gb
+                  ? `${app.deployment.resource_limits.disk_gb.toFixed(2)} GB (allocated)`
+                  : '0.00 GB'}
               </div>
             </div>
             <div>
@@ -697,22 +701,6 @@ export default function AppDetailsPage() {
                   <div>
                     <div className="text-sm text-[var(--text-muted)] mb-1">Last Updated</div>
                     <div className="text-[var(--text-primary)]">{formatDate(app.updated_at)}</div>
-                  </div>
-                </div>
-              </div>
-
-
-              <div className="bg-[var(--primary-muted)]/20 rounded-lg border border-[var(--primary-muted)] p-4">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <div className="font-medium text-[var(--text-primary)] mb-1">How auto-deploy works</div>
-                    <div className="text-sm text-[var(--text-secondary)]">
-                      Stackyn automatically builds and deploys your app when you push to the configured branch ({app.branch}). 
-                      No manual steps required - just push your code and Stackyn handles the rest.
-                    </div>
                   </div>
                 </div>
               </div>

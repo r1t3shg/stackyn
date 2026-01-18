@@ -81,18 +81,31 @@ export default function Home() {
 
 
   // Calculate actual RAM and disk usage from all apps
+  // Falls back to resource_limits if usage_stats is not available
   const actualUsage = useMemo(() => {
     let totalRamMb = 0;
     let totalDiskMb = 0;
 
     apps.forEach((app) => {
-      if (app.deployment?.usage_stats) {
-        // Sum RAM usage in MB
-        const ramUsage = app.deployment.usage_stats.memory_usage_mb || 0;
-        totalRamMb += ramUsage;
-        // Sum disk usage (convert GB to MB)
-        const diskUsageGb = app.deployment.usage_stats.disk_usage_gb || 0;
-        totalDiskMb += diskUsageGb * 1024;
+      // Only count apps that are running or have resources allocated
+      const isRunning = app.status === 'running' || app.status === 'healthy';
+      
+      if (app.deployment) {
+        // Prefer usage_stats if available, otherwise use resource_limits
+        if (app.deployment.usage_stats) {
+          // Sum RAM usage in MB
+          const ramUsage = app.deployment.usage_stats.memory_usage_mb || 0;
+          totalRamMb += ramUsage;
+          // Sum disk usage (convert GB to MB)
+          const diskUsageGb = app.deployment.usage_stats.disk_usage_gb || 0;
+          totalDiskMb += diskUsageGb * 1024;
+        } else if (app.deployment.resource_limits && isRunning) {
+          // Fallback to resource_limits for running apps
+          const ramLimit = app.deployment.resource_limits.memory_mb || 0;
+          const diskLimitGb = app.deployment.resource_limits.disk_gb || 0;
+          totalRamMb += ramLimit;
+          totalDiskMb += diskLimitGb * 1024;
+        }
       }
     });
 

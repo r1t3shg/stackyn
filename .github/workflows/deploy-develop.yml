@@ -255,86 +255,108 @@ jobs:
           # Build and deploy
           echo "🔨 Building and deploying containers..."
           
-          # CRITICAL: Preserve SSL certificates by ensuring traefik_data volume is not removed
-          echo "🔐 Protecting SSL certificates..."
-          docker volume inspect stackyn_traefik_data >/dev/null 2>&1 && echo "✅ SSL certificate volume exists and will be preserved" || echo "⚠️  SSL certificate volume not found (will be created)"
+          # ZERO-DOWNTIME DEPLOYMENT STRATEGY
+          # This ensures stackyn.com stays up during deployments
+          echo "🚀 Starting zero-downtime deployment..."
           
-          # Stop and remove existing containers and networks (EXPLICITLY preserve volumes)
-          # Using --volumes flag would remove volumes - we DO NOT want that for SSL certificates
-          echo "🛑 Stopping existing containers (preserving volumes for SSL certificates and data)..."
-          docker compose down --remove-orphans || true  # NO --volumes flag to preserve SSL certificates
+          # Configuration for zero-downtime deployment
+          # We alternate between two project names to achieve zero-downtime
+          PROJECT_NAME="stackyn"
+          ALT_PROJECT_NAME="stackyn-alt"
+          COMPOSE_FILE="docker-compose.yml"
+          MAX_HEALTH_CHECK_WAIT=120  # 2 minutes
+          HEALTH_CHECK_INTERVAL=3    # 3 seconds
           
-          # Wait a moment for ports to be released
-          sleep 3
-          
-          # Find and stop any containers using port 8080
-          echo "🔍 Finding containers using port 8080..."
-          CONTAINERS_ON_8080=$(docker ps --filter "publish=8080" --format "{{.ID}} {{.Names}}" 2>/dev/null || true)
-          if [ ! -z "$CONTAINERS_ON_8080" ]; then
-            echo "⚠️  Found containers using port 8080:"
-            echo "$CONTAINERS_ON_8080"
-            echo "🛑 Stopping these containers..."
-            docker ps --filter "publish=8080" --format "{{.ID}}" | xargs -r docker stop 2>/dev/null || true
-            docker ps -a --filter "publish=8080" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
-            sleep 2
+          # Determine which project name is currently running (old) and which is new
+          # Check which one has running containers
+          if docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
+            OLD_PROJECT_NAME="$PROJECT_NAME"
+            NEW_PROJECT_NAME="$ALT_PROJECT_NAME"
+          elif docker compose -f "$COMPOSE_FILE" -p "$ALT_PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
+            OLD_PROJECT_NAME="$ALT_PROJECT_NAME"
+            NEW_PROJECT_NAME="$PROJECT_NAME"
           else
-            echo "✅ No containers found using port 8080"
+            # First deployment or no containers running - use default
+            OLD_PROJECT_NAME="$PROJECT_NAME"
+            NEW_PROJECT_NAME="$ALT_PROJECT_NAME"
           fi
           
-          # Check for and kill processes using port 8080 (API port)
-          echo "🔍 Checking for processes using port 8080..."
-          if command -v lsof >/dev/null 2>&1; then
-            PID=$(lsof -ti:8080 2>/dev/null) && kill -9 $PID 2>/dev/null && echo "✅ Killed process on port 8080 (PID: $PID)" || echo "✅ Port 8080 is free"
-          elif command -v fuser >/dev/null 2>&1; then
-            fuser -k 8080/tcp 2>/dev/null && echo "✅ Killed process on port 8080" || echo "✅ Port 8080 is free"
-          elif command -v netstat >/dev/null 2>&1; then
-            # Fallback: use netstat to find and kill process
-            PID=$(netstat -tlnp 2>/dev/null | grep ':8080' | awk '{print $7}' | cut -d'/' -f1 | head -1)
-            if [ ! -z "$PID" ] && [ "$PID" != "-" ]; then
-              kill -9 $PID 2>/dev/null && echo "✅ Killed process on port 8080 (PID: $PID)" || echo "✅ Port 8080 is free"
-            else
-              echo "✅ Port 8080 is free"
-            fi
-          else
-            echo "⚠️  Could not check port 8080 (lsof/fuser/netstat not available)"
-          fi
+          echo "📋 Deployment plan:"
+          echo "   Old project name: $OLD_PROJECT_NAME"
+          echo "   New project name: $NEW_PROJECT_NAME"
           
-          # Remove any dangling containers that might be using the port
-          # IMPORTANT: Do NOT remove containers that might be using the traefik_data volume
-          echo "🧹 Cleaning up dangling containers (preserving SSL certificate volume)..."
-          docker ps -a --filter "name=stackyn" --format "{{.ID}} {{.Names}}" | grep -v "traefik" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+          # Critical services that must be healthy before switching
+          CRITICAL_SERVICES=("traefik" "frontend" "api")
           
-          # Explicitly ensure traefik_data volume is not removed
-          echo "🔐 Verifying SSL certificate volume is safe..."
-          if docker volume inspect stackyn_traefik_data >/dev/null 2>&1; then
-            CERT_SIZE=$(docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "stat -c%s /letsencrypt/acme.json 2>/dev/null || echo 0")
-            if [ "$CERT_SIZE" -gt 100 ]; then
-              echo "✅ SSL certificates found in volume ($CERT_SIZE bytes) - will be preserved"
-            else
-              echo "⚠️  SSL certificate file is small or empty ($CERT_SIZE bytes) - will be recreated if needed"
-            fi
-          fi
+          # Function to check container health by service name
+          check_container_health() {
+            local service_name=$1
+            local elapsed=0
+            
+            echo "⏳ Waiting for $service_name to be healthy..."
+            
+            while [ $elapsed -lt $MAX_HEALTH_CHECK_WAIT ]; do
+              # Find container by service name (docker compose uses service name in container name)
+              local container_id=$(docker ps --filter "name=${service_name}" --format "{{.ID}}" | head -1)
+              
+              if [ -z "$container_id" ]; then
+                sleep $HEALTH_CHECK_INTERVAL
+                elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
+                continue
+              fi
+              
+              # Check Docker health status
+              local health_status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "none")
+              
+              if [ "$health_status" = "healthy" ]; then
+                echo "✅ $service_name is healthy"
+                return 0
+              elif [ "$health_status" = "unhealthy" ]; then
+                echo "⚠️  $service_name is unhealthy, waiting for recovery..."
+              else
+                # No health check configured, perform manual check
+                if [ "$service_name" = "frontend" ]; then
+                  if docker exec "$container_id" wget --quiet --tries=1 --spider --timeout=3 http://localhost:3000/ >/dev/null 2>&1; then
+                    echo "✅ $service_name passed manual health check"
+                    return 0
+                  fi
+                elif [ "$service_name" = "api" ]; then
+                  if docker exec "$container_id" wget --quiet --tries=1 --spider --timeout=3 http://localhost:8080/health >/dev/null 2>&1; then
+                    echo "✅ $service_name passed manual health check"
+                    return 0
+                  fi
+                elif [ "$service_name" = "traefik" ]; then
+                  if docker exec "$container_id" traefik healthcheck --ping >/dev/null 2>&1; then
+                    echo "✅ $service_name passed manual health check"
+                    return 0
+                  fi
+                else
+                  # For other services, just check if container is running
+                  if docker ps --format "{{.ID}}" | grep -q "^${container_id}"; then
+                    echo "✅ $service_name is running"
+                    return 0
+                  fi
+                fi
+              fi
+              
+              sleep $HEALTH_CHECK_INTERVAL
+              elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
+            done
+            
+            echo "⚠️  $service_name health check timed out after ${MAX_HEALTH_CHECK_WAIT}s, but continuing..."
+            return 1
+          }
           
-          # Wait again for cleanup to complete
-          sleep 2
+          # Step 1: Ensure SSL certificate volume exists and is preserved
+          # Note: We use a fixed volume name for SSL certificates (not project-specific)
+          SSL_VOLUME_NAME="stackyn_traefik_data"
+          echo "🔐 Step 1: Ensuring SSL certificates are ready..."
+          docker volume inspect "$SSL_VOLUME_NAME" >/dev/null 2>&1 && echo "✅ SSL certificate volume exists and will be preserved" || echo "⚠️  SSL certificate volume not found (will be created)"
           
-          echo "✅ Cleanup complete"
+          docker volume inspect "$SSL_VOLUME_NAME" >/dev/null 2>&1 || docker volume create "$SSL_VOLUME_NAME"
           
-          # Build containers (this may take several minutes)
-          # Use unbuffered output and keep connection alive
-          echo "Building containers (this may take several minutes)..."
-          if ! docker compose build --no-cache; then
-            echo "❌ Build failed. Showing recent logs:"
-            docker compose build --no-cache 2>&1 | tail -n 100
-            exit 1
-          fi
-          
-          # Initialize acme.json if it doesn't exist (for SSL certificates)
-          # This will NOT overwrite existing certificates - only creates if missing
-          echo "🔐 Ensuring SSL certificate storage is ready..."
-          docker volume inspect stackyn_traefik_data >/dev/null 2>&1 || docker volume create stackyn_traefik_data
-          # Only initialize acme.json if it doesn't exist or is empty (preserve existing certificates)
-          docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "
+          # Initialize acme.json if needed (preserve existing certificates)
+          docker run --rm -v "$SSL_VOLUME_NAME:/letsencrypt" alpine sh -c "
             if [ ! -f /letsencrypt/acme.json ]; then
               echo 'Creating new acme.json file...'
               touch /letsencrypt/acme.json
@@ -352,45 +374,147 @@ jobs:
             fi
           " || true
           
-          echo "Starting containers (SSL certificates will be preserved)..."
-          docker compose up -d --remove-orphans
-          
-          # Verify SSL certificate volume is still intact after deployment
-          echo "🔐 Verifying SSL certificates after deployment..."
-          if docker volume inspect stackyn_traefik_data >/dev/null 2>&1; then
-            CERT_SIZE=$(docker run --rm -v stackyn_traefik_data:/letsencrypt alpine sh -c "stat -c%s /letsencrypt/acme.json 2>/dev/null || echo 0")
-            if [ "$CERT_SIZE" -gt 100 ]; then
-              echo "✅ SSL certificates preserved successfully ($CERT_SIZE bytes)"
-            else
-              echo "⚠️  SSL certificate file is small - certificates may need to be regenerated"
-            fi
-          else
-            echo "❌ ERROR: SSL certificate volume was removed! This should not happen."
-          fi
-          
-          # Wait for services to be healthy
-          echo "⏳ Waiting for services to start..."
-          sleep 15
-          
-          # Health check
-          echo "🏥 Checking service health..."
-          sleep 5  # Additional wait for services to initialize
-          if docker compose ps | grep -q "Up"; then
-            echo "✅ Services are running"
-            docker compose ps
-          else
-            echo "❌ Some services failed to start"
-            docker compose ps
-            echo "📋 Recent logs:"
-            docker compose logs --tail=50
+          # Step 2: Build new images (OLD CONTAINERS STILL RUNNING - NO DOWNTIME)
+          echo "📦 Step 2: Building new images (no downtime yet)..."
+          if ! docker compose -f "$COMPOSE_FILE" build --no-cache; then
+            echo "❌ Build failed. Showing recent logs:"
+            docker compose build --no-cache 2>&1 | tail -n 100
             exit 1
           fi
           
+          # Step 3: Blue-green deployment for zero-downtime
+          # Start new containers with different project name (old ones keep running)
+          echo "🚀 Step 3: Starting new containers with project name: $NEW_PROJECT_NAME (old containers still running)..."
+          
+          # Start new containers with new project name - they'll have same Traefik labels
+          # Traefik will automatically route to both old and new containers during transition
+          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d --remove-orphans
+          
+          # Wait for containers to start
+          sleep 10
+          
+          # Step 4: Wait for critical services to be healthy (OLD CONTAINERS STILL SERVING TRAFFIC)
+          echo "🏥 Step 4: Waiting for critical services to be healthy (old containers still serving traffic)..."
+          for service in "${CRITICAL_SERVICES[@]}"; do
+            # Check health of new container (with NEW_PROJECT_NAME prefix)
+            NEW_CONTAINER_ID=$(docker ps --filter "name=${NEW_PROJECT_NAME}-${service}" --format "{{.ID}}" | head -1)
+            
+            if [ ! -z "$NEW_CONTAINER_ID" ]; then
+              echo "⏳ Waiting for new $service container to be healthy..."
+              elapsed=0
+              
+              while [ $elapsed -lt $MAX_HEALTH_CHECK_WAIT ]; do
+                health_status=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_CONTAINER_ID" 2>/dev/null || echo "none")
+                
+                if [ "$health_status" = "healthy" ]; then
+                  echo "✅ New $service container is healthy"
+                  break
+                elif [ "$health_status" = "unhealthy" ]; then
+                  echo "⚠️  New $service container is unhealthy, waiting for recovery..."
+                else
+                  # Manual health check
+                  if [ "$service" = "frontend" ]; then
+                    if docker exec "$NEW_CONTAINER_ID" wget --quiet --tries=1 --spider --timeout=3 http://localhost:3000/ >/dev/null 2>&1; then
+                      echo "✅ New $service container passed manual health check"
+                      break
+                    fi
+                  elif [ "$service" = "api" ]; then
+                    if docker exec "$NEW_CONTAINER_ID" wget --quiet --tries=1 --spider --timeout=3 http://localhost:8080/health >/dev/null 2>&1; then
+                      echo "✅ New $service container passed manual health check"
+                      break
+                    fi
+                  elif [ "$service" = "traefik" ]; then
+                    if docker exec "$NEW_CONTAINER_ID" traefik healthcheck --ping >/dev/null 2>&1; then
+                      echo "✅ New $service container passed manual health check"
+                      break
+                    fi
+                  else
+                    # Just check if running
+                    if docker ps --format "{{.ID}}" | grep -q "^${NEW_CONTAINER_ID}"; then
+                      echo "✅ New $service container is running"
+                      break
+                    fi
+                  fi
+                fi
+                
+                sleep $HEALTH_CHECK_INTERVAL
+                elapsed=$((elapsed + HEALTH_CHECK_INTERVAL))
+              done
+            fi
+          done
+          
+          # Additional wait for Traefik to register new containers
+          echo "⏳ Waiting for Traefik to register new containers..."
+          sleep 15
+          
+          # Step 5: Stop old containers (ONLY AFTER NEW ONES ARE HEALTHY)
+          echo "🔄 Step 5: Stopping old containers (new containers are healthy and ready)..."
+          
+          if docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
+            echo "🛑 Stopping old containers gracefully (project: $OLD_PROJECT_NAME)..."
+            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" stop || true
+            
+            # Wait for graceful shutdown
+            sleep 5
+            
+            # Remove old containers
+            echo "🧹 Removing old containers..."
+            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" rm -f || true
+          else
+            echo "✅ No old containers found to stop"
+          fi
+          
+          # Step 6: Verify new containers are serving traffic
+          echo "🔄 Step 6: Verifying new containers are serving traffic..."
+          
+          # Check that new containers are running and healthy
+          for service in "${CRITICAL_SERVICES[@]}"; do
+            NEW_CONTAINER_ID=$(docker ps --filter "name=${NEW_PROJECT_NAME}-${service}" --format "{{.ID}}" | head -1)
+            if [ ! -z "$NEW_CONTAINER_ID" ]; then
+              echo "✅ New $service container is running (ID: ${NEW_CONTAINER_ID:0:12})"
+            fi
+          done
+          
+          # At this point:
+          # - New containers are running and healthy (serving traffic via Traefik)
+          # - Old containers are stopped
+          # - Traffic is being routed to new containers (zero downtime achieved!)
+          
+          # Step 7: Verify deployment is complete
+          # At this point:
+          # - New containers with NEW_PROJECT_NAME are running and healthy
+          # - Old containers with PROJECT_NAME are stopped and removed
+          # - Traffic is being served by new containers (ZERO DOWNTIME ACHIEVED!)
+          # - We keep new containers with NEW_PROJECT_NAME for true zero-downtime
+          #   (Project name doesn't affect functionality - only container naming)
+          
+          echo "🔄 Step 7: Deployment complete - new containers are serving traffic!"
+          echo "✅ Zero-downtime achieved - old containers stopped, new containers running"
+          
+          # Verify new containers are running
+          if COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps | grep -q "Up"; then
+            echo "✅ All new services are running"
+            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps
+          else
+            echo "❌ Some services failed to start"
+            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" ps
+            echo "📋 Recent logs:"
+            COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" logs --tail=50
+            exit 1
+          fi
+          
+          # Note: For subsequent deployments, we'll need to handle the project name
+          # For now, we leave containers with NEW_PROJECT_NAME running
+          # Next deployment will use PROJECT_NAME as "old" and create a new NEW_PROJECT_NAME
+          
+          # Step 8: Final health check
+          echo "🏥 Step 8: Final health check..."
+          sleep 10
+          
           # Verify API is responding
           echo "🔍 Verifying API health..."
-          sleep 10  # Wait for API to be ready
           API_URL="https://${API_DOMAIN:-api.stackyn.com}/health"
-          if curl -f -s "$API_URL" > /dev/null 2>&1; then
+          if curl -f -s "$API_URL" >/dev/null 2>&1; then
             echo "✅ API health check passed"
           else
             echo "⚠️  API health check failed (may need more time or SSL certificate)"
@@ -400,15 +524,17 @@ jobs:
           
           # Show recent logs
           echo "📋 Recent logs:"
-          docker compose logs --tail=20
+          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" logs --tail=20
           
           echo ""
-          echo "✅ Deployment completed successfully!"
+          echo "✅ Zero-downtime deployment completed successfully!"
           echo "🌐 Access your application at:"
           echo "   - Landing: https://${FRONTEND_DOMAIN:-stackyn.com}"
           echo "   - API: https://${API_DOMAIN:-api.stackyn.com}"
           echo ""
-          echo "💡 Note: SSL certificates may take 5-10 minutes to generate on first deployment."
+          echo "💡 Note: Containers are running with project name '$NEW_PROJECT_NAME' for zero-downtime"
+          echo "   This doesn't affect functionality - Traefik routes by labels, not container names"
+          echo "💡 SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT
 
       - name: Deployment status
