@@ -5,6 +5,7 @@ import Logo from '@/components/Logo';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [videoModalOpen, setVideoModalOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -262,6 +263,7 @@ export default function LandingPage() {
                 </a>
               )}
               <button
+                onClick={() => setVideoModalOpen(true)}
                 className="bg-[var(--elevated)] hover:bg-[var(--surface)] text-[var(--text-primary)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg border border-[var(--border-subtle)]"
               >
                 See How It Works
@@ -803,16 +805,12 @@ export default function LandingPage() {
                 Get Started Free
               </a>
             )}
-            <a
-              href="#pricing"
+            <button
+              onClick={() => setVideoModalOpen(true)}
               className="bg-[var(--elevated)] hover:bg-[var(--surface)] text-[var(--text-primary)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg border border-[var(--border-subtle)]"
-              onClick={(e) => {
-                e.preventDefault();
-                document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
-              }}
             >
               See How It Works
-            </a>
+            </button>
           </div>
           <p className="text-sm text-[var(--text-muted)]">
             No credit card required • Works with GitHub
@@ -916,6 +914,39 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Video Modal */}
+      {videoModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setVideoModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-5xl mx-4 bg-[var(--app-bg)] rounded-lg overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setVideoModalOpen(false)}
+              className="absolute top-4 right-4 z-10 text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors bg-[var(--surface)] rounded-full p-2 hover:bg-[var(--elevated)]"
+              aria-label="Close video"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <video
+                className="absolute top-0 left-0 w-full h-full"
+                controls
+                autoPlay
+                src="/Stackyn-intro.mp4"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
