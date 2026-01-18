@@ -68,7 +68,7 @@ export default function Contact() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {/* Discord */}
             <a
-              href="https://discord.gg/stackyn"
+              href="https://discord.gg/zmeKCbXKn3"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-4 p-4 bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--primary)] transition-colors group"
@@ -84,27 +84,27 @@ export default function Contact() {
               </div>
             </a>
 
-            {/* Twitter */}
+            {/* X (formerly Twitter) */}
             <a
-              href="https://twitter.com/stackyn"
+              href="https://x.com/stackynio"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-4 p-4 bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--primary)] transition-colors group"
             >
-              <div className="flex-shrink-0 w-12 h-12 bg-[#1DA1F2]/20 rounded-lg flex items-center justify-center group-hover:bg-[#1DA1F2]/30 transition-colors">
-                <svg className="w-6 h-6 text-[#1DA1F2]" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 001.27 5.477A4.072 4.072 0 012.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84" />
+              <div className="flex-shrink-0 w-12 h-12 bg-[#000000]/20 rounded-lg flex items-center justify-center group-hover:bg-[#000000]/30 transition-colors">
+                <svg className="w-6 h-6 text-[#000000]" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--primary)] transition-colors">Twitter</h3>
+                <h3 className="font-semibold text-[var(--text-primary)] group-hover:text-[var(--primary)] transition-colors">X</h3>
                 <p className="text-sm text-[var(--text-muted)]">Follow us for updates</p>
               </div>
             </a>
 
             {/* LinkedIn */}
             <a
-              href="https://linkedin.com/company/stackyn"
+              href="https://www.linkedin.com/company/stackyn/"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-4 p-4 bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--primary)] transition-colors group"
@@ -122,7 +122,7 @@ export default function Contact() {
 
             {/* Instagram */}
             <a
-              href="https://instagram.com/stackyn"
+              href="https://www.instagram.com/stackyn.io/"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-4 p-4 bg-[var(--elevated)] rounded-lg border border-[var(--border-subtle)] hover:border-[var(--primary)] transition-colors group"
