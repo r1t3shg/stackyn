@@ -286,7 +286,8 @@ jobs:
           echo "   New project name: $NEW_PROJECT_NAME"
           
           # Critical services that must be healthy before switching
-          CRITICAL_SERVICES=("traefik" "frontend" "api")
+          # Note: traefik, postgres, redis are shared infrastructure (not swapped)
+          CRITICAL_SERVICES=("frontend" "api")
           
           # Function to check container health by service name
           check_container_health() {
@@ -382,19 +383,32 @@ jobs:
             exit 1
           fi
           
-          # Step 3: Blue-green deployment for zero-downtime
-          # Start new containers with different project name (old ones keep running)
-          echo "🚀 Step 3: Starting new containers with project name: $NEW_PROJECT_NAME (old containers still running)..."
+          # Step 3: Ensure shared infrastructure is running (traefik, postgres, redis)
+          # These have fixed container names and are NOT part of blue-green swap
+          echo "🔧 Step 3a: Ensuring shared infrastructure is running..."
+          if ! docker ps --filter "name=stackyn-traefik" --format "{{.Names}}" | grep -q "stackyn-traefik"; then
+            echo "🚀 Starting shared infrastructure services (traefik, postgres, redis)..."
+            docker compose -f "$COMPOSE_FILE" up -d postgres redis traefik || {
+              echo "⚠️  Warning: Some infrastructure services may already be running"
+            }
+          else
+            echo "✅ Shared infrastructure is already running"
+          fi
           
-          # Start new containers with new project name - they'll have same Traefik labels
+          # Step 3b: Blue-green deployment for application services only
+          # Start new application containers with different project name (old ones keep running)
+          echo "🚀 Step 3b: Starting new application containers with project name: $NEW_PROJECT_NAME (old containers still running)..."
+          
+          # Start only application services with new project name - they'll have same Traefik labels
           # Traefik will automatically route to both old and new containers during transition
-          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d --remove-orphans
+          # Exclude infrastructure services: postgres, redis, traefik
+          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d api frontend cms build-worker deploy-worker cleanup-worker --remove-orphans
           
           # Wait for containers to start
           sleep 10
           
           # Step 4: Wait for critical services to be healthy (OLD CONTAINERS STILL SERVING TRAFFIC)
-          echo "🏥 Step 4: Waiting for critical services to be healthy (old containers still serving traffic)..."
+          echo "🏥 Step 4: Waiting for critical application services to be healthy (old containers still serving traffic)..."
           for service in "${CRITICAL_SERVICES[@]}"; do
             # Check health of new container (with NEW_PROJECT_NAME prefix)
             NEW_CONTAINER_ID=$(docker ps --filter "name=${NEW_PROJECT_NAME}-${service}" --format "{{.ID}}" | head -1)
@@ -423,11 +437,6 @@ jobs:
                       echo "✅ New $service container passed manual health check"
                       break
                     fi
-                  elif [ "$service" = "traefik" ]; then
-                    if docker exec "$NEW_CONTAINER_ID" traefik healthcheck --ping >/dev/null 2>&1; then
-                      echo "✅ New $service container passed manual health check"
-                      break
-                    fi
                   else
                     # Just check if running
                     if docker ps --format "{{.ID}}" | grep -q "^${NEW_CONTAINER_ID}"; then
@@ -447,21 +456,23 @@ jobs:
           echo "⏳ Waiting for Traefik to register new containers..."
           sleep 15
           
-          # Step 5: Stop old containers (ONLY AFTER NEW ONES ARE HEALTHY)
-          echo "🔄 Step 5: Stopping old containers (new containers are healthy and ready)..."
+          # Step 5: Stop old application containers (ONLY AFTER NEW ONES ARE HEALTHY)
+          # Note: We do NOT stop infrastructure services (traefik, postgres, redis) - they're shared
+          echo "🔄 Step 5: Stopping old application containers (new containers are healthy and ready)..."
           
-          if docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" ps -q 2>/dev/null | grep -q .; then
-            echo "🛑 Stopping old containers gracefully (project: $OLD_PROJECT_NAME)..."
-            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" stop || true
+          if docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" ps -q api frontend cms build-worker deploy-worker cleanup-worker 2>/dev/null | grep -q .; then
+            echo "🛑 Stopping old application containers gracefully (project: $OLD_PROJECT_NAME)..."
+            # Only stop application services, not infrastructure
+            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" stop api frontend cms build-worker deploy-worker cleanup-worker || true
             
             # Wait for graceful shutdown
             sleep 5
             
-            # Remove old containers
-            echo "🧹 Removing old containers..."
-            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" rm -f || true
+            # Remove old application containers
+            echo "🧹 Removing old application containers..."
+            docker compose -f "$COMPOSE_FILE" -p "$OLD_PROJECT_NAME" rm -f api frontend cms build-worker deploy-worker cleanup-worker || true
           else
-            echo "✅ No old containers found to stop"
+            echo "✅ No old application containers found to stop"
           fi
           
           # Step 6: Verify new containers are serving traffic
