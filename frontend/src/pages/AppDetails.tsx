@@ -526,9 +526,7 @@ export default function AppDetailsPage() {
               <div className="text-lg font-semibold text-[var(--text-primary)]">
                 {app.deployment?.usage_stats?.memory_usage_mb !== undefined && app.deployment.usage_stats.memory_usage_mb > 0
                   ? `${app.deployment.usage_stats.memory_usage_mb} MB`
-                  : app.deployment?.resource_limits?.memory_mb
-                  ? `${app.deployment.resource_limits.memory_mb} MB (allocated)`
-                  : '0 MB'}
+                  : 'N/A'}
               </div>
             </div>
             <div>
@@ -536,9 +534,7 @@ export default function AppDetailsPage() {
               <div className="text-lg font-semibold text-[var(--text-primary)]">
                 {app.deployment?.usage_stats?.disk_usage_gb !== undefined && app.deployment.usage_stats.disk_usage_gb > 0
                   ? `${app.deployment.usage_stats.disk_usage_gb.toFixed(2)} GB`
-                  : app.deployment?.resource_limits?.disk_gb
-                  ? `${app.deployment.resource_limits.disk_gb.toFixed(2)} GB (allocated)`
-                  : '0.00 GB'}
+                  : 'N/A'}
               </div>
             </div>
             <div>
