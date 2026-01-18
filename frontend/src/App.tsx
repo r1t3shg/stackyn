@@ -4,6 +4,7 @@ import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import RefundPolicy from './pages/RefundPolicy';
 import AboutUs from './pages/AboutUs';
+import Contact from './pages/Contact';
 import Home from './pages/Home';
 import NewApp from './pages/NewApp';
 import AppDetails from './pages/AppDetails';
@@ -41,6 +42,7 @@ function App() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/refund" element={<RefundPolicy />} />
       <Route path="/about" element={<AboutUs />} />
+      <Route path="/contact" element={<Contact />} />
       <Route path="/pricing" element={<PricingRedirect />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<SignUp />} />
