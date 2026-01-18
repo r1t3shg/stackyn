@@ -264,7 +264,7 @@ export default function LandingPage() {
               <button
                 className="bg-[var(--elevated)] hover:bg-[var(--surface)] text-[var(--text-primary)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg border border-[var(--border-subtle)]"
               >
-                Watch Demo
+                See How It Works
               </button>
             </div>
             {/* Hero Visual Placeholder - Dashboard mockup */}

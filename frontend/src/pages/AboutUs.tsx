@@ -153,7 +153,8 @@ export default function AboutUs() {
                             <li><strong>Website:</strong> <a href="https://stackyn.com" className="text-[var(--primary)] hover:underline">https://stackyn.com</a></li>
                             <li><strong>Business Type:</strong> Software as a Service (SaaS)</li>
                             <li><strong>Industry:</strong> Cloud Hosting / Application Deployment</li>
-                            <li><strong>Founded:</strong> 2025</li>
+                            <li><strong>Founded:</strong> 2026</li>
+                            <li><strong>Founder:</strong> Ritesh Gupta</li>
                             <li><strong>Operating Model:</strong> Subscription-based</li>
                         </ul>
                     </section>
