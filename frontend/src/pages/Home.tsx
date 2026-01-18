@@ -25,6 +25,7 @@ export default function Home() {
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [demoVideoOpen, setDemoVideoOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -281,6 +282,40 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* Demo Video Section */}
+        <div className="mb-8 bg-gradient-to-br from-[var(--primary)]/10 via-[var(--primary)]/5 to-[var(--surface)] border border-[var(--primary)]/20 rounded-xl p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-lg bg-[var(--primary)]/20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-6 h-6 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)]">
+                    Learn How to Deploy Your App
+                  </h2>
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">
+                    Watch our demo video to see how easy it is to deploy and manage applications on Stackyn
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setDemoVideoOpen(true)}
+              className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Watch Demo
+            </button>
+          </div>
+        </div>
 
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -549,6 +584,39 @@ export default function Home() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Demo Video Modal */}
+      {demoVideoOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setDemoVideoOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-5xl mx-4 bg-[var(--app-bg)] rounded-lg overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setDemoVideoOpen(false)}
+              className="absolute top-4 right-4 z-10 text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors bg-[var(--surface)] rounded-full p-2 hover:bg-[var(--elevated)]"
+              aria-label="Close video"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <video
+                className="absolute top-0 left-0 w-full h-full"
+                controls
+                autoPlay
+                src="/Stackyn-Demo.mp4"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
