@@ -5,6 +5,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
+    container_name: stackyn-postgres
     environment:
       POSTGRES_DB: stackyn
       POSTGRES_USER: stackyn_user
@@ -27,6 +28,7 @@ services:
   # Redis
   redis:
     image: redis:7-alpine
+    container_name: stackyn-redis
     command: 
       - redis-server
       - --requirepass
@@ -49,6 +51,7 @@ services:
   # Traefik Reverse Proxy
   traefik:
     image: traefik:v3.6.6
+    container_name: stackyn-traefik
     command:
       - "--api.dashboard=true"
       - "--api.insecure=true"
@@ -92,6 +95,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile.api
+    container_name: stackyn-api
     environment:
       SERVER_ADDR: 0.0.0.0
       SERVER_PORT: 8080
@@ -161,6 +165,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile.build-worker
+    container_name: stackyn-build-worker
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -197,6 +202,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile.deploy-worker
+    container_name: stackyn-deploy-worker
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -237,6 +243,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile.cleanup-worker
+    container_name: stackyn-cleanup-worker
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -273,6 +280,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${FRONTEND_API_URL:-https://api.stackyn.com}
+    container_name: stackyn-frontend
     ports:
       - "3000:3000"
     networks:
@@ -333,6 +341,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${CMS_API_URL:-https://api.stackyn.com}
+    container_name: stackyn-cms
     networks:
       - stackyn-network
     depends_on:

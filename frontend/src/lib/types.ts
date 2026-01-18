@@ -69,6 +69,7 @@ export interface DeploymentLogs {
 
 export interface CreateAppRequest {
   name: string;
+  slug?: string; // Optional slug (will be auto-generated from name if not provided)
   repo_url: string;
   branch: string;
   env_vars?: Array<{ key: string; value: string }>; // Optional environment variables

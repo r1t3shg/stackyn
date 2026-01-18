@@ -11,6 +11,7 @@ export default function NewAppPage() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
+    slug: '',
     repo_url: '',
     branch: '',
   });
@@ -94,15 +95,49 @@ export default function NewAppPage() {
                 required
                 value={formData.name}
                 onChange={(e) => {
-                  // Replace spaces with hyphens and convert to lowercase
-                  const transformedValue = e.target.value
-                    .replace(/\s+/g, '-')  // Replace spaces with hyphens
-                    .toLowerCase();         // Convert to lowercase
-                  setFormData({ ...formData, name: transformedValue });
+                  const nameValue = e.target.value;
+                  // Auto-generate slug from name if slug is empty or matches the auto-generated pattern
+                  const autoSlug = nameValue
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                  
+                  setFormData((prev) => ({
+                    ...prev,
+                    name: nameValue,
+                    slug: prev.slug === '' || prev.slug === formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') 
+                      ? autoSlug 
+                      : prev.slug,
+                  }));
+                }}
+                className="w-full px-4 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:border-[var(--focus-border)] text-[var(--text-primary)]"
+                placeholder="My Awesome App"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="slug" className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                Slug (Subdomain) <span className="text-[var(--text-muted)] text-xs">(optional)</span>
+              </label>
+              <input
+                type="text"
+                id="slug"
+                value={formData.slug}
+                onChange={(e) => {
+                  // Validate slug format: only lowercase letters, numbers, and hyphens
+                  const slugValue = e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9-]/g, '')
+                    .replace(/-+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+                  setFormData({ ...formData, slug: slugValue });
                 }}
                 className="w-full px-4 py-2 bg-[var(--elevated)] border border-[var(--border-subtle)] rounded-lg focus:border-[var(--focus-border)] text-[var(--text-primary)]"
                 placeholder="my-awesome-app"
               />
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                Your app will be available at <span className="font-mono text-[var(--primary)]">https://{formData.slug || formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'your-slug'}.stackyn.com</span>
+              </p>
             </div>
 
             <div>

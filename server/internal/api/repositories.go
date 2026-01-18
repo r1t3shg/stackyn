@@ -605,23 +605,9 @@ func (r *AppRepo) GetAppByID(appID, userID string) (*App, error) {
 }
 
 // CreateApp creates a new app in the database
-func (r *AppRepo) CreateApp(userID, name, repoURL, branch string) (*App, error) {
+// slug is now a required parameter (validated and generated in the handler if not provided)
+func (r *AppRepo) CreateApp(userID, name, slug, repoURL, branch string) (*App, error) {
 	ctx := context.Background()
-	
-	// Generate slug from name (simple version - convert to lowercase, replace spaces with hyphens)
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	// Remove special characters, keep only alphanumeric and hyphens
-	var slugBuilder strings.Builder
-	for _, char := range slug {
-		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
-			slugBuilder.WriteRune(char)
-		}
-	}
-	slug = slugBuilder.String()
-	if slug == "" {
-		slug = "app"
-	}
 	
 	var app App
 	var url sql.NullString
@@ -643,7 +629,7 @@ func (r *AppRepo) CreateApp(userID, name, repoURL, branch string) (*App, error) 
 		&updatedAt,
 	)
 	if err != nil {
-		r.logger.Error("Failed to create app", zap.Error(err), zap.String("user_id", userID), zap.String("name", name))
+		r.logger.Error("Failed to create app", zap.Error(err), zap.String("user_id", userID), zap.String("name", name), zap.String("slug", slug))
 		return nil, err
 	}
 	if url.Valid {
@@ -670,6 +656,24 @@ func (r *AppRepo) GetAppUserID(ctx context.Context, appID string) (string, error
 		return "", err
 	}
 	return userID, nil
+}
+
+// GetAppSlug gets the slug for an app (for subdomain generation)
+func (r *AppRepo) GetAppSlug(appID string) (string, error) {
+	ctx := context.Background()
+	var slug string
+	err := r.pool.QueryRow(ctx,
+		"SELECT slug FROM apps WHERE id = $1",
+		appID,
+	).Scan(&slug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get app slug", zap.Error(err), zap.String("app_id", appID))
+		return "", err
+	}
+	return slug, nil
 }
 
 // DeleteApp deletes an app by ID (must belong to the user)

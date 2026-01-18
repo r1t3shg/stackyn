@@ -107,6 +107,7 @@ type DeploymentRepository interface {
 // AppRepository interface for app database operations
 type AppRepository interface {
 	UpdateApp(appID, status, url string) error
+	GetAppSlug(appID string) (string, error) // Get app slug for subdomain generation
 }
 
 // BuildJobRepository interface for build_job database operations
@@ -716,7 +717,29 @@ func (h *TaskHandler) HandleDeployTask(ctx context.Context, t *asynq.Task) error
 			// Default to .local for local development
 			baseDomain = "stackyn.local"
 		}
-		subdomain = fmt.Sprintf("%s.%s", payload.AppID, baseDomain)
+		
+		// Use slug for subdomain instead of UUID
+		appSlug := ""
+		if h.appRepo != nil {
+			var slugErr error
+			appSlug, slugErr = h.appRepo.GetAppSlug(payload.AppID)
+			if slugErr != nil {
+				h.logger.Warn("Failed to get app slug, falling back to UUID for subdomain",
+					zap.Error(slugErr),
+					zap.String("app_id", payload.AppID),
+				)
+				// Fallback to UUID if slug retrieval fails
+				appSlug = payload.AppID
+			}
+		} else {
+			// Fallback to UUID if appRepo is not available
+			h.logger.Warn("App repository not available, using UUID for subdomain",
+				zap.String("app_id", payload.AppID),
+			)
+			appSlug = payload.AppID
+		}
+		
+		subdomain = fmt.Sprintf("%s.%s", appSlug, baseDomain)
 	}
 
 	// Default port (can be overridden via env vars)

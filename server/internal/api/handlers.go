@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
@@ -84,6 +86,7 @@ type DeploymentLogs struct {
 
 type CreateAppRequest struct {
 	Name    string            `json:"name"`
+	Slug    string            `json:"slug,omitempty"` // Optional slug (will be auto-generated from name if not provided)
 	RepoURL string            `json:"repo_url"`
 	Branch  string            `json:"branch"`
 	EnvVars []CreateEnvVarRequest `json:"env_vars,omitempty"` // Optional environment variables
@@ -604,11 +607,30 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 		branch = "main"
 	}
 
-	app, err := h.appRepo.CreateApp(userID, req.Name, req.RepoURL, branch)
+	// Validate and process slug
+	slug := req.Slug
+	if slug == "" {
+		// Auto-generate slug from name if not provided
+		slug = generateSlugFromName(req.Name)
+	} else {
+		// Validate slug format: ^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$
+		slugRegex := regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$`)
+		if !slugRegex.MatchString(slug) {
+			h.writeError(w, http.StatusBadRequest, "Invalid slug format. Slug must start and end with alphanumeric characters, can contain hyphens, and be 1-32 characters long.")
+			return
+		}
+	}
+
+	app, err := h.appRepo.CreateApp(userID, req.Name, slug, req.RepoURL, branch)
 	if err != nil {
-		// Check for duplicate key violation (unique constraint on user_id + name)
+		// Check for duplicate key violation
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Check if it's a slug conflict or name conflict
+			if strings.Contains(pgErr.ConstraintName, "slug") || strings.Contains(pgErr.Message, "slug") {
+				h.writeError(w, http.StatusConflict, fmt.Sprintf("An app with the slug '%s' already exists. Please choose a different slug.", slug))
+				return
+			}
 			h.writeError(w, http.StatusConflict, fmt.Sprintf("An app with the name '%s' already exists", req.Name))
 			return
 		}
@@ -2721,5 +2743,46 @@ func (h *Handlers) TestBillingState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, response)
+}
+
+// generateSlugFromName generates a slug from an app name
+func generateSlugFromName(name string) string {
+	// Convert to lowercase and replace spaces with hyphens
+	slug := strings.ToLower(name)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	
+	// Remove special characters, keep only alphanumeric and hyphens
+	var slugBuilder strings.Builder
+	for _, char := range slug {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+			slugBuilder.WriteRune(char)
+		}
+	}
+	slug = slugBuilder.String()
+	
+	// Remove leading/trailing hyphens
+	slug = strings.Trim(slug, "-")
+	
+	// Ensure it matches the validation regex: ^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$
+	// If empty or doesn't start with alphanumeric, default to "app"
+	if slug == "" || (len(slug) > 0 && (slug[0] < 'a' || slug[0] > 'z') && (slug[0] < '0' || slug[0] > '9')) {
+		slug = "app"
+	}
+	
+	// If it ends with hyphen, remove it
+	slug = strings.TrimRight(slug, "-")
+	
+	// Ensure it's within length limit (max 32 chars)
+	if len(slug) > 32 {
+		slug = slug[:32]
+		slug = strings.TrimRight(slug, "-")
+	}
+	
+	// Final safety check: if empty or invalid, use default
+	if slug == "" || (len(slug) > 0 && (slug[0] < 'a' || slug[0] > 'z') && (slug[0] < '0' || slug[0] > '9')) {
+		slug = "app"
+	}
+	
+	return slug
 }
 
