@@ -87,9 +87,6 @@ export default function Home() {
     let totalDiskMb = 0;
 
     apps.forEach((app) => {
-      // Only count apps that are running or have resources allocated
-      const isRunning = app.status === 'running' || app.status === 'healthy';
-      
       if (app.deployment?.usage_stats) {
         // Only sum actual usage stats, not allocated resources
         const ramUsage = app.deployment.usage_stats.memory_usage_mb || 0;
