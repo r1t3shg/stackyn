@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { UserProfile } from '@/lib/types';
+import UpgradePlanModal from './UpgradePlanModal';
 
 interface TrialBannerProps {
   userProfile: UserProfile | null;
 }
 
 export default function TrialBanner({ userProfile }: TrialBannerProps) {
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  
   const trialInfo = useMemo(() => {
     // Debug: Log subscription data to help diagnose
     if (process.env.NODE_ENV === 'development') {
@@ -111,15 +114,21 @@ export default function TrialBanner({ userProfile }: TrialBannerProps) {
             </div>
           </div>
           <div className="flex-shrink-0">
-            <a
-              href="/pricing"
+            <button
+              onClick={() => setShowUpgradeModal(true)}
               className="text-sm font-medium text-blue-600 hover:text-blue-800 underline"
             >
               Upgrade now →
-            </a>
+            </button>
           </div>
         </div>
       </div>
+      
+      {/* Upgrade Plan Modal */}
+      <UpgradePlanModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+      />
     </div>
   );
 }

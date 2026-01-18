@@ -6,6 +6,7 @@ import StatusBadge from '@/components/StatusBadge';
 import TrialBanner from '@/components/TrialBanner';
 import Paywall from '@/components/Paywall';
 import BillingTestPanel from '@/components/BillingTestPanel';
+import ConfirmModal from '@/components/ConfirmModal';
 import { shouldShowPaywall } from '@/lib/billing';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -23,6 +24,7 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -298,13 +300,28 @@ export default function Home() {
               New App
             </button>
             <button
-              onClick={logout}
+              onClick={() => setShowLogoutConfirm(true)}
               className="bg-[var(--surface)] hover:bg-[var(--elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)] font-medium py-2 px-4 rounded-lg transition-colors"
             >
               Logout
             </button>
           </div>
         </div>
+
+        {/* Logout Confirmation Modal */}
+        <ConfirmModal
+          isOpen={showLogoutConfirm}
+          title="Confirm Logout"
+          message="Are you sure you want to log out? You'll need to sign in again to access your applications."
+          confirmText="Logout"
+          cancelText="Cancel"
+          onConfirm={async () => {
+            setShowLogoutConfirm(false);
+            await logout();
+          }}
+          onCancel={() => setShowLogoutConfirm(false)}
+          variant="default"
+        />
 
         {/* Search, Filter, and Sort Controls */}
         <div className="mb-6 flex flex-col sm:flex-row gap-4">
