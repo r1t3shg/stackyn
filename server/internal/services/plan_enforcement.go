@@ -110,15 +110,32 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 	if s.subscriptionRepo != nil {
 		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 		if err == nil && sub != nil && (sub.Status == "active" || sub.Status == "trial") {
-			// Get plan by name from subscription
-			plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
-			if err == nil && plan != nil {
-				s.logger.Debug("Retrieved plan from subscription",
+			// TRIAL USERS: Always limit to Starter plan regardless of subscription plan name
+			if sub.Status == "trial" {
+				s.logger.Debug("Trial user - forcing Starter plan limits",
 					zap.String("user_id", userID),
-					zap.String("plan_name", plan.Name),
-					zap.String("subscription_status", sub.Status),
+					zap.String("subscription_plan", sub.Plan),
 				)
-				return s.planDataToLimits(plan), nil
+				// Get Starter plan instead of the plan in subscription
+				plan, err = s.planRepo.GetPlanByName(ctx, "starter")
+				if err == nil && plan != nil {
+					s.logger.Debug("Retrieved Starter plan for trial user",
+						zap.String("user_id", userID),
+						zap.String("plan_name", plan.Name),
+					)
+					return s.planDataToLimits(plan), nil
+				}
+			} else {
+				// Active subscriptions use their assigned plan
+				plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
+				if err == nil && plan != nil {
+					s.logger.Debug("Retrieved plan from subscription",
+						zap.String("user_id", userID),
+						zap.String("plan_name", plan.Name),
+						zap.String("subscription_status", sub.Status),
+					)
+					return s.planDataToLimits(plan), nil
+				}
 			}
 		}
 	}
