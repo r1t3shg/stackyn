@@ -399,10 +399,14 @@ jobs:
           # Start new application containers with different project name (old ones keep running)
           echo "🚀 Step 3b: Starting new application containers with project name: $NEW_PROJECT_NAME (old containers still running)..."
           
+          # Clean up any partially created containers from previous failed attempts
+          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" rm -f postgres redis traefik 2>/dev/null || true
+          
           # Start only application services with new project name - they'll have same Traefik labels
           # Traefik will automatically route to both old and new containers during transition
-          # Exclude infrastructure services: postgres, redis, traefik
-          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d api frontend cms build-worker deploy-worker cleanup-worker --remove-orphans
+          # Use --no-deps to prevent Docker Compose from starting dependencies (infrastructure services)
+          # Application services will connect to existing infrastructure via network
+          COMPOSE_PROJECT_NAME="$NEW_PROJECT_NAME" docker compose -f "$COMPOSE_FILE" -p "$NEW_PROJECT_NAME" up -d --no-deps api frontend cms build-worker deploy-worker cleanup-worker --remove-orphans
           
           # Wait for containers to start
           sleep 10
