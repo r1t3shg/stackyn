@@ -50,5 +50,7 @@ EXPOSE 3001
 # Note: The base path /cms is handled by Vite build, but we need to serve from root
 # Traefik will route /cms/* to this service
 # Listen on 0.0.0.0 to allow Traefik to connect
-CMD ["serve", "-s", "dist", "-l", "0.0.0.0:3001"]
+# serve binds to all interfaces by default when port is specified
+# Using shell form to ensure proper execution
+CMD ["sh", "-c", "serve -s dist -l 3001"]
 
