@@ -755,7 +755,7 @@ func (s *DeploymentService) performManualHealthCheck(ctx context.Context, contai
 // performInternalHealthCheck checks health by executing a command inside the container
 func (s *DeploymentService) performInternalHealthCheck(ctx context.Context, containerID string, port int) error {
 	// Try wget first (most reliable)
-	execResp, err := s.client.ContainerExecCreate(ctx, containerID, types.ExecConfig{
+	execResp, err := s.client.ContainerExecCreate(ctx, containerID, container.ExecOptions{
 		Cmd:          []string{"wget", "--quiet", "--tries=1", "--spider", "--timeout=3", fmt.Sprintf("http://localhost:%d/", port)},
 		AttachStdout: false,
 		AttachStderr: false,
@@ -763,7 +763,7 @@ func (s *DeploymentService) performInternalHealthCheck(ctx context.Context, cont
 	
 	if err != nil {
 		// Try alternative: check if port is listening using netstat or ss
-		execResp, err = s.client.ContainerExecCreate(ctx, containerID, types.ExecConfig{
+		execResp, err = s.client.ContainerExecCreate(ctx, containerID, container.ExecOptions{
 			Cmd:          []string{"sh", "-c", fmt.Sprintf("nc -z localhost %d || ss -ltn | grep :%d || echo failed", port, port)},
 			AttachStdout: false,
 			AttachStderr: false,
@@ -774,7 +774,7 @@ func (s *DeploymentService) performInternalHealthCheck(ctx context.Context, cont
 	}
 
 	// Attach to exec to start it
-	err = s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{})
+	err = s.client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to start exec: %w", err)
 	}
