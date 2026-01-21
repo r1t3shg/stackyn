@@ -739,3 +739,221 @@ func (h *BillingHandlers) createLemonSqueezyCustomerPortal(ctx context.Context, 
 	return lemonResponse.Data.Attributes.URL, nil
 }
 
+// CancelSubscriptionRequest represents the request body (empty for now, but extensible)
+type CancelSubscriptionRequest struct {
+	// Empty - no input required from frontend (subscription_id is retrieved from DB)
+}
+
+// CancelSubscriptionResponse represents the response from canceling a subscription
+type CancelSubscriptionResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// CancelSubscription cancels a user's subscription via Lemon Squeezy
+// POST /api/billing/cancel
+// Requires: AuthMiddleware (sets user_id in context)
+func (h *BillingHandlers) CancelSubscription(w http.ResponseWriter, r *http.Request) {
+	// Get request ID for logging
+	requestID := r.Context().Value(middleware.RequestIDKey)
+	if requestID == nil {
+		requestID = "unknown"
+	}
+
+	// Step 1: Get authenticated user from context
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		h.logger.Error("User ID not found in context",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	h.logger.Info("Canceling subscription",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+	)
+
+	// Step 2: Fetch the user's latest active or past_due subscription from database
+	subscription, err := h.subscriptionRepo.GetActiveSubscriptionByUserID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.logger.Warn("No subscription found for user",
+				zap.String("request_id", fmt.Sprintf("%v", requestID)),
+				zap.String("user_id", userID),
+			)
+			h.writeError(w, http.StatusBadRequest, "No active subscription to cancel")
+			return
+		}
+		h.logger.Error("Failed to get subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve subscription")
+		return
+	}
+
+	// Check if subscription is already cancelled or set to cancel at period end
+	// Handle gracefully - idempotent operation
+	if subscription.Status == "cancelled" || subscription.CancelAtPeriodEnd {
+		// Already cancelled or cancellation already initiated - return success (idempotent)
+		h.logger.Info("Subscription already cancelled or cancellation already initiated",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.String("status", subscription.Status),
+			zap.Bool("cancel_at_period_end", subscription.CancelAtPeriodEnd),
+		)
+		response := CancelSubscriptionResponse{
+			Status:  "ok",
+			Message: "Subscription will be cancelled at the end of the billing period",
+		}
+		h.writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	// Step 3: Retrieve lemon_subscription_id
+	if subscription.LemonSubscriptionID == nil || *subscription.LemonSubscriptionID == "" {
+		h.logger.Error("Missing lemon_subscription_id in subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Subscription ID not found")
+		return
+	}
+
+	lemonSubscriptionID := *subscription.LemonSubscriptionID
+
+	h.logger.Info("Retrieved subscription ID",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("lemon_subscription_id", lemonSubscriptionID),
+	)
+
+	// Step 4: Call Lemon Squeezy "Cancel Subscription" API
+	// Cancel at period end (do NOT immediately expire)
+	if err := h.cancelLemonSqueezySubscription(r.Context(), lemonSubscriptionID, requestID); err != nil {
+		h.logger.Error("Failed to cancel Lemon Squeezy subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("lemon_subscription_id", lemonSubscriptionID),
+			zap.Error(err),
+		)
+		h.writeError(w, http.StatusBadGateway, "Failed to cancel subscription")
+		return
+	}
+
+	// Step 5: Update local DB - set cancel_at_period_end = true
+	// Keep status unchanged until webhook arrives
+	// Use transaction for atomic update
+	if err := h.subscriptionRepo.SetCancelAtPeriodEnd(r.Context(), subscription.ID, true); err != nil {
+		h.logger.Error("Failed to update cancel_at_period_end in database",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+			zap.Error(err),
+		)
+		// Note: Lemon Squeezy cancellation succeeded, but DB update failed
+		// Webhook will eventually sync the state, but log the error
+		// We still return success since cancellation was initiated
+	}
+
+	// Step 6: Return success response
+	response := CancelSubscriptionResponse{
+		Status:  "ok",
+		Message: "Subscription will be cancelled at the end of the billing period",
+	}
+
+	h.logger.Info("Subscription cancellation initiated successfully",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+		zap.String("subscription_id", subscription.ID),
+		zap.String("lemon_subscription_id", lemonSubscriptionID),
+	)
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// cancelLemonSqueezySubscription calls the Lemon Squeezy v1 API to cancel a subscription
+// Documentation: https://docs.lemonsqueezy.com/api/subscriptions/cancel-subscription
+// DELETE cancels the subscription but it remains active until the end of the billing period (ends_at)
+// This is the desired behavior - cancel at period end, not immediately
+func (h *BillingHandlers) cancelLemonSqueezySubscription(ctx context.Context, lemonSubscriptionID string, requestID interface{}) error {
+	// Create HTTP request to Lemon Squeezy API
+	// Lemon Squeezy v1 API endpoint: DELETE /v1/subscriptions/{id}
+	// This cancels the subscription but keeps it active until period_end
+	apiURL := fmt.Sprintf("https://api.lemonsqueezy.com/v1/subscriptions/%s", lemonSubscriptionID)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Accept", "application/vnd.api+json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", h.config.LemonSqueezy.APIKey))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call Lemon Squeezy API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	// Lemon Squeezy returns 200 OK for successful cancellation
+	if resp.StatusCode != http.StatusOK {
+		h.logger.Error("Lemon Squeezy API returned error",
+			zap.Int("status_code", resp.StatusCode),
+			zap.String("response_body", string(body)),
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("lemon_subscription_id", lemonSubscriptionID),
+		)
+		return fmt.Errorf("Lemon Squeezy API error: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to verify success
+	// Lemon Squeezy returns JSON:API format with subscription data
+	var lemonResponse struct {
+		Data struct {
+			ID         string `json:"id"`
+			Attributes struct {
+				Status    string `json:"status"`
+				Cancelled bool   `json:"cancelled"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &lemonResponse); err != nil {
+		h.logger.Warn("Failed to parse Lemon Squeezy response (but status was OK)",
+			zap.Error(err),
+			zap.String("response_body", string(body)),
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		// Don't fail if we can't parse - status code was OK
+	} else {
+		h.logger.Info("Lemon Squeezy subscription cancellation confirmed",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("lemon_subscription_id", lemonSubscriptionID),
+			zap.String("status", lemonResponse.Data.Attributes.Status),
+			zap.Bool("cancelled", lemonResponse.Data.Attributes.Cancelled),
+		)
+	}
+
+	return nil
+}
+

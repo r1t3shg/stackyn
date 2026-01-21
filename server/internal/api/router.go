@@ -317,6 +317,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Post("/checkout", billingHandlers.CreateCheckoutSession)
 		r.Get("/subscription", billingHandlers.GetSubscription)
 		r.Post("/portal", billingHandlers.CreateCustomerPortal)
+		r.Post("/cancel", billingHandlers.CancelSubscription)
 	})
 
 	// Apps routes - /api/apps (for listing) - requires authentication only (no billing check for read-only)

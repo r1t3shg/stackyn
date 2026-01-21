@@ -1212,6 +1212,7 @@ type Subscription struct {
 	TrialEndsAt        *time.Time `json:"trial_ends_at,omitempty"`          // When trial ends
 	RAMLimitMB         int        `json:"ram_limit_mb"`                     // RAM limit in MB
 	DiskLimitGB        int        `json:"disk_limit_gb"`                    // Disk limit in GB
+	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`             // true if subscription is set to cancel at period end
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
@@ -1332,12 +1333,14 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	var trialStartedAt, trialEndsAt sql.NullTime
 	
 	// Priority 1: Try to get active subscription
-	// Note: lemon_customer_id column needs to be added via migration
+	// Note: lemon_customer_id and cancel_at_period_end columns need to be added via migration
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, 
 		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		        ram_limit_mb, disk_limit_gb,
+		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'active'
 		 ORDER BY created_at DESC
@@ -1346,7 +1349,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	).Scan(
 		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
-		&sub.CreatedAt, &sub.UpdatedAt,
+		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
 	
 	if err == nil {
@@ -1376,7 +1379,9 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		`SELECT id, user_id, lemon_subscription_id, 
 		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		        ram_limit_mb, disk_limit_gb,
+		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'past_due'
 		 ORDER BY created_at DESC
@@ -1385,7 +1390,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	).Scan(
 		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
-		&sub.CreatedAt, &sub.UpdatedAt,
+		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
 	
 	if err == nil {
@@ -1417,7 +1422,9 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		`SELECT id, user_id, lemon_subscription_id, 
 		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		        ram_limit_mb, disk_limit_gb,
+		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'cancelled' AND updated_at > NOW() - INTERVAL '30 days'
 		 ORDER BY created_at DESC
@@ -1426,7 +1433,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	).Scan(
 		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
-		&sub.CreatedAt, &sub.UpdatedAt,
+		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
 	
 	if err == nil {
@@ -1608,6 +1615,38 @@ func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userI
 	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		r.logger.Error("Failed to update subscription by user ID", zap.Error(err), zap.String("user_id", userID))
+		return err
+	}
+	return nil
+}
+
+// SetCancelAtPeriodEnd sets cancel_at_period_end flag for a subscription
+// This is used when user initiates cancellation - status will be updated by webhook
+// Note: cancel_at_period_end column needs to be added via migration
+// If column doesn't exist, this will fail - migration must be run first
+func (r *SubscriptionRepo) SetCancelAtPeriodEnd(ctx context.Context, subscriptionID string, cancelAtPeriodEnd bool) error {
+	// Use transaction-safe update
+	// TODO: Add cancel_at_period_end column to subscriptions table via migration
+	_, err := r.pool.Exec(ctx,
+		`UPDATE subscriptions 
+		 SET cancel_at_period_end = $1, updated_at = NOW()
+		 WHERE id = $2`,
+		cancelAtPeriodEnd,
+		subscriptionID,
+	)
+	if err != nil {
+		r.logger.Error("Failed to set cancel_at_period_end",
+			zap.Error(err),
+			zap.String("subscription_id", subscriptionID),
+			zap.Bool("cancel_at_period_end", cancelAtPeriodEnd),
+		)
+		// Check if error is due to missing column
+		if strings.Contains(err.Error(), "column") && strings.Contains(err.Error(), "does not exist") {
+			r.logger.Warn("cancel_at_period_end column does not exist - migration needed",
+				zap.String("subscription_id", subscriptionID),
+			)
+			// Return error so caller knows migration is needed
+		}
 		return err
 	}
 	return nil
