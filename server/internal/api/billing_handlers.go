@@ -528,3 +528,214 @@ func (h *BillingHandlers) getPlanFeatures(plan string) SubscriptionFeatures {
 	}
 }
 
+// CreateCustomerPortalRequest represents the request body (empty for now, but extensible)
+type CreateCustomerPortalRequest struct {
+	// Empty - no input required from frontend
+}
+
+// CreateCustomerPortalResponse represents the response from creating a customer portal session
+type CreateCustomerPortalResponse struct {
+	PortalURL string `json:"portal_url"`
+}
+
+// CreateCustomerPortal creates a Lemon Squeezy customer portal session
+// POST /api/billing/portal
+// Requires: AuthMiddleware (sets user_id and user_email in context)
+func (h *BillingHandlers) CreateCustomerPortal(w http.ResponseWriter, r *http.Request) {
+	// Get request ID for logging
+	requestID := r.Context().Value(middleware.RequestIDKey)
+	if requestID == nil {
+		requestID = "unknown"
+	}
+
+	// Step 1: Get authenticated user from context
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		h.logger.Error("User ID not found in context",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	userEmail, ok := r.Context().Value("user_email").(string)
+	if !ok || userEmail == "" {
+		h.logger.Error("User email not found in context",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+		)
+		h.writeError(w, http.StatusUnauthorized, "User email not found")
+		return
+	}
+
+	h.logger.Info("Creating customer portal session",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+	)
+
+	// Step 2: Fetch the user's latest subscription from database
+	subscription, err := h.subscriptionRepo.GetActiveSubscriptionByUserID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.logger.Warn("No subscription found for user",
+				zap.String("request_id", fmt.Sprintf("%v", requestID)),
+				zap.String("user_id", userID),
+			)
+			h.writeError(w, http.StatusBadRequest, "No active subscription")
+			return
+		}
+		h.logger.Error("Failed to get subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve subscription")
+		return
+	}
+
+	// Step 3: Retrieve lemon_customer_id
+	if subscription.LemonCustomerID == nil || *subscription.LemonCustomerID == "" {
+		h.logger.Error("Missing lemon_customer_id in subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("subscription_id", subscription.ID),
+		)
+		h.writeError(w, http.StatusInternalServerError, "Subscription customer ID not found")
+		return
+	}
+
+	customerID := *subscription.LemonCustomerID
+
+	h.logger.Info("Retrieved customer ID",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+		zap.String("customer_id", customerID),
+	)
+
+	// Step 4: Call Lemon Squeezy "Create Customer Portal" API
+	portalURL, err := h.createLemonSqueezyCustomerPortal(r.Context(), customerID, requestID)
+	if err != nil {
+		h.logger.Error("Failed to create Lemon Squeezy customer portal",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.String("customer_id", customerID),
+			zap.Error(err),
+		)
+		h.writeError(w, http.StatusBadGateway, "Failed to create customer portal session")
+		return
+	}
+
+	// Step 5: Return portal URL to frontend
+	response := CreateCustomerPortalResponse{
+		PortalURL: portalURL,
+	}
+
+	h.logger.Info("Customer portal session created successfully",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+	)
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// createLemonSqueezyCustomerPortal calls the Lemon Squeezy v1 API to create a customer portal session
+func (h *BillingHandlers) createLemonSqueezyCustomerPortal(ctx context.Context, customerID string, requestID interface{}) (string, error) {
+	// Build return URL
+	returnURL := fmt.Sprintf("%s/billing", h.config.LemonSqueezy.FrontendBaseURL)
+
+	// Prepare request payload for Lemon Squeezy v1 API
+	// Documentation: https://docs.lemonsqueezy.com/api/customer-portals#create-a-customer-portal
+	// Lemon Squeezy v1 uses JSON:API format
+	payload := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "customer-portals",
+			"attributes": map[string]interface{}{
+				"return_url": returnURL,
+			},
+			"relationships": map[string]interface{}{
+				"customer": map[string]interface{}{
+					"data": map[string]interface{}{
+						"type": "customers",
+						"id":   customerID,
+					},
+				},
+			},
+		},
+	}
+
+	// Marshal payload to JSON
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request payload: %w", err)
+	}
+
+	// Create HTTP request to Lemon Squeezy API
+	// Lemon Squeezy v1 API endpoint: https://api.lemonsqueezy.com/v1/customer-portals
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.lemonsqueezy.com/v1/customer-portals", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+	req.Header.Set("Accept", "application/vnd.api+json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", h.config.LemonSqueezy.APIKey))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call Lemon Squeezy API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusCreated {
+		h.logger.Error("Lemon Squeezy API returned error",
+			zap.Int("status_code", resp.StatusCode),
+			zap.String("response_body", string(body)),
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		return "", fmt.Errorf("Lemon Squeezy API error: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response - Lemon Squeezy v1 returns JSON:API format
+	var lemonResponse struct {
+		Data struct {
+			Attributes struct {
+				URL string `json:"url"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &lemonResponse); err != nil {
+		h.logger.Error("Failed to parse Lemon Squeezy response",
+			zap.Error(err),
+			zap.String("response_body", string(body)),
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		return "", fmt.Errorf("failed to parse Lemon Squeezy response: %w", err)
+	}
+
+	// Return portal URL
+	if lemonResponse.Data.Attributes.URL == "" {
+		h.logger.Error("Portal URL not found in Lemon Squeezy response",
+			zap.String("response_body", string(body)),
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		return "", fmt.Errorf("portal URL not found in response")
+	}
+
+	return lemonResponse.Data.Attributes.URL, nil
+}
+
