@@ -182,9 +182,8 @@ func (h *BillingHandlers) CreateCheckoutSession(w http.ResponseWriter, r *http.R
 
 // createLemonSqueezyCheckout calls the Lemon Squeezy v1 API to create a checkout session
 func (h *BillingHandlers) createLemonSqueezyCheckout(ctx context.Context, variantID, customerEmail string, requestID interface{}) (string, error) {
-	// Build success and cancel URLs
+	// Build success URL (cancel URL is handled by Lemon Squeezy checkout options)
 	successURL := fmt.Sprintf("%s/billing/success", h.config.LemonSqueezy.FrontendBaseURL)
-	cancelURL := fmt.Sprintf("%s/billing/cancel", h.config.LemonSqueezy.FrontendBaseURL)
 
 	// Prepare request payload for Lemon Squeezy v1 API
 	// Documentation: https://docs.lemonsqueezy.com/api/checkouts#create-a-checkout

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -169,12 +168,11 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 
 	// Extract data from payload
 	lemonSubscriptionID := subscriptionID
-	lemonCustomerID := attrs.CustomerID
-	lemonVariantID := attrs.VariantID
 	planName := h.extractPlanName(attrs)
 	status := "active" // New subscriptions are always active
 	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
 	// TODO: Add current_period_end column to subscriptions table if needed
+	// Note: lemonCustomerID and lemonVariantID are available in attrs but not currently stored
 
 	// Get user_id from custom_data (set during checkout)
 	// Lemon Squeezy stores custom_data from checkout in meta.custom_data
@@ -272,13 +270,12 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 // handleSubscriptionUpdated handles subscription_updated event
 // Updates subscription fields and syncs status, renew date, variant
 func (h *WebhookHandlers) handleSubscriptionUpdated(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	// Extract data from payload
 	lemonSubscriptionID := subscriptionID
-	planName := h.extractPlanName(attrs)
-	status := h.mapLemonStatusToInternal(attrs.Status)
+	planName := h.extractPlanName(payload.Data.Attributes)
+	status := h.mapLemonStatusToInternal(payload.Data.Attributes.Status)
 	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
 	// TODO: Add current_period_end column to subscriptions table if needed
 
@@ -316,11 +313,10 @@ func (h *WebhookHandlers) handleSubscriptionUpdated(ctx context.Context, payload
 // handleSubscriptionPlanChanged handles subscription_plan_changed event
 // Updates plan + variant, keeps subscription active
 func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	lemonSubscriptionID := subscriptionID
-	planName := h.extractPlanName(attrs)
+	planName := h.extractPlanName(payload.Data.Attributes)
 	status := "active" // Keep subscription active when plan changes
 
 	h.logger.Info("Processing subscription_plan_changed",
@@ -352,7 +348,6 @@ func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, pay
 // handleSubscriptionPaymentSuccess handles subscription_payment_success event
 // Marks subscription as active, updates last_payment_at, clears past_due flags
 func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	lemonSubscriptionID := subscriptionID
@@ -383,7 +378,6 @@ func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, 
 // handleSubscriptionPaymentFailed handles subscription_payment_failed event
 // Marks subscription as past_due, does NOT immediately disable services
 func (h *WebhookHandlers) handleSubscriptionPaymentFailed(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	lemonSubscriptionID := subscriptionID
@@ -414,7 +408,6 @@ func (h *WebhookHandlers) handleSubscriptionPaymentFailed(ctx context.Context, p
 // handleSubscriptionCancelled handles subscription_cancelled event
 // Marks subscription as cancelled, keeps access until period_end
 func (h *WebhookHandlers) handleSubscriptionCancelled(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	lemonSubscriptionID := subscriptionID
@@ -445,7 +438,6 @@ func (h *WebhookHandlers) handleSubscriptionCancelled(ctx context.Context, paylo
 // handleSubscriptionExpired handles subscription_expired event
 // Marks subscription as expired, disables paid features immediately
 func (h *WebhookHandlers) handleSubscriptionExpired(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	attrs := payload.Data.Attributes
 	subscriptionID := payload.Data.ID
 
 	lemonSubscriptionID := subscriptionID
