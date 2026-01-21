@@ -12,7 +12,7 @@ export default function AboutUs() {
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 navigate('/');
             } else {
-                window.location.href = 'https://console.stackyn.com/';
+                window.location.href = 'https://console.staging.stackyn.com/';
             }
         } else {
             navigate('/login');

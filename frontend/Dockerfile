@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 #
 # Build Instructions:
-#   docker build --build-arg VITE_API_BASE_URL=https://api.stackyn.com -t stackyn-frontend .
+#   docker build --build-arg VITE_API_BASE_URL=https://api.staging.stackyn.com -t stackyn-frontend .
 #
 # Deployment Notes:
 #   - VITE_API_BASE_URL must be set at build time (not runtime)
@@ -35,7 +35,7 @@ COPY . .
 # Build the application
 # Note: VITE_API_BASE_URL should be set at build time via build arg
 # This is baked into the JavaScript bundle and cannot be changed at runtime
-ARG VITE_API_BASE_URL=https://api.stackyn.com
+ARG VITE_API_BASE_URL=https://api.staging.stackyn.com
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 

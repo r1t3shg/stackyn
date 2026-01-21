@@ -22,8 +22,8 @@ export default function LandingPage() {
         // Pass auth token when redirecting to console subdomain
         const token = localStorage.getItem('auth_token');
         const consoleUrl = token 
-          ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
-          : 'https://console.stackyn.com/';
+          ? `https://console.staging.stackyn.com/?token=${encodeURIComponent(token)}`
+          : 'https://console.staging.stackyn.com/';
         window.location.href = consoleUrl;
       }
     } else {
@@ -40,8 +40,8 @@ export default function LandingPage() {
       // Pass auth token when redirecting to console subdomain
       const token = localStorage.getItem('auth_token');
       const consoleUrl = token 
-        ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
-        : 'https://console.stackyn.com/';
+        ? `https://console.staging.stackyn.com/?token=${encodeURIComponent(token)}`
+        : 'https://console.staging.stackyn.com/';
       window.location.href = consoleUrl;
     }
   };
@@ -110,8 +110,8 @@ export default function LandingPage() {
                         // Pass auth token when redirecting to console subdomain
                         const token = localStorage.getItem('auth_token');
                         const consoleUrl = token 
-                          ? `https://console.stackyn.com/?token=${encodeURIComponent(token)}`
-                          : 'https://console.stackyn.com/';
+                          ? `https://console.staging.stackyn.com/?token=${encodeURIComponent(token)}`
+                          : 'https://console.staging.stackyn.com/';
                         window.location.href = consoleUrl;
                       }
                     }}
@@ -274,7 +274,7 @@ export default function LandingPage() {
               <div className="bg-[var(--terminal-bg)] rounded-lg p-6 font-mono text-sm text-[var(--text-primary)]">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-3 h-3 rounded-full bg-[var(--success)]"></div>
-                  <span className="text-[var(--text-muted)]">app.stackyn.com</span>
+                  <span className="text-[var(--text-muted)]">app.staging.stackyn.com</span>
                   <span className="text-[var(--text-muted)]">•</span>
                   <span className="text-[var(--success)]">Healthy</span>
                 </div>
@@ -282,7 +282,7 @@ export default function LandingPage() {
                   <div className="text-[var(--text-secondary)]">$ git push origin main</div>
                   <div className="text-[var(--success)]">✓ Building...</div>
                   <div className="text-[var(--success)]">✓ Deploying...</div>
-                  <div className="text-[var(--success)]">✓ Live at https://app.stackyn.com</div>
+                  <div className="text-[var(--success)]">✓ Live at https://app.staging.stackyn.com</div>
                 </div>
               </div>
             </div>
@@ -738,7 +738,7 @@ export default function LandingPage() {
                   if (isLocal || import.meta.env.DEV) {
                     navigate('/apps');
                   } else {
-                    window.location.href = 'https://console.stackyn.com/';
+                    window.location.href = 'https://console.staging.stackyn.com/';
                   }
                 }}
                 className="inline-block bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg mb-4"
@@ -786,7 +786,7 @@ export default function LandingPage() {
                   if (isLocal || import.meta.env.DEV) {
                     navigate('/apps');
                   } else {
-                    window.location.href = 'https://console.stackyn.com/';
+                    window.location.href = 'https://console.staging.stackyn.com/';
                   }
                 }}
                 className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-4 px-8 rounded-lg transition-colors text-lg"

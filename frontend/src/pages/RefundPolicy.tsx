@@ -12,7 +12,7 @@ export default function RefundPolicy() {
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 navigate('/');
             } else {
-                window.location.href = 'https://console.stackyn.com/';
+                window.location.href = 'https://console.staging.stackyn.com/';
             }
         } else {
             navigate('/login');
@@ -44,13 +44,13 @@ export default function RefundPolicy() {
                             {user ? (
                                 <>
                                     <a
-                                        href={window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.stackyn.com/'}
+                                        href={window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/' : 'https://console.staging.stackyn.com/'}
                                         onClick={(e) => {
                                             e.preventDefault();
                                             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                                                 navigate('/');
                                             } else {
-                                                window.location.href = 'https://console.stackyn.com/';
+                                                window.location.href = 'https://console.staging.stackyn.com/';
                                             }
                                         }}
                                         className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"

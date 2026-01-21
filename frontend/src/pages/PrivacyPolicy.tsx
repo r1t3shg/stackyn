@@ -13,7 +13,7 @@ export default function PrivacyPolicy() {
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         navigate('/');
       } else {
-        window.location.href = 'https://console.stackyn.com/';
+        window.location.href = 'https://console.staging.stackyn.com/';
       }
     } else {
       navigate('/login');
@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
                       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                         navigate('/');
                       } else {
-                        window.location.href = 'https://console.stackyn.com/';
+                        window.location.href = 'https://console.staging.stackyn.com/';
                       }
                     }}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors"

@@ -1,9 +1,9 @@
-name: Deploy to Main
+name: Deploy to Develop
 
 on:
   push:
     branches:
-      - main
+      - develop
 
 env:
   NODE_VERSION: '20'
@@ -66,7 +66,7 @@ jobs:
   deploy:
     needs: ci
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/develop'
 
     steps:
       - name: Checkout code
@@ -175,8 +175,8 @@ jobs:
           
           # Pull latest code
           echo "📥 Pulling latest code..."
-          git checkout main
-          git pull origin main
+          git checkout develop
+          git pull origin develop
           NEW_COMMIT=$(git rev-parse HEAD)
           echo "New commit: $NEW_COMMIT"
           
@@ -209,20 +209,20 @@ jobs:
                 echo "✅ Added APP_BASE_DOMAIN to .env"
               else
                 # Add default value (use stackyn.com as default)
-                echo "APP_BASE_DOMAIN=stackyn.com" >> .env
-                echo "✅ Added APP_BASE_DOMAIN=stackyn.com to .env"
+                echo "APP_BASE_DOMAIN=staging.stackyn.com" >> .env
+                echo "✅ Added APP_BASE_DOMAIN=staging.stackyn.com to .env"
               fi
             fi
           fi
 
             # FORCE UPDATE to production domains
             echo "🔧 Enforcing production domains in .env..."
-            sed -i 's|FRONTEND_API_URL=.*|FRONTEND_API_URL=https://api.stackyn.com|g' .env
-            sed -i 's|FRONTEND_DOMAIN=.*|FRONTEND_DOMAIN=stackyn.com|g' .env
-            sed -i 's|API_DOMAIN=.*|API_DOMAIN=api.stackyn.com|g' .env
-            sed -i 's|CONSOLE_DOMAIN=.*|CONSOLE_DOMAIN=console.stackyn.com|g' .env
-            sed -i 's|APP_BASE_DOMAIN=.*|APP_BASE_DOMAIN=stackyn.com|g' .env
-            echo "✅ Updated .env to use stackyn.com domains"
+            sed -i 's|FRONTEND_API_URL=.*|FRONTEND_API_URL=https://api.staging.stackyn.com|g' .env
+            sed -i 's|FRONTEND_DOMAIN=.*|FRONTEND_DOMAIN=staging.stackyn.com|g' .env
+            sed -i 's|API_DOMAIN=.*|API_DOMAIN=api.staging.stackyn.com|g' .env
+            sed -i 's|CONSOLE_DOMAIN=.*|CONSOLE_DOMAIN=console.staging.stackyn.com|g' .env
+            sed -i 's|APP_BASE_DOMAIN=.*|APP_BASE_DOMAIN=staging.stackyn.com|g' .env
+            echo "✅ Updated .env to use staging.stackyn.com domains"
           
           # Verify critical environment variables are set
           echo "✅ Verifying critical environment variables..."
@@ -318,7 +318,7 @@ jobs:
           
           # Verify API is responding
           echo "🔍 Verifying API health..."
-          API_URL="https://${API_DOMAIN:-api.stackyn.com}/health"
+          API_URL="https://${API_DOMAIN:-api.staging.stackyn.com}/health"
           if curl -f -s "$API_URL" >/dev/null 2>&1; then
             echo "✅ API health check passed"
           else
@@ -334,8 +334,8 @@ jobs:
           echo ""
           echo "✅ Deployment completed successfully!"
           echo "🌐 Access your application at:"
-          echo "   - Landing: https://${FRONTEND_DOMAIN:-stackyn.com}"
-          echo "   - API: https://${API_DOMAIN:-api.stackyn.com}"
+          echo "   - Landing: https://${FRONTEND_DOMAIN:-staging.stackyn.com}"
+          echo "   - API: https://${API_DOMAIN:-api.staging.stackyn.com}"
           echo ""
           echo "💡 SSL certificates may take 5-10 minutes to generate on first deployment."
           DEPLOY_SCRIPT
