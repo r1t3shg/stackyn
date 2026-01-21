@@ -1312,6 +1312,124 @@ func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Cont
 	return &sub, nil
 }
 
+// GetActiveSubscriptionByUserID retrieves the best subscription for a user with priority:
+// 1. active
+// 2. past_due
+// 3. cancelled (if still within period_end - note: period_end not stored yet, so we check updated_at)
+// Returns nil if no valid subscription exists
+func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error) {
+	var sub Subscription
+	var lemonSubID sql.NullString
+	var trialStartedAt, trialEndsAt sql.NullTime
+	
+	// Priority 1: Try to get active subscription
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		 FROM subscriptions
+		 WHERE user_id = $1 AND status = 'active'
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	
+	if err == nil {
+		// Found active subscription
+		if lemonSubID.Valid {
+			sub.LemonSubscriptionID = &lemonSubID.String
+		}
+		if trialStartedAt.Valid {
+			sub.TrialStartedAt = &trialStartedAt.Time
+		}
+		if trialEndsAt.Valid {
+			sub.TrialEndsAt = &trialEndsAt.Time
+		}
+		return &sub, nil
+	}
+	
+	if !errors.Is(err, pgx.ErrNoRows) {
+		r.logger.Error("Failed to get active subscription", zap.Error(err), zap.String("user_id", userID))
+		return nil, err
+	}
+	
+	// Priority 2: Try to get past_due subscription
+	err = r.pool.QueryRow(ctx,
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		 FROM subscriptions
+		 WHERE user_id = $1 AND status = 'past_due'
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	
+	if err == nil {
+		// Found past_due subscription
+		if lemonSubID.Valid {
+			sub.LemonSubscriptionID = &lemonSubID.String
+		}
+		if trialStartedAt.Valid {
+			sub.TrialStartedAt = &trialStartedAt.Time
+		}
+		if trialEndsAt.Valid {
+			sub.TrialEndsAt = &trialEndsAt.Time
+		}
+		return &sub, nil
+	}
+	
+	if !errors.Is(err, pgx.ErrNoRows) {
+		r.logger.Error("Failed to get past_due subscription", zap.Error(err), zap.String("user_id", userID))
+		return nil, err
+	}
+	
+	// Priority 3: Try to get cancelled subscription (if still within period_end)
+	// Note: Since we don't have period_end stored yet, we check if updated_at is within last 30 days
+	// This is a temporary solution until period_end is added to the schema
+	err = r.pool.QueryRow(ctx,
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		 FROM subscriptions
+		 WHERE user_id = $1 AND status = 'cancelled' AND updated_at > NOW() - INTERVAL '30 days'
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		userID,
+	).Scan(
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	
+	if err == nil {
+		// Found cancelled subscription within grace period
+		if lemonSubID.Valid {
+			sub.LemonSubscriptionID = &lemonSubID.String
+		}
+		if trialStartedAt.Valid {
+			sub.TrialStartedAt = &trialStartedAt.Time
+		}
+		if trialEndsAt.Valid {
+			sub.TrialEndsAt = &trialEndsAt.Time
+		}
+		return &sub, nil
+	}
+	
+	// No valid subscription found
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, pgx.ErrNoRows
+	}
+	
+	r.logger.Error("Failed to get cancelled subscription", zap.Error(err), zap.String("user_id", userID))
+	return nil, err
+}
+
 // CreateSubscription creates a new subscription
 // If creating a trial, subscriptionID should be empty string and trial_started_at/trial_ends_at should be set
 func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error) {

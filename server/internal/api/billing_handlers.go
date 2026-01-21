@@ -4,29 +4,33 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"stackyn/server/internal/infra"
 )
 
 // BillingHandlers handles billing-related API requests
 type BillingHandlers struct {
-	logger  *zap.Logger
-	config  *infra.Config
-	userRepo *UserRepo
+	logger           *zap.Logger
+	config           *infra.Config
+	userRepo         *UserRepo
+	subscriptionRepo *SubscriptionRepo
 }
 
 // NewBillingHandlers creates a new billing handlers instance
-func NewBillingHandlers(logger *zap.Logger, config *infra.Config, userRepo *UserRepo) *BillingHandlers {
+func NewBillingHandlers(logger *zap.Logger, config *infra.Config, userRepo *UserRepo, subscriptionRepo *SubscriptionRepo) *BillingHandlers {
 	return &BillingHandlers{
-		logger:   logger,
-		config:   config,
-		userRepo: userRepo,
+		logger:           logger,
+		config:           config,
+		userRepo:         userRepo,
+		subscriptionRepo: subscriptionRepo,
 	}
 }
 
@@ -325,5 +329,202 @@ func (h *BillingHandlers) writeJSON(w http.ResponseWriter, status int, data inte
 // Helper to write error response
 func (h *BillingHandlers) writeError(w http.ResponseWriter, status int, message string) {
 	h.writeJSON(w, status, map[string]string{"error": message})
+}
+
+// GetSubscriptionResponse represents the response for getting user subscription
+type GetSubscriptionResponse struct {
+	Plan   string                 `json:"plan"`   // pro | starter | free
+	Status string                 `json:"status"` // active | past_due | cancelled | expired | free
+	Features SubscriptionFeatures `json:"features"`
+	Billing SubscriptionBilling  `json:"billing"`
+}
+
+// SubscriptionFeatures represents plan features
+type SubscriptionFeatures struct {
+	MaxApps       int  `json:"max_apps"`
+	CustomDomains bool `json:"custom_domains"`
+	BuildMinutes  int  `json:"build_minutes"`
+	TeamMembers   int  `json:"team_members"`
+}
+
+// SubscriptionBilling represents billing information
+type SubscriptionBilling struct {
+	CurrentPeriodStart  *time.Time `json:"current_period_start,omitempty"`  // Timestamp or null
+	CurrentPeriodEnd    *time.Time `json:"current_period_end,omitempty"`    // Timestamp or null
+	CancelAtPeriodEnd   bool       `json:"cancel_at_period_end"`            // true if cancelled but still active
+	IsTrial             bool       `json:"is_trial"`                         // true if on trial
+	TrialEndsAt         *time.Time `json:"trial_ends_at,omitempty"`          // Timestamp or null
+}
+
+// GetSubscription fetches the current user's active subscription
+// GET /api/billing/subscription
+// Requires: AuthMiddleware (sets user_id in context)
+func (h *BillingHandlers) GetSubscription(w http.ResponseWriter, r *http.Request) {
+	// Get request ID for logging
+	requestID := r.Context().Value(middleware.RequestIDKey)
+	if requestID == nil {
+		requestID = "unknown"
+	}
+
+	// Step 1: Get authenticated user from context
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		h.logger.Error("User ID not found in context",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		)
+		h.writeError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	h.logger.Info("Fetching subscription",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+	)
+
+	// Step 2: Fetch the latest subscription for the user with priority logic
+	subscription, err := h.subscriptionRepo.GetActiveSubscriptionByUserID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No subscription exists - return free plan
+			h.logger.Info("No subscription found, returning free plan",
+				zap.String("request_id", fmt.Sprintf("%v", requestID)),
+				zap.String("user_id", userID),
+			)
+			response := h.buildFreePlanResponse()
+			h.writeJSON(w, http.StatusOK, response)
+			return
+		}
+		h.logger.Error("Failed to get subscription",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
+		// Return free plan on error (don't block request)
+		response := h.buildFreePlanResponse()
+		h.writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	// Step 3: Build response based on subscription status
+	response := h.buildSubscriptionResponse(subscription)
+
+	h.logger.Info("Subscription fetched successfully",
+		zap.String("request_id", fmt.Sprintf("%v", requestID)),
+		zap.String("user_id", userID),
+		zap.String("plan", response.Plan),
+		zap.String("status", response.Status),
+	)
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// buildSubscriptionResponse builds the subscription response from a subscription record
+func (h *BillingHandlers) buildSubscriptionResponse(sub *Subscription) GetSubscriptionResponse {
+	now := time.Now().UTC()
+	
+	// Determine plan and status
+	plan := sub.Plan
+	if plan == "" {
+		plan = "free"
+	}
+	
+	status := sub.Status
+	
+	// Business logic: If status = cancelled AND current_period_end > now, treat as active
+	// Note: Since we don't have current_period_end stored yet, we use updated_at + 30 days as approximation
+	// TODO: Add current_period_end column to subscriptions table
+	cancelAtPeriodEnd := false
+	if status == "cancelled" {
+		// Check if subscription was cancelled recently (within last 30 days)
+		// This is a temporary solution until period_end is stored
+		if sub.UpdatedAt.After(now.AddDate(0, 0, -30)) {
+			status = "active" // Treat as active but show cancel_at_period_end = true
+			cancelAtPeriodEnd = true
+		} else {
+			// Cancelled and past grace period - return free plan
+			return h.buildFreePlanResponse()
+		}
+	}
+	
+	// Business logic: If status = expired, return free plan
+	if status == "expired" {
+		return h.buildFreePlanResponse()
+	}
+	
+	// Check if trial
+	isTrial := sub.Status == "trial" || sub.TrialEndsAt != nil
+	
+	// Get plan features
+	features := h.getPlanFeatures(plan)
+	
+	// Build billing info
+	// Note: current_period_start and current_period_end are not stored yet
+	// TODO: Add these fields to subscriptions table when webhook stores them
+	billing := SubscriptionBilling{
+		CurrentPeriodStart: nil, // TODO: Store from webhook
+		CurrentPeriodEnd:   nil, // TODO: Store from webhook
+		CancelAtPeriodEnd:  cancelAtPeriodEnd,
+		IsTrial:            isTrial,
+		TrialEndsAt:        sub.TrialEndsAt,
+	}
+	
+	// If past_due, status is already set correctly
+	// Features are limited for past_due (handled in getPlanFeatures)
+	
+	return GetSubscriptionResponse{
+		Plan:     plan,
+		Status:   status,
+		Features: features,
+		Billing:  billing,
+	}
+}
+
+// buildFreePlanResponse builds a free plan response
+func (h *BillingHandlers) buildFreePlanResponse() GetSubscriptionResponse {
+	return GetSubscriptionResponse{
+		Plan:   "free",
+		Status: "free",
+		Features: SubscriptionFeatures{
+			MaxApps:       3,
+			CustomDomains: false,
+			BuildMinutes:  60, // 1 hour per month
+			TeamMembers:   1,
+		},
+		Billing: SubscriptionBilling{
+			CurrentPeriodStart: nil,
+			CurrentPeriodEnd:   nil,
+			CancelAtPeriodEnd:  false,
+			IsTrial:            false,
+			TrialEndsAt:         nil,
+		},
+	}
+}
+
+// getPlanFeatures returns features for a plan
+func (h *BillingHandlers) getPlanFeatures(plan string) SubscriptionFeatures {
+	switch plan {
+	case "starter":
+		return SubscriptionFeatures{
+			MaxApps:       5,
+			CustomDomains: false,
+			BuildMinutes:  300, // 5 hours per month
+			TeamMembers:   1,
+		}
+	case "pro":
+		return SubscriptionFeatures{
+			MaxApps:       20,
+			CustomDomains: true,
+			BuildMinutes:  1440, // 24 hours per month
+			TeamMembers:   10,
+		}
+	default:
+		// Free plan
+		return SubscriptionFeatures{
+			MaxApps:       3,
+			CustomDomains: false,
+			BuildMinutes:  60, // 1 hour per month
+			TeamMembers:   1,
+		}
+	}
 }
 

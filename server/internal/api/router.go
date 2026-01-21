@@ -275,7 +275,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	authHandlers := NewAuthHandlers(logger, otpService, jwtService, userRepo, otpRepo, subscriptionService)
 
 	// Initialize billing handlers
-	billingHandlers := NewBillingHandlers(logger, config, userRepo)
+	billingHandlers := NewBillingHandlers(logger, config, userRepo, subscriptionRepo)
 
 	// Start billing worker for trial expiration (runs every 30 minutes)
 	// This worker checks for expired trials and stops apps
@@ -315,6 +315,7 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 	r.Route("/api/billing", func(r chi.Router) {
 		r.Use(AuthMiddleware(jwtService, logger))
 		r.Post("/checkout", billingHandlers.CreateCheckoutSession)
+		r.Get("/subscription", billingHandlers.GetSubscription)
 	})
 
 	// Apps routes - /api/apps (for listing) - requires authentication only (no billing check for read-only)
