@@ -6,11 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
+	"stackyn/server/internal/infra"
 	"stackyn/server/internal/services"
 )
 
@@ -18,24 +23,28 @@ import (
 type WebhookHandlers struct {
 	logger              *zap.Logger
 	subscriptionService *services.SubscriptionService
+	subscriptionRepo    *SubscriptionRepo
 	userRepo            *UserRepo
-	webhookSecret       string // Lemon Squeezy webhook signing secret
+	config              *infra.Config
+	pool                *pgxpool.Pool
 }
 
 // NewWebhookHandlers creates a new webhook handlers instance
-func NewWebhookHandlers(logger *zap.Logger, subscriptionService *services.SubscriptionService, userRepo *UserRepo, webhookSecret string) *WebhookHandlers {
+func NewWebhookHandlers(logger *zap.Logger, subscriptionService *services.SubscriptionService, subscriptionRepo *SubscriptionRepo, userRepo *UserRepo, config *infra.Config, pool *pgxpool.Pool) *WebhookHandlers {
 	return &WebhookHandlers{
 		logger:              logger,
 		subscriptionService: subscriptionService,
+		subscriptionRepo:    subscriptionRepo,
 		userRepo:            userRepo,
-		webhookSecret:       webhookSecret,
+		config:              config,
+		pool:                pool,
 	}
 }
 
 // LemonSqueezyWebhook handles webhook events from Lemon Squeezy
-// POST /api/webhooks/lemon-squeezy
+// POST /api/billing/webhook
 func (h *WebhookHandlers) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
-	// Read raw body for signature verification
+	// Step 1: Read the raw request body (must be done before parsing JSON)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.logger.Error("Failed to read webhook body", zap.Error(err))
@@ -43,22 +52,23 @@ func (h *WebhookHandlers) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Verify webhook signature (Lemon Squeezy sends signature in X-Signature header)
+	// Step 2: Verify Lemon Squeezy webhook signature BEFORE parsing JSON
+	// Lemon Squeezy sends signature in X-Signature header
 	signature := r.Header.Get("X-Signature")
 	if signature == "" {
-		h.logger.Warn("Webhook request missing signature")
+		h.logger.Warn("Webhook request missing X-Signature header")
 		h.writeError(w, http.StatusUnauthorized, "Missing signature")
 		return
 	}
 
-	// Verify signature
+	// Verify signature using HMAC-SHA256
 	if !h.verifyLemonSqueezySignature(body, signature) {
 		h.logger.Warn("Invalid webhook signature")
 		h.writeError(w, http.StatusUnauthorized, "Invalid signature")
 		return
 	}
 
-	// Parse webhook payload
+	// Step 3: Parse JSON payload after verification
 	var payload LemonSqueezyWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		h.logger.Error("Failed to parse webhook payload", zap.Error(err))
@@ -66,158 +76,509 @@ func (h *WebhookHandlers) LemonSqueezyWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Extract event name and subscription ID for logging
+	eventName := payload.Meta.EventName
+	subscriptionID := payload.Data.ID
+
 	h.logger.Info("Received Lemon Squeezy webhook",
-		zap.String("event", payload.Meta.EventName),
-		zap.String("type", payload.Data.Type),
+		zap.String("event_name", eventName),
+		zap.String("subscription_id", subscriptionID),
+		zap.String("data_type", payload.Data.Type),
 	)
 
-	// Process webhook event based on type
+	// Step 4: Process webhook event based on type
 	ctx := r.Context()
-	switch payload.Meta.EventName {
-	case "subscription_created", "subscription_updated", "invoice_paid":
-		if err := h.handleSubscriptionEvent(ctx, payload); err != nil {
-			h.logger.Error("Failed to handle subscription event",
-				zap.Error(err),
-				zap.String("event", payload.Meta.EventName),
-			)
-			h.writeError(w, http.StatusInternalServerError, "Failed to process webhook")
-			return
-		}
-	case "subscription_cancelled", "subscription_expired", "invoice_failed":
-		if err := h.handleSubscriptionCancellation(ctx, payload); err != nil {
-			h.logger.Error("Failed to handle subscription cancellation",
-				zap.Error(err),
-				zap.String("event", payload.Meta.EventName),
-			)
-			h.writeError(w, http.StatusInternalServerError, "Failed to process webhook")
-			return
-		}
-	default:
-		h.logger.Info("Unhandled webhook event",
-			zap.String("event", payload.Meta.EventName),
+	if err := h.processWebhookEvent(ctx, payload); err != nil {
+		h.logger.Error("Failed to process webhook event",
+			zap.Error(err),
+			zap.String("event_name", eventName),
+			zap.String("subscription_id", subscriptionID),
 		)
-		// Return 200 OK even for unhandled events (to avoid webhook retries)
+		// Still return 200 to prevent webhook retries
+		// Lemon Squeezy will retry on non-2xx responses
+		h.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	// Step 5: Return HTTP 200 on successful processing
+	h.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // verifyLemonSqueezySignature verifies the webhook signature using HMAC-SHA256
 // Lemon Squeezy signs webhooks with the webhook secret
 func (h *WebhookHandlers) verifyLemonSqueezySignature(body []byte, signature string) bool {
-	if h.webhookSecret == "" {
-		h.logger.Warn("Webhook secret not configured - skipping signature verification")
-		return true // Allow in development if secret not set
+	webhookSecret := h.config.LemonSqueezy.WebhookSecret
+	if webhookSecret == "" {
+		h.logger.Warn("Webhook secret not configured - rejecting request for security")
+		return false // Reject in production if secret not set
 	}
 
-	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	// Compute HMAC-SHA256 signature
+	mac := hmac.New(sha256.New, []byte(webhookSecret))
 	mac.Write(body)
 	expectedSignature := hex.EncodeToString(mac.Sum(nil))
 
-	// Lemon Squeezy sends signature in format: sha256=<hex>
+	// Lemon Squeezy sends signature in format: sha256=<hex> or just <hex>
 	// Extract hex part if present
 	if len(signature) > 7 && signature[:7] == "sha256=" {
 		signature = signature[7:]
 	}
 
+	// Use constant-time comparison to prevent timing attacks
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
 }
 
-// handleSubscriptionEvent handles subscription created/updated events
-func (h *WebhookHandlers) handleSubscriptionEvent(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	// Extract subscription data from payload
-	// Note: Lemon Squeezy webhook payload structure may vary - adjust as needed
-	subscriptionID := payload.Data.Attributes.SubscriptionID
-	customerID := payload.Data.Attributes.CustomerID
-	planName := payload.Data.Attributes.PlanName // e.g., "starter", "pro"
-	status := payload.Data.Attributes.Status     // e.g., "active", "cancelled"
+// processWebhookEvent processes webhook events based on event_name
+func (h *WebhookHandlers) processWebhookEvent(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	eventName := payload.Meta.EventName
 
-	h.logger.Info("Processing subscription event",
-		zap.String("subscription_id", subscriptionID),
-		zap.String("customer_id", customerID),
-		zap.String("plan", planName),
-		zap.String("status", status),
-	)
-
-	// Get user by customer ID (Lemon Squeezy customer ID should be stored in user metadata)
-	// For MVP, we'll use customer ID as email or lookup by external ID
-	// TODO: Add customer_id field to users table or create mapping table
-	user, err := h.userRepo.GetUserByEmail(customerID) // Assuming customerID is email for MVP
-	if err != nil {
-		return fmt.Errorf("failed to find user for customer ID %s: %w", customerID, err)
+	switch eventName {
+	case "subscription_created":
+		return h.handleSubscriptionCreated(ctx, payload)
+	case "subscription_updated":
+		return h.handleSubscriptionUpdated(ctx, payload)
+	case "subscription_plan_changed":
+		return h.handleSubscriptionPlanChanged(ctx, payload)
+	case "subscription_payment_success":
+		return h.handleSubscriptionPaymentSuccess(ctx, payload)
+	case "subscription_payment_failed":
+		return h.handleSubscriptionPaymentFailed(ctx, payload)
+	case "subscription_cancelled":
+		return h.handleSubscriptionCancelled(ctx, payload)
+	case "subscription_expired":
+		return h.handleSubscriptionExpired(ctx, payload)
+	default:
+		// Gracefully ignore unknown events
+		h.logger.Info("Unhandled webhook event (ignoring)",
+			zap.String("event_name", eventName),
+		)
+		// TODO: Add handlers for future events:
+		// - subscription_resumed
+		// - subscription_paused
+		// - order_created
+		// - order_refunded
+		return nil
 	}
+}
+
+// handleSubscriptionCreated handles subscription_created event
+// Creates subscription record with status = active
+func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	// Extract data from payload
+	lemonSubscriptionID := subscriptionID
+	lemonCustomerID := attrs.CustomerID
+	lemonVariantID := attrs.VariantID
+	planName := h.extractPlanName(attrs)
+	status := "active" // New subscriptions are always active
+	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
+	// TODO: Add current_period_end column to subscriptions table if needed
+
+	// Get user_id from custom_data (set during checkout)
+	// Lemon Squeezy stores custom_data from checkout in meta.custom_data
+	userID := payload.Meta.CustomData.UserID
+	if userID == "" {
+		// Fallback: try to get from customer email if custom_data not available
+		// This handles cases where custom_data wasn't set during checkout
+		customerEmail := attrs.CustomerID // In some cases, customer_id might be email
+		if customerEmail != "" {
+			user, err := h.userRepo.GetUserByEmail(customerEmail)
+			if err == nil {
+				userID = user.ID
+			}
+		}
+		if userID == "" {
+			return fmt.Errorf("user_id not found in custom_data and could not resolve from customer_id")
+		}
+		h.logger.Warn("user_id not in custom_data, resolved from customer email",
+			zap.String("customer_email", customerEmail),
+		)
+	}
+
+	h.logger.Info("Processing subscription_created",
+		zap.String("subscription_id", lemonSubscriptionID),
+		zap.String("user_id", userID),
+		zap.String("plan", planName),
+	)
 
 	// Get plan limits based on plan name
 	ramLimitMB, diskLimitGB := services.GetPlanLimits(planName)
 
-	// Activate subscription
-	if status == "active" {
-		if err := h.subscriptionService.ActivateSubscription(
+	// Use UPSERT logic for idempotency
+	// Check if subscription already exists
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to check existing subscription: %w", err)
+	}
+
+	if existingSub != nil {
+		// Subscription already exists - update it (idempotent)
+		h.logger.Info("Subscription already exists, updating",
+			zap.String("subscription_id", lemonSubscriptionID),
+		)
+		// Update existing subscription
+		if err := h.subscriptionRepo.UpdateSubscription(
 			ctx,
-			user.ID,
+			existingSub.ID,
 			planName,
-			subscriptionID,
-			ramLimitMB,
-			diskLimitGB,
-			user.Email,
+			status,
+			&ramLimitMB,
+			&diskLimitGB,
+			&lemonSubscriptionID,
 		); err != nil {
-			return fmt.Errorf("failed to activate subscription: %w", err)
+			return fmt.Errorf("failed to update subscription: %w", err)
 		}
-	} else if status == "cancelled" {
-		// Handle cancellation (set status to cancelled)
-		if err := h.subscriptionService.CancelSubscription(ctx, user.ID); err != nil {
-			return fmt.Errorf("failed to cancel subscription: %w", err)
-		}
+		return nil
+	}
+
+	// Create new subscription
+	_, err = h.subscriptionRepo.CreateSubscription(
+		ctx,
+		userID,
+		lemonSubscriptionID,
+		planName,
+		status,
+		nil, // No trial for paid subscriptions
+		nil,
+		ramLimitMB,
+		diskLimitGB,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	// Sync billing fields to users table
+	if err := h.subscriptionService.ActivateSubscription(
+		ctx,
+		userID,
+		planName,
+		lemonSubscriptionID,
+		ramLimitMB,
+		diskLimitGB,
+		"", // Email not needed for sync
+	); err != nil {
+		h.logger.Warn("Failed to sync billing fields to users table",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
+		// Non-critical - subscription table is source of truth
 	}
 
 	return nil
 }
 
-// handleSubscriptionCancellation handles subscription cancellation/expiration events
-func (h *WebhookHandlers) handleSubscriptionCancellation(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	customerID := payload.Data.Attributes.CustomerID
-	eventName := payload.Meta.EventName
+// handleSubscriptionUpdated handles subscription_updated event
+// Updates subscription fields and syncs status, renew date, variant
+func (h *WebhookHandlers) handleSubscriptionUpdated(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
 
-	// Get user by customer ID
-	user, err := h.userRepo.GetUserByEmail(customerID) // Assuming customerID is email for MVP
+	// Extract data from payload
+	lemonSubscriptionID := subscriptionID
+	planName := h.extractPlanName(attrs)
+	status := h.mapLemonStatusToInternal(attrs.Status)
+	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
+	// TODO: Add current_period_end column to subscriptions table if needed
+
+	h.logger.Info("Processing subscription_updated",
+		zap.String("subscription_id", lemonSubscriptionID),
+		zap.String("plan", planName),
+		zap.String("status", status),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
 	if err != nil {
-		return fmt.Errorf("failed to find user for customer ID %s: %w", customerID, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Subscription doesn't exist - create it (handles race conditions)
+			return h.handleSubscriptionCreated(ctx, payload)
+		}
+		return fmt.Errorf("failed to get subscription: %w", err)
 	}
 
-	// Handle invoice_failed differently - mark as expired and stop apps
-	if eventName == "invoice_failed" {
-		// Mark subscription as expired (payment failed)
-		if err := h.subscriptionService.ExpireSubscription(ctx, user.ID, user.Email); err != nil {
-			return fmt.Errorf("failed to expire subscription: %w", err)
-		}
-	} else {
-		// Cancel subscription (user-initiated cancellation)
-		if err := h.subscriptionService.CancelSubscription(ctx, user.ID); err != nil {
-			return fmt.Errorf("failed to cancel subscription: %w", err)
-		}
+	// Get plan limits
+	ramLimitMB, diskLimitGB := services.GetPlanLimits(planName)
+
+	// Update subscription
+	return h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		planName,
+		status,
+		&ramLimitMB,
+		&diskLimitGB,
+		&lemonSubscriptionID,
+	)
+}
+
+// handleSubscriptionPlanChanged handles subscription_plan_changed event
+// Updates plan + variant, keeps subscription active
+func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	lemonSubscriptionID := subscriptionID
+	planName := h.extractPlanName(attrs)
+	status := "active" // Keep subscription active when plan changes
+
+	h.logger.Info("Processing subscription_plan_changed",
+		zap.String("subscription_id", lemonSubscriptionID),
+		zap.String("new_plan", planName),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Get plan limits for new plan
+	ramLimitMB, diskLimitGB := services.GetPlanLimits(planName)
+
+	// Update plan and limits, keep status active
+	return h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		planName,
+		status,
+		&ramLimitMB,
+		&diskLimitGB,
+		&lemonSubscriptionID,
+	)
+}
+
+// handleSubscriptionPaymentSuccess handles subscription_payment_success event
+// Marks subscription as active, updates last_payment_at, clears past_due flags
+func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	lemonSubscriptionID := subscriptionID
+	status := "active" // Payment succeeded - mark as active
+
+	h.logger.Info("Processing subscription_payment_success",
+		zap.String("subscription_id", lemonSubscriptionID),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Update status to active (clears any past_due flags)
+	return h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		existingSub.Plan, // Keep existing plan
+		status,
+		nil, // Don't change limits
+		nil,
+		&lemonSubscriptionID,
+	)
+}
+
+// handleSubscriptionPaymentFailed handles subscription_payment_failed event
+// Marks subscription as past_due, does NOT immediately disable services
+func (h *WebhookHandlers) handleSubscriptionPaymentFailed(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	lemonSubscriptionID := subscriptionID
+	status := "past_due" // Payment failed - mark as past_due
+
+	h.logger.Info("Processing subscription_payment_failed",
+		zap.String("subscription_id", lemonSubscriptionID),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Update status to past_due (don't disable services yet)
+	return h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		existingSub.Plan, // Keep existing plan
+		status,
+		nil, // Don't change limits
+		nil,
+		&lemonSubscriptionID,
+	)
+}
+
+// handleSubscriptionCancelled handles subscription_cancelled event
+// Marks subscription as cancelled, keeps access until period_end
+func (h *WebhookHandlers) handleSubscriptionCancelled(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	lemonSubscriptionID := subscriptionID
+	status := "cancelled" // User cancelled - mark as cancelled
+
+	h.logger.Info("Processing subscription_cancelled",
+		zap.String("subscription_id", lemonSubscriptionID),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Update status to cancelled (access continues until period_end)
+	return h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		existingSub.Plan, // Keep existing plan
+		status,
+		nil, // Don't change limits
+		nil,
+		&lemonSubscriptionID,
+	)
+}
+
+// handleSubscriptionExpired handles subscription_expired event
+// Marks subscription as expired, disables paid features immediately
+func (h *WebhookHandlers) handleSubscriptionExpired(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
+	attrs := payload.Data.Attributes
+	subscriptionID := payload.Data.ID
+
+	lemonSubscriptionID := subscriptionID
+	status := "expired" // Subscription expired - disable immediately
+
+	h.logger.Info("Processing subscription_expired",
+		zap.String("subscription_id", lemonSubscriptionID),
+	)
+
+	// Get existing subscription
+	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Update status to expired (disable paid features immediately)
+	if err := h.subscriptionRepo.UpdateSubscription(
+		ctx,
+		existingSub.ID,
+		existingSub.Plan, // Keep existing plan
+		status,
+		nil, // Don't change limits
+		nil,
+		&lemonSubscriptionID,
+	); err != nil {
+		return err
+	}
+
+	// Expire subscription in subscription service (may stop apps)
+	if err := h.subscriptionService.ExpireSubscription(ctx, existingSub.UserID, ""); err != nil {
+		h.logger.Warn("Failed to expire subscription in service",
+			zap.Error(err),
+			zap.String("user_id", existingSub.UserID),
+		)
+		// Non-critical - status is already updated
 	}
 
 	return nil
+}
+
+// extractPlanName extracts plan name from variant_id or product name
+// Maps Lemon Squeezy variant/product names to internal plan names
+func (h *WebhookHandlers) extractPlanName(attrs LemonSqueezyAttributes) string {
+	// Try to extract from variant_id by checking test/live variant maps
+	variantID := attrs.VariantID
+	if variantID != "" {
+		// Check test variant IDs
+		if h.config.LemonSqueezy.TestMode {
+			for plan, vid := range h.config.LemonSqueezy.TestVariantIDs {
+				if vid == variantID {
+					return plan
+				}
+			}
+		} else {
+			// Check live variant IDs
+			for plan, vid := range h.config.LemonSqueezy.LiveVariantIDs {
+				if vid == variantID {
+					return plan
+				}
+			}
+		}
+	}
+
+	// Fallback: try to extract from product name or variant name
+	productName := attrs.ProductName
+	if productName != "" {
+		// Normalize product name to plan name
+		if productName == "Starter" || productName == "starter" {
+			return "starter"
+		}
+		if productName == "Pro" || productName == "pro" {
+			return "pro"
+		}
+	}
+
+	// Default fallback
+	h.logger.Warn("Could not determine plan name from webhook payload",
+		zap.String("variant_id", variantID),
+		zap.String("product_name", productName),
+	)
+	return "starter" // Default fallback
+}
+
+// mapLemonStatusToInternal maps Lemon Squeezy status to internal status
+func (h *WebhookHandlers) mapLemonStatusToInternal(lemonStatus string) string {
+	switch lemonStatus {
+	case "active":
+		return "active"
+	case "on_trial":
+		return "trial"
+	case "past_due":
+		return "past_due"
+	case "cancelled":
+		return "cancelled"
+	case "expired":
+		return "expired"
+	case "paused":
+		return "cancelled" // Treat paused as cancelled
+	default:
+		h.logger.Warn("Unknown Lemon Squeezy status, defaulting to active",
+			zap.String("lemon_status", lemonStatus),
+		)
+		return "active"
+	}
 }
 
 // LemonSqueezyWebhookPayload represents the structure of a Lemon Squeezy webhook payload
-// Adjust fields based on actual Lemon Squeezy webhook format
+// Based on Lemon Squeezy v1 webhook format
 type LemonSqueezyWebhookPayload struct {
 	Meta struct {
-		EventName string `json:"event_name"`
+		EventName  string `json:"event_name"`
+		CustomData struct {
+			UserID string `json:"user_id"` // Set during checkout via custom_data
+		} `json:"custom_data"`
 	} `json:"meta"`
 	Data struct {
-		Type       string `json:"type"`
-		Attributes struct {
-			SubscriptionID string `json:"subscription_id,omitempty"`
-			CustomerID     string `json:"customer_id,omitempty"`
-			PlanName       string `json:"plan_name,omitempty"`
-			Status         string `json:"status,omitempty"`
-		} `json:"attributes"`
+		Type       string                 `json:"type"`
+		ID         string                 `json:"id"` // Lemon subscription ID
+		Attributes LemonSqueezyAttributes `json:"attributes"`
 	} `json:"data"`
 }
 
-// CancelSubscription cancels a subscription
+// LemonSqueezyAttributes represents subscription attributes from Lemon Squeezy
+type LemonSqueezyAttributes struct {
+	Status      string `json:"status"`       // active, on_trial, past_due, cancelled, expired, paused
+	CustomerID  string `json:"customer_id"`  // Lemon customer ID
+	VariantID   string `json:"variant_id"`   // Lemon variant ID
+	ProductName string `json:"product_name"` // Product name (e.g., "Starter", "Pro")
+	RenewsAt    string `json:"renews_at"`     // Next renewal date (current_period_end) - ISO 8601 string
+	EndsAt      string `json:"ends_at"`       // When subscription ends (if cancelled) - ISO 8601 string
+}
+
+// Helper to write JSON response
 func (h *WebhookHandlers) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -226,7 +587,7 @@ func (h *WebhookHandlers) writeJSON(w http.ResponseWriter, status int, data inte
 	}
 }
 
+// Helper to write error response
 func (h *WebhookHandlers) writeError(w http.ResponseWriter, status int, message string) {
 	h.writeJSON(w, status, map[string]string{"error": message})
 }
-

@@ -100,6 +100,7 @@ type LemonSqueezyConfig struct {
 	TestVariantIDs map[string]string // Map of plan names to variant IDs for test mode
 	LiveVariantIDs map[string]string // Map of plan names to variant IDs for live mode
 	FrontendBaseURL string
+	WebhookSecret string // Lemon Squeezy webhook signing secret
 }
 
 // LoadConfig loads configuration using viper with support for:
@@ -247,6 +248,7 @@ func LoadConfig() (*Config, error) {
 			TestVariantIDs: parseVariantIDs(os.Getenv("LEMON_TEST_VARIANT_IDS")),
 			LiveVariantIDs: parseVariantIDs(os.Getenv("LEMON_LIVE_VARIANT_IDS")),
 			FrontendBaseURL: os.Getenv("FRONTEND_BASE_URL"),
+			WebhookSecret: os.Getenv("LEMON_WEBHOOK_SECRET"),
 		},
 	}
 

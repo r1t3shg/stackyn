@@ -356,10 +356,9 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 
 	// Billing webhooks routes
 	// Initialize webhook handlers
-	webhookSecret := "" // TODO: Load from config
-	webhookHandlers := NewWebhookHandlers(logger, subscriptionService, userRepo, webhookSecret)
-	r.Route("/api/webhooks", func(r chi.Router) {
-		r.Post("/lemon-squeezy", webhookHandlers.LemonSqueezyWebhook)
+	webhookHandlers := NewWebhookHandlers(logger, subscriptionService, subscriptionRepo, userRepo, config, pool)
+	r.Route("/api/billing", func(r chi.Router) {
+		r.Post("/webhook", webhookHandlers.LemonSqueezyWebhook)
 	})
 
 	// Test endpoints - for testing billing states (disabled in production)

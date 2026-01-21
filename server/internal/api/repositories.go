@@ -1272,6 +1272,46 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 	return &sub, nil
 }
 
+// GetSubscriptionByLemonSubscriptionID retrieves a subscription by Lemon Squeezy subscription ID
+func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Context, lemonSubscriptionID string) (*Subscription, error) {
+	var sub Subscription
+	var lemonSubID sql.NullString
+	var trialStartedAt, trialEndsAt sql.NullTime
+	
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		 FROM subscriptions
+		 WHERE lemon_subscription_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		lemonSubscriptionID,
+	).Scan(
+		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.CreatedAt, &sub.UpdatedAt,
+	)
+	
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		r.logger.Error("Failed to get subscription by lemon subscription ID", zap.Error(err), zap.String("lemon_subscription_id", lemonSubscriptionID))
+		return nil, err
+	}
+	
+	if lemonSubID.Valid {
+		sub.LemonSubscriptionID = &lemonSubID.String
+	}
+	if trialStartedAt.Valid {
+		sub.TrialStartedAt = &trialStartedAt.Time
+	}
+	if trialEndsAt.Valid {
+		sub.TrialEndsAt = &trialEndsAt.Time
+	}
+	return &sub, nil
+}
+
 // CreateSubscription creates a new subscription
 // If creating a trial, subscriptionID should be empty string and trial_started_at/trial_ends_at should be set
 func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error) {
