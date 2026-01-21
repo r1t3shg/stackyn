@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,9 @@ type Config struct {
 
 	// Email configuration
 	Email EmailConfig
+
+	// Lemon Squeezy configuration
+	LemonSqueezy LemonSqueezyConfig
 }
 
 type ServerConfig struct {
@@ -89,6 +93,15 @@ type EmailConfig struct {
 	FromEmail   string
 }
 
+type LemonSqueezyConfig struct {
+	APIKey        string
+	StoreID       string
+	TestMode      bool
+	TestVariantIDs map[string]string // Map of plan names to variant IDs for test mode
+	LiveVariantIDs map[string]string // Map of plan names to variant IDs for live mode
+	FrontendBaseURL string
+}
+
 // LoadConfig loads configuration using viper with support for:
 // - Environment variables
 // - .env files
@@ -115,6 +128,12 @@ func LoadConfig() (*Config, error) {
 	// Explicitly bind environment variables for email config
 	viper.BindEnv("email.resend_api_key", "EMAIL_RESEND_API_KEY")
 	viper.BindEnv("email.from_email", "EMAIL_FROM_EMAIL")
+	
+	// Explicitly bind environment variables for Lemon Squeezy config
+	viper.BindEnv("lemon_squeezy.api_key", "LEMON_API_KEY")
+	viper.BindEnv("lemon_squeezy.store_id", "LEMON_STORE_ID")
+	viper.BindEnv("lemon_squeezy.test_mode", "LEMON_TEST_MODE")
+	viper.BindEnv("lemon_squeezy.frontend_base_url", "FRONTEND_BASE_URL")
 
 	// Set default values (env vars will override these)
 	setDefaults()
@@ -221,6 +240,14 @@ func LoadConfig() (*Config, error) {
 			ResendAPIKey: viper.GetString("email.resend_api_key"),
 			FromEmail:   viper.GetString("email.from_email"),
 		},
+		LemonSqueezy: LemonSqueezyConfig{
+			APIKey:        os.Getenv("LEMON_API_KEY"),
+			StoreID:       os.Getenv("LEMON_STORE_ID"),
+			TestMode:      os.Getenv("LEMON_TEST_MODE") == "true",
+			TestVariantIDs: parseVariantIDs(os.Getenv("LEMON_TEST_VARIANT_IDS")),
+			LiveVariantIDs: parseVariantIDs(os.Getenv("LEMON_LIVE_VARIANT_IDS")),
+			FrontendBaseURL: os.Getenv("FRONTEND_BASE_URL"),
+		},
 	}
 
 	// Build computed connection strings
@@ -288,6 +315,12 @@ func setDefaults() {
 	// Email defaults
 	viper.SetDefault("email.resend_api_key", "")
 	viper.SetDefault("email.from_email", "noreply@stackyn.com")
+	
+	// Lemon Squeezy defaults
+	viper.SetDefault("lemon_squeezy.api_key", "")
+	viper.SetDefault("lemon_squeezy.store_id", "")
+	viper.SetDefault("lemon_squeezy.test_mode", false)
+	viper.SetDefault("lemon_squeezy.frontend_base_url", "http://localhost:3000")
 }
 
 func buildPostgresDSN(pg PostgresConfig) string {
@@ -367,4 +400,37 @@ func GetEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// parseVariantIDs parses variant IDs from environment variable
+// Supports two formats:
+// 1. JSON format: {"starter":"123","pro":"456"}
+// 2. Comma-separated format: "starter=123,pro=456"
+func parseVariantIDs(variantIDsStr string) map[string]string {
+	result := make(map[string]string)
+	if variantIDsStr == "" {
+		return result
+	}
+	
+	// Try parsing as JSON first
+	var jsonMap map[string]string
+	if err := json.Unmarshal([]byte(variantIDsStr), &jsonMap); err == nil {
+		// Successfully parsed as JSON
+		return jsonMap
+	}
+	
+	// Fall back to comma-separated format: "starter=123,pro=456"
+	pairs := strings.Split(variantIDsStr, ",")
+	for _, pair := range pairs {
+		// Split by equals sign
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if key != "" && value != "" {
+				result[key] = value
+			}
+		}
+	}
+	return result
 }
