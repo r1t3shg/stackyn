@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appsApi } from '@/lib/api';
 
@@ -18,13 +18,13 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (!loading) {
       setFormData({ name: '', repo_url: '', branch: '' });
       setError(null);
       onClose();
     }
-  };
+  }, [loading, onClose]);
 
   // Handle Escape key to close modal
   useEffect(() => {
@@ -44,7 +44,7 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, loading, onClose]);
+  }, [isOpen, loading, handleClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

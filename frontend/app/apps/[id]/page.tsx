@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { appsApi } from '@/lib/api';
@@ -27,6 +27,47 @@ export default function AppDetailsPage() {
   const [envVarsError, setEnvVarsError] = useState<string | null>(null);
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
 
+  const loadApp = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await appsApi.getById(appId);
+      setApp(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load app');
+      console.error('Error loading app:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [appId]);
+
+  const loadDeployments = useCallback(async () => {
+    try {
+      const data = await appsApi.getDeployments(appId);
+      setDeployments(data);
+    } catch (err) {
+      console.error('Error loading deployments:', err);
+    }
+  }, [appId]);
+
+  const loadEnvVars = useCallback(async () => {
+    setLoadingEnvVars(true);
+    setEnvVarsError(null);
+    try {
+      const data = await appsApi.getEnvVars(appId);
+      // Ensure data is always an array, never null or undefined
+      setEnvVars(Array.isArray(data) ? data : []);
+      console.log('Environment variables loaded:', data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load environment variables';
+      console.error('Error loading environment variables:', err);
+      setEnvVarsError(errorMessage);
+      // Still show the section even if there's an error - set to empty array
+      setEnvVars([]);
+    } finally {
+      setLoadingEnvVars(false);
+    }
+  }, [appId]);
+
   useEffect(() => {
     if (appId) {
       console.log('Loading app details for ID:', appId);
@@ -34,7 +75,7 @@ export default function AppDetailsPage() {
       loadDeployments();
       loadEnvVars();
     }
-  }, [appId]);
+  }, [appId, loadApp, loadDeployments, loadEnvVars]);
 
   // Poll for status updates when app is building or deploying
   useEffect(() => {
@@ -63,48 +104,7 @@ export default function AppDetailsPage() {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [appId, app]);
-
-  const loadApp = async () => {
-    try {
-      setError(null);
-      const data = await appsApi.getById(appId);
-      setApp(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load app');
-      console.error('Error loading app:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadDeployments = async () => {
-    try {
-      const data = await appsApi.getDeployments(appId);
-      setDeployments(data);
-    } catch (err) {
-      console.error('Error loading deployments:', err);
-    }
-  };
-
-  const loadEnvVars = async () => {
-    setLoadingEnvVars(true);
-    setEnvVarsError(null);
-    try {
-      const data = await appsApi.getEnvVars(appId);
-      // Ensure data is always an array, never null or undefined
-      setEnvVars(Array.isArray(data) ? data : []);
-      console.log('Environment variables loaded:', data);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load environment variables';
-      console.error('Error loading environment variables:', err);
-      setEnvVarsError(errorMessage);
-      // Still show the section even if there's an error - set to empty array
-      setEnvVars([]);
-    } finally {
-      setLoadingEnvVars(false);
-    }
-  };
+  }, [appId, app, loadApp, loadDeployments]);
 
   const handleRedeploy = async () => {
     if (!confirm('Are you sure you want to redeploy this app?')) {

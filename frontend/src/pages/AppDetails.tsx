@@ -155,7 +155,7 @@ export default function AppDetailsPage() {
       loadDeployments();
       loadEnvVars();
     }
-  }, [appId, loadApp, loadDeployments]);
+  }, [appId, loadApp, loadDeployments, loadEnvVars]);
 
   // Immediate check when app status or deployment state changes to building - start polling right away
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appsApi, userApi } from '@/lib/api';
 import type { App, UserProfile } from '@/lib/types';
@@ -31,12 +31,7 @@ export default function Home() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    loadApps();
-    loadUserProfile();
-  }, []);
-
-  const loadApps = async () => {
+  const loadApps = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -65,9 +60,9 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     try {
       setProfileLoading(true);
       const profile = await userApi.getProfile();
@@ -80,7 +75,12 @@ export default function Home() {
     } finally {
       setProfileLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadApps();
+    loadUserProfile();
+  }, [loadApps, loadUserProfile]);
 
 
   // Calculate actual RAM and disk usage from all apps

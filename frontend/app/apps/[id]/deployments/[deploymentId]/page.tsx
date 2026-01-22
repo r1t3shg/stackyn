@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { deploymentsApi } from '@/lib/api';
@@ -19,14 +19,7 @@ export default function DeploymentDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (deploymentId) {
-      loadDeployment();
-      loadLogs();
-    }
-  }, [deploymentId]);
-
-  const loadDeployment = async () => {
+  const loadDeployment = useCallback(async () => {
     try {
       setError(null);
       const data = await deploymentsApi.getById(deploymentId);
@@ -37,16 +30,23 @@ export default function DeploymentDetailsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [deploymentId]);
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
       const data = await deploymentsApi.getLogs(deploymentId);
       setLogs(data);
     } catch (err) {
       console.error('Error loading logs:', err);
     }
-  };
+  }, [deploymentId]);
+
+  useEffect(() => {
+    if (deploymentId) {
+      loadDeployment();
+      loadLogs();
+    }
+  }, [deploymentId, loadDeployment, loadLogs]);
 
   if (loading) {
     return (

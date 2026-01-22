@@ -2,13 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { billingApi } from '../../lib/api';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
-  const router = useRouter();
 
   // Check if user is authenticated
   const isAuthenticated = () => {

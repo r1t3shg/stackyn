@@ -111,7 +111,7 @@ services:
       REDIS_DB: 0
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
-      DOCKER_TLS_ENABLED: false
+      DOCKER_TLS_ENABLED: "false"
       TRAEFIK_API_URL: http://traefik:8080
       TRAEFIK_ENTRY_POINT: web
       TRAEFIK_NETWORK_NAME: stackyn-network
@@ -179,7 +179,7 @@ services:
       REDIS_DB: 0
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
-      DOCKER_TLS_ENABLED: false
+      DOCKER_TLS_ENABLED: "false"
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       WORKER_CONCURRENCY: 10
@@ -216,7 +216,7 @@ services:
       REDIS_DB: 0
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
-      DOCKER_TLS_ENABLED: false
+      DOCKER_TLS_ENABLED: "false"
       TRAEFIK_API_URL: http://traefik:8080
       TRAEFIK_ENTRY_POINT: web
       TRAEFIK_NETWORK_NAME: stackyn-network
@@ -257,7 +257,7 @@ services:
       REDIS_DB: 0
       DOCKER_HOST: unix:///var/run/docker.sock
       DOCKER_API_VERSION: 1.43
-      DOCKER_TLS_ENABLED: false
+      DOCKER_TLS_ENABLED: "false"
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: info
       APP_BASE_DOMAIN: ${APP_BASE_DOMAIN:-staging.stackyn.com}
