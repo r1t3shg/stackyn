@@ -121,6 +121,14 @@ services:
       WORKER_CONCURRENCY: 10
       EMAIL_RESEND_API_KEY: ${RESEND_API_KEY:-re_6iU1KmCf_3p6MzQRbsDyerP736x1WWExj}
       EMAIL_FROM_EMAIL: ${EMAIL_FROM_EMAIL:-noreply@stackyn.com}
+      # Billing Configuration (Lemon Squeezy)
+      LEMON_API_KEY: ${LEMON_API_KEY:-}
+      LEMON_STORE_ID: ${LEMON_STORE_ID:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-}
+      LEMON_TEST_MODE: ${LEMON_TEST_MODE:-false}
+      LEMON_TEST_VARIANT_IDS: ${LEMON_TEST_VARIANT_IDS:-}
+      LEMON_LIVE_VARIANT_IDS: ${LEMON_LIVE_VARIANT_IDS:-}
+      LEMON_WEBHOOK_SECRET: ${LEMON_WEBHOOK_SECRET:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./server/logs:/app/logs
