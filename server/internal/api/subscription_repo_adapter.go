@@ -27,8 +27,8 @@ func (a *SubscriptionRepoAdapter) GetSubscriptionByUserID(ctx context.Context, u
 }
 
 // CreateSubscription creates a new subscription
-func (a *SubscriptionRepoAdapter) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*services.Subscription, error) {
-	sub, err := a.repo.CreateSubscription(ctx, userID, lemonSubscriptionID, plan, status, trialStartedAt, trialEndsAt, ramLimitMB, diskLimitGB)
+func (a *SubscriptionRepoAdapter) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, lemonCustomerID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*services.Subscription, error) {
+	sub, err := a.repo.CreateSubscription(ctx, userID, lemonSubscriptionID, lemonCustomerID, plan, status, trialStartedAt, trialEndsAt, ramLimitMB, diskLimitGB)
 	if err != nil {
 		return nil, err
 	}

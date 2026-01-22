@@ -47,7 +47,7 @@ type User struct {
 // SubscriptionRepo interface for subscription repository operations
 type SubscriptionRepo interface {
 	GetSubscriptionByUserID(ctx context.Context, userID string) (*Subscription, error)
-	CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error)
+	CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, lemonCustomerID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error)
 	UpdateSubscriptionByUserID(ctx context.Context, userID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID *string) error
 	GetTrialSubscriptions(ctx context.Context) ([]*Subscription, error)
 }
@@ -102,6 +102,7 @@ func (s *SubscriptionService) CreateTrial(ctx context.Context, userID, userEmail
 		ctx,
 		userID,
 		"",           // No lemon_subscription_id for trials
+		"",           // No lemon_customer_id for trials
 		"pro",        // Plan name (trial gets Pro features)
 		"trial",      // Status
 		&now,         // trial_started_at

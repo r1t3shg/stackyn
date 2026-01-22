@@ -1227,12 +1227,10 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 	var lemonCustomerID sql.NullString
 	
 	// First try to get an active or trial subscription
-	// Note: lemon_customer_id column needs to be added via migration
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, lemon_subscription_id, 
-		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
+		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		        ram_limit_mb, disk_limit_gb, cancel_at_period_end, created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status IN ('trial', 'active')
 		 ORDER BY created_at DESC
@@ -1240,17 +1238,16 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 		userID,
 	).Scan(
 		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
-		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	
 	// If no active/trial subscription found, get the most recent one (might be expired)
 	if err != nil && errors.Is(err, pgx.ErrNoRows) {
 		err = r.pool.QueryRow(ctx,
-			`SELECT id, user_id, lemon_subscription_id, 
-			        COALESCE(lemon_customer_id, '') as lemon_customer_id,
+			`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
 			        plan, status, trial_started_at, trial_ends_at, 
-			        ram_limit_mb, disk_limit_gb, created_at, updated_at
+			        ram_limit_mb, disk_limit_gb, cancel_at_period_end, created_at, updated_at
 			 FROM subscriptions
 			 WHERE user_id = $1
 			 ORDER BY created_at DESC
@@ -1258,7 +1255,7 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 			userID,
 		).Scan(
 			&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
-			&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+			&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 			&sub.CreatedAt, &sub.UpdatedAt,
 		)
 	}
@@ -1271,6 +1268,9 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 	}
 	if lemonSubID.Valid {
 		sub.LemonSubscriptionID = &lemonSubID.String
+	}
+	if lemonCustomerID.Valid && lemonCustomerID.String != "" {
+		sub.LemonCustomerID = &lemonCustomerID.String
 	}
 	if trialStartedAt.Valid {
 		sub.TrialStartedAt = &trialStartedAt.Time
@@ -1285,19 +1285,20 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Context, lemonSubscriptionID string) (*Subscription, error) {
 	var sub Subscription
 	var lemonSubID sql.NullString
+	var lemonCustomerID sql.NullString
 	var trialStartedAt, trialEndsAt sql.NullTime
 	
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb, created_at, updated_at
+		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id, plan, status, trial_started_at, trial_ends_at, 
+		        ram_limit_mb, disk_limit_gb, cancel_at_period_end, created_at, updated_at
 		 FROM subscriptions
 		 WHERE lemon_subscription_id = $1
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
 		lemonSubscriptionID,
 	).Scan(
-		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
-		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerID, &sub.Plan, &sub.Status,
+		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	
@@ -1311,6 +1312,9 @@ func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Cont
 	
 	if lemonSubID.Valid {
 		sub.LemonSubscriptionID = &lemonSubID.String
+	}
+	if lemonCustomerID.Valid && lemonCustomerID.String != "" {
+		sub.LemonCustomerID = &lemonCustomerID.String
 	}
 	if trialStartedAt.Valid {
 		sub.TrialStartedAt = &trialStartedAt.Time
@@ -1333,13 +1337,10 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	var trialStartedAt, trialEndsAt sql.NullTime
 	
 	// Priority 1: Try to get active subscription
-	// Note: lemon_customer_id and cancel_at_period_end columns need to be added via migration
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, lemon_subscription_id, 
-		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
+		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb,
-		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        ram_limit_mb, disk_limit_gb, cancel_at_period_end,
 		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'active'
@@ -1376,11 +1377,9 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	
 	// Priority 2: Try to get past_due subscription
 	err = r.pool.QueryRow(ctx,
-		`SELECT id, user_id, lemon_subscription_id, 
-		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
+		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb,
-		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        ram_limit_mb, disk_limit_gb, cancel_at_period_end,
 		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'past_due'
@@ -1419,11 +1418,9 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	// Note: Since we don't have period_end stored yet, we check if updated_at is within last 30 days
 	// This is a temporary solution until period_end is added to the schema
 	err = r.pool.QueryRow(ctx,
-		`SELECT id, user_id, lemon_subscription_id, 
-		        COALESCE(lemon_customer_id, '') as lemon_customer_id,
+		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
 		        plan, status, trial_started_at, trial_ends_at, 
-		        ram_limit_mb, disk_limit_gb,
-		        COALESCE(cancel_at_period_end, false) as cancel_at_period_end,
+		        ram_limit_mb, disk_limit_gb, cancel_at_period_end,
 		        created_at, updated_at
 		 FROM subscriptions
 		 WHERE user_id = $1 AND status = 'cancelled' AND updated_at > NOW() - INTERVAL '30 days'
@@ -1464,9 +1461,11 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 
 // CreateSubscription creates a new subscription
 // If creating a trial, subscriptionID should be empty string and trial_started_at/trial_ends_at should be set
-func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error) {
+// lemonCustomerID is optional - can be nil for trials
+func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemonSubscriptionID, lemonCustomerID, plan, status string, trialStartedAt, trialEndsAt *time.Time, ramLimitMB, diskLimitGB int) (*Subscription, error) {
 	var sub Subscription
 	var lemonSubID sql.NullString
+	var lemonCustomerIDNull sql.NullString
 	var trialStart, trialEnd sql.NullTime
 	
 	// Handle nullable lemon_subscription_id
@@ -1475,6 +1474,14 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 		lemonSubIDPtr = lemonSubscriptionID
 	} else {
 		lemonSubIDPtr = nil
+	}
+	
+	// Handle nullable lemon_customer_id
+	var lemonCustomerIDPtr interface{}
+	if lemonCustomerID != "" {
+		lemonCustomerIDPtr = lemonCustomerID
+	} else {
+		lemonCustomerIDPtr = nil
 	}
 	
 	// Handle nullable trial dates
@@ -1491,13 +1498,13 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	}
 	
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO subscriptions (user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 RETURNING id, user_id, lemon_subscription_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb, created_at, updated_at`,
-		userID, lemonSubIDPtr, plan, status, trialStartPtr, trialEndPtr, ramLimitMB, diskLimitGB,
+		`INSERT INTO subscriptions (user_id, lemon_subscription_id, lemon_customer_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb, cancel_at_period_end)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 RETURNING id, user_id, lemon_subscription_id, lemon_customer_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb, cancel_at_period_end, created_at, updated_at`,
+		userID, lemonSubIDPtr, lemonCustomerIDPtr, plan, status, trialStartPtr, trialEndPtr, ramLimitMB, diskLimitGB, false,
 	).Scan(
-		&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
-		&trialStart, &trialEnd, &sub.RAMLimitMB, &sub.DiskLimitGB,
+		&sub.ID, &sub.UserID, &lemonSubID, &lemonCustomerIDNull, &sub.Plan, &sub.Status,
+		&trialStart, &trialEnd, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err != nil {
@@ -1521,6 +1528,9 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	if lemonSubID.Valid {
 		sub.LemonSubscriptionID = &lemonSubID.String
 	}
+	if lemonCustomerIDNull.Valid && lemonCustomerIDNull.String != "" {
+		sub.LemonCustomerID = &lemonCustomerIDNull.String
+	}
 	if trialStart.Valid {
 		sub.TrialStartedAt = &trialStart.Time
 	}
@@ -1531,7 +1541,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 }
 
 // UpdateSubscription updates a subscription by internal ID
-func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID *string) error {
+func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID, lemonCustomerID *string) error {
 	setParts := []string{"updated_at = NOW()"}
 	args := []interface{}{subscriptionID}
 	argNum := 2
@@ -1562,6 +1572,15 @@ func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionI
 		} else {
 			setParts = append(setParts, fmt.Sprintf("lemon_subscription_id = $%d", argNum))
 			args = append(args, *lemonSubID)
+			argNum++
+		}
+	}
+	if lemonCustomerID != nil {
+		if *lemonCustomerID == "" {
+			setParts = append(setParts, fmt.Sprintf("lemon_customer_id = NULL"))
+		} else {
+			setParts = append(setParts, fmt.Sprintf("lemon_customer_id = $%d", argNum))
+			args = append(args, *lemonCustomerID)
 			argNum++
 		}
 	}

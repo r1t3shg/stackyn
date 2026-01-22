@@ -168,11 +168,11 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 
 	// Extract data from payload
 	lemonSubscriptionID := subscriptionID
+	lemonCustomerID := attrs.CustomerID // Extract customer ID for portal access
 	planName := h.extractPlanName(attrs)
 	status := "active" // New subscriptions are always active
 	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
 	// TODO: Add current_period_end column to subscriptions table if needed
-	// Note: lemonCustomerID and lemonVariantID are available in attrs but not currently stored
 
 	// Get user_id from custom_data (set during checkout)
 	// Lemon Squeezy stores custom_data from checkout in meta.custom_data
@@ -225,6 +225,7 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 			&ramLimitMB,
 			&diskLimitGB,
 			&lemonSubscriptionID,
+			&lemonCustomerID, // Update customer ID if changed
 		); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
@@ -236,6 +237,7 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		ctx,
 		userID,
 		lemonSubscriptionID,
+		lemonCustomerID, // Store customer ID for portal access
 		planName,
 		status,
 		nil, // No trial for paid subscriptions
@@ -274,6 +276,7 @@ func (h *WebhookHandlers) handleSubscriptionUpdated(ctx context.Context, payload
 
 	// Extract data from payload
 	lemonSubscriptionID := subscriptionID
+	lemonCustomerID := payload.Data.Attributes.CustomerID // Extract customer ID
 	planName := h.extractPlanName(payload.Data.Attributes)
 	status := h.mapLemonStatusToInternal(payload.Data.Attributes.Status)
 	// Note: currentPeriodEnd (RenewsAt) is available but not stored in current schema
@@ -307,6 +310,7 @@ func (h *WebhookHandlers) handleSubscriptionUpdated(ctx context.Context, payload
 		&ramLimitMB,
 		&diskLimitGB,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	)
 }
 
@@ -334,6 +338,7 @@ func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, pay
 	ramLimitMB, diskLimitGB := services.GetPlanLimits(planName)
 
 	// Update plan and limits, keep status active
+	lemonCustomerID := payload.Data.Attributes.CustomerID
 	return h.subscriptionRepo.UpdateSubscription(
 		ctx,
 		existingSub.ID,
@@ -342,6 +347,7 @@ func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, pay
 		&ramLimitMB,
 		&diskLimitGB,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	)
 }
 
@@ -364,6 +370,8 @@ func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, 
 	}
 
 	// Update status to active (clears any past_due flags)
+	// Customer ID shouldn't change on payment success, but update if present
+	lemonCustomerID := payload.Data.Attributes.CustomerID
 	return h.subscriptionRepo.UpdateSubscription(
 		ctx,
 		existingSub.ID,
@@ -372,6 +380,7 @@ func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, 
 		nil, // Don't change limits
 		nil,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	)
 }
 
@@ -394,6 +403,8 @@ func (h *WebhookHandlers) handleSubscriptionPaymentFailed(ctx context.Context, p
 	}
 
 	// Update status to past_due (don't disable services yet)
+	// Customer ID shouldn't change on payment failure, but update if present
+	lemonCustomerID := payload.Data.Attributes.CustomerID
 	return h.subscriptionRepo.UpdateSubscription(
 		ctx,
 		existingSub.ID,
@@ -402,6 +413,7 @@ func (h *WebhookHandlers) handleSubscriptionPaymentFailed(ctx context.Context, p
 		nil, // Don't change limits
 		nil,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	)
 }
 
@@ -424,6 +436,8 @@ func (h *WebhookHandlers) handleSubscriptionCancelled(ctx context.Context, paylo
 	}
 
 	// Update status to cancelled (access continues until period_end)
+	// Customer ID shouldn't change on cancellation, but update if present
+	lemonCustomerID := payload.Data.Attributes.CustomerID
 	return h.subscriptionRepo.UpdateSubscription(
 		ctx,
 		existingSub.ID,
@@ -432,6 +446,7 @@ func (h *WebhookHandlers) handleSubscriptionCancelled(ctx context.Context, paylo
 		nil, // Don't change limits
 		nil,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	)
 }
 
@@ -454,6 +469,8 @@ func (h *WebhookHandlers) handleSubscriptionExpired(ctx context.Context, payload
 	}
 
 	// Update status to expired (disable paid features immediately)
+	// Customer ID shouldn't change on expiration, but update if present
+	lemonCustomerID := payload.Data.Attributes.CustomerID
 	if err := h.subscriptionRepo.UpdateSubscription(
 		ctx,
 		existingSub.ID,
@@ -462,6 +479,7 @@ func (h *WebhookHandlers) handleSubscriptionExpired(ctx context.Context, payload
 		nil, // Don't change limits
 		nil,
 		&lemonSubscriptionID,
+		&lemonCustomerID, // Update customer ID if changed
 	); err != nil {
 		return err
 	}
