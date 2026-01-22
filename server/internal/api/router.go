@@ -311,13 +311,18 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/me", handlers.GetUserProfile)
 	})
 
-	// Billing routes - requires authentication
+	// Billing routes
+	// Initialize webhook handlers first (needed for webhook route)
+	webhookHandlers := NewWebhookHandlers(logger, subscriptionService, subscriptionRepo, userRepo, config, pool)
 	r.Route("/api/billing", func(r chi.Router) {
-		r.Use(AuthMiddleware(jwtService, logger))
-		r.Post("/checkout", billingHandlers.CreateCheckoutSession)
-		r.Get("/subscription", billingHandlers.GetSubscription)
-		r.Post("/portal", billingHandlers.CreateCustomerPortal)
-		r.Post("/cancel", billingHandlers.CancelSubscription)
+		// Webhook route - no authentication (uses signature verification)
+		r.Post("/webhook", webhookHandlers.LemonSqueezyWebhook)
+		
+		// Authenticated billing routes
+		r.With(AuthMiddleware(jwtService, logger)).Post("/checkout", billingHandlers.CreateCheckoutSession)
+		r.With(AuthMiddleware(jwtService, logger)).Get("/subscription", billingHandlers.GetSubscription)
+		r.With(AuthMiddleware(jwtService, logger)).Post("/portal", billingHandlers.CreateCustomerPortal)
+		r.With(AuthMiddleware(jwtService, logger)).Post("/cancel", billingHandlers.CancelSubscription)
 	})
 
 	// Apps routes - /api/apps (for listing) - requires authentication only (no billing check for read-only)
@@ -357,12 +362,6 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 		r.Get("/{id}/logs", handlers.GetDeploymentLogs)
 	})
 
-	// Billing webhooks routes
-	// Initialize webhook handlers
-	webhookHandlers := NewWebhookHandlers(logger, subscriptionService, subscriptionRepo, userRepo, config, pool)
-	r.Route("/api/billing", func(r chi.Router) {
-		r.Post("/webhook", webhookHandlers.LemonSqueezyWebhook)
-	})
 
 	// Test endpoints - for testing billing states (disabled in production)
 	r.Route("/api/v1/test", func(r chi.Router) {

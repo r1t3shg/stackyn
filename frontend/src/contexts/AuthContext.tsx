@@ -58,6 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
           .catch(err => {
             console.error('Failed to fetch user info:', err);
+            // Log SSL certificate errors for debugging
+            if (err instanceof TypeError && err.message === 'Failed to fetch') {
+              const isHttps = API_BASE_URL.startsWith('https://');
+              const isStaging = API_BASE_URL.includes('staging');
+              if (isHttps && isStaging) {
+                console.error('SSL Certificate Error: The server certificate for the staging API is not trusted.');
+              }
+            }
             localStorage.removeItem('auth_token');
             // Clean up URL
             window.history.replaceState({}, '', window.location.pathname);
@@ -110,39 +118,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    // Backend login with password
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
-    
-    if (!response.ok) {
-      let errorMessage = 'Invalid email or password';
-      try {
-        const error = await response.json();
-        errorMessage = error.error || errorMessage;
-      } catch {
-        // If response is not JSON, use status text
-        if (response.status === 401) {
-          errorMessage = 'Invalid email or password';
-        } else if (response.status === 500) {
-          errorMessage = 'Server error. Please try again later.';
-        } else if (response.status === 0 || response.status >= 500) {
-          errorMessage = 'Cannot connect to server. Please check your connection.';
+    try {
+      // Backend login with password
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      if (!response.ok) {
+        let errorMessage = 'Invalid email or password';
+        try {
+          const error = await response.json();
+          errorMessage = error.error || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          if (response.status === 401) {
+            errorMessage = 'Invalid email or password';
+          } else if (response.status === 500) {
+            errorMessage = 'Server error. Please try again later.';
+          } else if (response.status === 0 || response.status >= 500) {
+            errorMessage = 'Cannot connect to server. Please check your connection.';
+          } else {
+            errorMessage = `Login failed (${response.status})`;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      
+      // Store JWT token
+      loginWithToken(data.token, data.user);
+    } catch (err) {
+      // Handle network errors, including SSL certificate errors
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+        // Check if this is likely an SSL certificate error
+        const isHttps = API_BASE_URL.startsWith('https://');
+        const isStaging = API_BASE_URL.includes('staging');
+        
+        if (isHttps && isStaging) {
+          throw new Error(
+            'SSL Certificate Error: The server certificate for the staging API is not trusted. ' +
+            'This is a server configuration issue. Please contact the administrator or check if the SSL certificate is properly configured on the server.'
+          );
         } else {
-          errorMessage = `Login failed (${response.status})`;
+          throw new Error(
+            `Cannot connect to API server at ${API_BASE_URL}. ` +
+            'Please check that the backend is running and accessible. ' +
+            'If you see this error repeatedly, there may be a network or SSL certificate issue.'
+          );
         }
       }
-      throw new Error(errorMessage);
+      // Re-throw other errors as-is
+      throw err;
     }
-    
-    const data = await response.json();
-    
-    // Store JWT token
-    loginWithToken(data.token, data.user);
   };
 
   const loginWithToken = (token: string, userData: User) => {

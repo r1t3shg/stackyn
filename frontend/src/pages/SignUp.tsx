@@ -168,7 +168,18 @@ export default function SignUp() {
           throw new Error(error.error || 'Failed to set password');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to set password');
+        // Handle SSL certificate errors
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          const isHttps = API_BASE_URL.startsWith('https://');
+          const isStaging = API_BASE_URL.includes('staging');
+          if (isHttps && isStaging) {
+            setError('SSL Certificate Error: The server certificate for the staging API is not trusted. Please contact the administrator.');
+          } else {
+            setError('Cannot connect to API server. Please check your connection and try again.');
+          }
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to set password');
+        }
         setLoading(false);
         return;
       } finally {
@@ -222,7 +233,18 @@ export default function SignUp() {
       // Redirect to apps page
       navigate('/apps');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete signup');
+      // Handle SSL certificate errors
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+        const isHttps = API_BASE_URL.startsWith('https://');
+        const isStaging = API_BASE_URL.includes('staging');
+        if (isHttps && isStaging) {
+          setError('SSL Certificate Error: The server certificate for the staging API is not trusted. Please contact the administrator.');
+        } else {
+          setError('Cannot connect to API server. Please check your connection and try again.');
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to complete signup');
+      }
     } finally {
       setLoading(false);
     }
