@@ -79,6 +79,8 @@ services:
       - "8081:8080"  # Traefik dashboard (avoid conflict with API)
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # IMPORTANT: traefik_data volume preserves SSL certificates across deployments
+      # DO NOT use 'docker compose down -v' as it will delete this volume and all certificates
       - traefik_data:/letsencrypt
     networks:
       - stackyn-network
@@ -399,6 +401,8 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  # traefik_data: Preserves SSL certificates (acme.json) across container restarts and deployments
+  # IMPORTANT: Never delete this volume or use 'docker compose down -v' as it will remove all SSL certificates
   traefik_data:
   build_workspace:
 

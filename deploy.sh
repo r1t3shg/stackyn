@@ -1,72 +1,143 @@
 #!/bin/bash
-# One-command deployment script for Stackyn
+
+# Safe Deployment Script for Stackyn
+# This script ensures SSL certificates are preserved during deployment
 
 set -e
 
-echo "🚀 Stackyn Quick Deployment"
-echo "=========================="
+echo "=========================================="
+echo "Stackyn Safe Deployment Script"
+echo "=========================================="
 echo ""
 
-# Check if .env exists
-if [ ! -f .env ]; then
-    echo "📝 Creating .env file from example..."
-    cp env.example .env
-    
-    # Generate JWT secret
-    if command -v openssl &> /dev/null; then
-        JWT_SECRET=$(openssl rand -base64 32)
-        # Update .env file with generated JWT secret
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' "s/your_jwt_secret_here_generate_with_openssl_rand_base64_32/$JWT_SECRET/" .env
-        else
-            # Linux
-            sed -i "s/your_jwt_secret_here_generate_with_openssl_rand_base64_32/$JWT_SECRET/" .env
-        fi
-        echo "✅ Generated JWT_SECRET"
+cd /opt/stackyn || { echo "❌ Not in /opt/stackyn directory"; exit 1; }
+
+# Check if SSL certificates exist
+echo "1. Checking SSL certificate status..."
+if docker compose exec traefik test -f /letsencrypt/acme.json 2>/dev/null; then
+    CERT_SIZE=$(docker compose exec traefik stat -c%s /letsencrypt/acme.json 2>/dev/null || echo "0")
+    if [ "$CERT_SIZE" -gt 100 ]; then
+        echo "   ✓ SSL certificates found ($CERT_SIZE bytes)"
+        # Backup certificates before deployment
+        echo "   Creating backup..."
+        docker compose exec traefik cp /letsencrypt/acme.json /letsencrypt/acme.json.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+        echo "   ✓ Backup created"
     else
-        echo "⚠️  openssl not found. Please set JWT_SECRET manually in .env"
+        echo "   ⚠️  acme.json exists but is small ($CERT_SIZE bytes) - may be empty"
     fi
-    
-    echo ""
-    echo "⚠️  IMPORTANT: Please edit .env and set:"
-    echo "   - POSTGRES_PASSWORD (set a secure password)"
-    echo "   - JWT_SECRET (already generated if openssl is available)"
-    echo ""
-    read -p "Press Enter after editing .env file..."
-fi
-
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo "❌ Docker is not running. Please start Docker first."
-    exit 1
-fi
-
-# Check if docker-compose is available
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo "❌ docker-compose not found. Please install Docker Compose."
-    exit 1
-fi
-
-echo "🐳 Starting all services..."
-echo ""
-
-# Use docker compose (newer) or docker-compose (older)
-if docker compose version &> /dev/null; then
-    docker compose up -d --build
 else
-    docker-compose up -d --build
+    echo "   ⚠️  No SSL certificates found (will be generated on first HTTPS request)"
+fi
+echo ""
+
+# Pull latest code
+echo "2. Pulling latest code..."
+if git rev-parse --git-dir > /dev/null 2>&1; then
+    CURRENT_BRANCH=$(git branch --show-current)
+    echo "   Current branch: $CURRENT_BRANCH"
+    git pull origin "$CURRENT_BRANCH" || {
+        echo "   ⚠️  Git pull failed, continuing with existing code..."
+    }
+else
+    echo "   ⚠️  Not a git repository, skipping pull"
+fi
+echo ""
+
+# Check if rebuild is needed
+echo "3. Checking if rebuild is needed..."
+REBUILD_NEEDED=false
+
+# Check if docker-compose.yml changed
+if git diff --quiet HEAD HEAD~1 docker-compose.yml 2>/dev/null; then
+    echo "   docker-compose.yml unchanged"
+else
+    echo "   ⚠️  docker-compose.yml changed - rebuild recommended"
+    REBUILD_NEEDED=true
 fi
 
-echo ""
-echo "✅ Deployment complete!"
-echo ""
-echo "📋 Services:"
-echo "   - Frontend:  http://localhost:3000"
-echo "   - API:       http://localhost:8080"
-echo "   - Traefik:   http://localhost:8081"
-echo ""
-echo "📊 View logs: docker-compose logs -f"
-echo "🛑 Stop:      docker-compose down"
+# Check if server code changed
+if [ -d "server" ]; then
+    if git diff --quiet HEAD HEAD~1 server/ 2>/dev/null; then
+        echo "   Server code unchanged"
+    else
+        echo "   ⚠️  Server code changed - rebuild recommended"
+        REBUILD_NEEDED=true
+    fi
+fi
+
+# Check if frontend code changed
+if [ -d "frontend" ]; then
+    if git diff --quiet HEAD HEAD~1 frontend/ 2>/dev/null; then
+        echo "   Frontend code unchanged"
+    else
+        echo "   ⚠️  Frontend code changed - rebuild recommended"
+        REBUILD_NEEDED=true
+    fi
+fi
 echo ""
 
+# Ask user if they want to rebuild
+if [ "$REBUILD_NEEDED" = true ]; then
+    read -p "4. Rebuild containers? (y/n) " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "   Rebuilding containers..."
+        docker compose build
+        echo "   ✓ Rebuild complete"
+    else
+        echo "   Skipping rebuild"
+    fi
+else
+    echo "4. No rebuild needed"
+fi
+echo ""
+
+# Restart services (preserves volumes)
+echo "5. Restarting services (preserving volumes)..."
+echo "   ⚠️  Using 'docker compose up -d' to preserve volumes"
+echo "   ⚠️  NOT using 'docker compose down -v' (which would delete SSL certificates)"
+docker compose up -d
+echo "   ✓ Services restarted"
+echo ""
+
+# Wait for services to be healthy
+echo "6. Waiting for services to be healthy..."
+sleep 5
+
+# Check service status
+echo "   Service status:"
+docker compose ps --format "table {{.Name}}\t{{.Status}}" | grep -E "(stackyn|NAME)" || true
+echo ""
+
+# Verify SSL certificates are still there
+echo "7. Verifying SSL certificates are preserved..."
+if docker compose exec traefik test -f /letsencrypt/acme.json 2>/dev/null; then
+    NEW_CERT_SIZE=$(docker compose exec traefik stat -c%s /letsencrypt/acme.json 2>/dev/null || echo "0")
+    if [ "$NEW_CERT_SIZE" -gt 100 ]; then
+        echo "   ✓ SSL certificates preserved ($NEW_CERT_SIZE bytes)"
+    else
+        echo "   ⚠️  acme.json exists but is small - certificates may need regeneration"
+    fi
+else
+    echo "   ⚠️  acme.json not found - certificates will be generated on next HTTPS request"
+fi
+echo ""
+
+# Test HTTPS endpoint
+echo "8. Testing HTTPS endpoint..."
+if curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://api.staging.stackyn.com/health 2>/dev/null | grep -q "200"; then
+    echo "   ✓ HTTPS endpoint is working"
+else
+    echo "   ⚠️  HTTPS endpoint test failed (may need a moment to start)"
+fi
+echo ""
+
+echo "=========================================="
+echo "Deployment Complete!"
+echo "=========================================="
+echo ""
+echo "Next steps:"
+echo "1. Check service logs: docker compose logs -f"
+echo "2. Verify SSL certificates: docker compose exec traefik cat /letsencrypt/acme.json | grep Certificates"
+echo "3. Test endpoints: curl https://api.staging.stackyn.com/health"
+echo ""

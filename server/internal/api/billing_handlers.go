@@ -124,22 +124,36 @@ func (h *BillingHandlers) CreateCheckoutSession(w http.ResponseWriter, r *http.R
 	var variantID string
 	if h.config.LemonSqueezy.TestMode {
 		// Use test variant IDs
+		// Log available test variant IDs for debugging
+		h.logger.Info("Looking up test variant ID",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("plan", req.Plan),
+			zap.Any("available_plans", getMapKeys(h.config.LemonSqueezy.TestVariantIDs)),
+		)
 		variantID, ok = h.config.LemonSqueezy.TestVariantIDs[req.Plan]
 		if !ok {
 			h.logger.Error("Test variant ID not found for plan",
 				zap.String("request_id", fmt.Sprintf("%v", requestID)),
 				zap.String("plan", req.Plan),
+				zap.Strings("available_plans", getMapKeys(h.config.LemonSqueezy.TestVariantIDs)),
 			)
 			h.writeError(w, http.StatusInternalServerError, "Billing configuration error: test variant ID not found")
 			return
 		}
 	} else {
 		// Use live variant IDs
+		// Log available live variant IDs for debugging
+		h.logger.Info("Looking up live variant ID",
+			zap.String("request_id", fmt.Sprintf("%v", requestID)),
+			zap.String("plan", req.Plan),
+			zap.Strings("available_plans", getMapKeys(h.config.LemonSqueezy.LiveVariantIDs)),
+		)
 		variantID, ok = h.config.LemonSqueezy.LiveVariantIDs[req.Plan]
 		if !ok {
 			h.logger.Error("Live variant ID not found for plan",
 				zap.String("request_id", fmt.Sprintf("%v", requestID)),
 				zap.String("plan", req.Plan),
+				zap.Strings("available_plans", getMapKeys(h.config.LemonSqueezy.LiveVariantIDs)),
 			)
 			h.writeError(w, http.StatusInternalServerError, "Billing configuration error: live variant ID not found")
 			return
@@ -956,3 +970,11 @@ func (h *BillingHandlers) cancelLemonSqueezySubscription(ctx context.Context, le
 	return nil
 }
 
+// getMapKeys returns all keys from a map[string]string as a slice
+func getMapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
