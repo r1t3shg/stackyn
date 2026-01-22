@@ -54,6 +54,21 @@ export default function AppDetailsPage() {
     }
   }, [appId]);
 
+  const loadEnvVars = useCallback(async () => {
+    setLoadingEnvVars(true);
+    setEnvVarsError(null);
+    try {
+      const data = await appsApi.getEnvVars(appId);
+      setEnvVars(Array.isArray(data) ? data : []);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load environment variables';
+      setEnvVarsError(errorMessage);
+      setEnvVars([]);
+    } finally {
+      setLoadingEnvVars(false);
+    }
+  }, [appId]);
+
   // Poll for app/deployment status updates (DB is single source of truth)
   // Check app.status, app.deployment.state, and deployments to catch building states immediately
   useEffect(() => {
@@ -171,21 +186,6 @@ export default function AppDetailsPage() {
       loadDeployments();
     }
   }, [app?.status, app?.deployment?.state, loadApp, loadDeployments]);
-
-  const loadEnvVars = async () => {
-    setLoadingEnvVars(true);
-    setEnvVarsError(null);
-    try {
-      const data = await appsApi.getEnvVars(appId);
-      setEnvVars(Array.isArray(data) ? data : []);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load environment variables';
-      setEnvVarsError(errorMessage);
-      setEnvVars([]);
-    } finally {
-      setLoadingEnvVars(false);
-    }
-  };
 
   const loadLogs = useCallback(async () => {
     if (!app?.deployment?.active_deployment_id) {
