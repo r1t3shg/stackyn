@@ -282,4 +282,19 @@ export const userApi = {
   },
 };
 
+// Billing API
+export const billingApi = {
+  // Create checkout session for a plan
+  createCheckout: async (plan: 'starter' | 'pro'): Promise<{ checkout_url: string }> => {
+    const response = await safeFetch(`${API_BASE_URL}/api/billing/checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ plan }),
+    }, true);
+    return handleResponse<{ checkout_url: string }>(response);
+  },
+};
+
 

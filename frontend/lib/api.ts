@@ -4,28 +4,75 @@ import type { App, Deployment, DeploymentLogs, CreateAppRequest, CreateAppRespon
 // Helper function to handle API responses
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
+    // Check if response is JSON before trying to parse
+    const contentType = response.headers.get('content-type');
+    let error: { error?: string } = { error: response.statusText };
+    
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        error = await response.json();
+      } catch {
+        // If JSON parsing fails, use default error
+        error = { error: response.statusText };
+      }
+    } else {
+      // Response is not JSON (likely HTML error page)
+      await response.text().catch(() => '');
+      if (response.status === 404) {
+        error = { error: `API endpoint not found. Please check that the backend server is running and the endpoint exists.` };
+      } else if (response.status >= 500) {
+        error = { error: `Server error (${response.status}). Please try again later.` };
+      } else {
+        error = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+    }
+    
     throw new Error(error.error || `HTTP error! status: ${response.status}`);
   }
-  return response.json();
+  
+  // Check content type before parsing JSON
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    return response.json();
+  } else {
+    // If response is not JSON, consume the body and throw error
+    await response.text().catch(() => '');
+    throw new Error(`Expected JSON response but received ${contentType || 'unknown content type'}`);
+  }
 }
 
 // Helper to handle fetch errors with better messages
-async function safeFetch(url: string, options?: RequestInit): Promise<Response> {
+async function safeFetch(url: string, options?: RequestInit, requireAuth: boolean = true): Promise<Response> {
   // Log the request in development
   if (process.env.NODE_ENV === 'development') {
     console.log('Making API request to:', url, options ? `Method: ${options.method || 'GET'}` : '');
   }
   
   try {
+    // Add Authorization header if auth is required
+    const headers = new Headers(options?.headers);
+    if (requireAuth && typeof window !== 'undefined') {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
+    
     const response = await fetch(url, {
       ...options,
+      headers,
       // Ensure credentials are not sent (for CORS)
       credentials: 'omit',
     });
     
     if (process.env.NODE_ENV === 'development') {
       console.log('API response status:', response.status, response.statusText);
+    }
+    
+    // If unauthorized, clear auth
+    if (response.status === 401 && requireAuth && typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
     }
     
     return response;
@@ -138,8 +185,24 @@ export const deploymentsApi = {
 
 // Health check
 export const healthCheck = async (): Promise<{ status: string }> => {
-  const response = await safeFetch(API_ENDPOINTS.health);
+  const response = await safeFetch(API_ENDPOINTS.health, undefined, false);
   return handleResponse<{ status: string }>(response);
+};
+
+// Billing API
+export const billingApi = {
+  // Create checkout session for a plan
+  createCheckout: async (plan: 'starter' | 'pro'): Promise<{ checkout_url: string }> => {
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
+    const response = await safeFetch(`${API_BASE_URL}/api/billing/checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ plan }),
+    }, true);
+    return handleResponse<{ checkout_url: string }>(response);
+  },
 };
 
 

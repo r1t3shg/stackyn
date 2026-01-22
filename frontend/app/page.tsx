@@ -2,9 +2,40 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { billingApi } from '../../lib/api';
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const router = useRouter();
+
+  // Check if user is authenticated
+  const isAuthenticated = () => {
+    if (typeof window === 'undefined') return false;
+    return !!localStorage.getItem('auth_token');
+  };
+
+  // Handle plan selection and start checkout
+  const handlePlanSelect = async (plan: 'starter' | 'pro') => {
+    // Check if user is authenticated
+    if (!isAuthenticated()) {
+      // Redirect to console for signup/login
+      window.location.href = 'https://console.staging.stackyn.com/';
+      return;
+    }
+
+    try {
+      setLoadingPlan(plan);
+      const response = await billingApi.createCheckout(plan);
+      // Redirect to Lemon Squeezy checkout
+      window.location.href = response.checkout_url;
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      alert(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.');
+      setLoadingPlan(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -356,12 +387,13 @@ export default function LandingPage() {
                 <p className="text-sm text-gray-600">MVPs, personal projects, early testing</p>
               </div>
 
-              <a
-                href="https://console.staging.stackyn.com/"
-                className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+              <button
+                onClick={() => handlePlanSelect('starter')}
+                disabled={loadingPlan === 'starter'}
+                className="block w-full text-center bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
               >
-                Get Started
-              </a>
+                {loadingPlan === 'starter' ? 'Starting Checkout...' : 'Start Free Trial'}
+              </button>
             </div>
 
             {/* Pro Plan */}
@@ -449,12 +481,13 @@ export default function LandingPage() {
                 <p className="text-sm text-gray-600">Startups, paid products, production workloads</p>
               </div>
 
-              <a
-                href="https://console.staging.stackyn.com/"
-                className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+              <button
+                onClick={() => handlePlanSelect('pro')}
+                disabled={loadingPlan === 'pro'}
+                className="block w-full text-center bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors"
               >
-                Get Started
-              </a>
+                {loadingPlan === 'pro' ? 'Starting Checkout...' : 'Start Free Trial'}
+              </button>
             </div>
           </div>
 

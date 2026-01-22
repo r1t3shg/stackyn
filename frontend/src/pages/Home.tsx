@@ -7,6 +7,7 @@ import TrialBanner from '@/components/TrialBanner';
 import Paywall from '@/components/Paywall';
 import BillingTestPanel from '@/components/BillingTestPanel';
 import ConfirmModal from '@/components/ConfirmModal';
+import UpgradePlanModal from '@/components/UpgradePlanModal';
 import { shouldShowPaywall } from '@/lib/billing';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -26,6 +27,7 @@ export default function Home() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [demoVideoOpen, setDemoVideoOpen] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -212,6 +214,12 @@ export default function Home() {
         <Paywall userProfile={userProfile} />
       )}
       
+      {/* Upgrade Plan Modal */}
+      <UpgradePlanModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+      />
+
       {/* Hide main content if paywall is shown - wait for profile to load */}
       {!profileLoading && !shouldShowPaywall(userProfile) && (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -269,7 +277,7 @@ export default function Home() {
               <div className="flex gap-3">
                 {userProfile.subscription?.status === 'expired' && (
                   <button
-                    onClick={() => window.location.href = '/pricing'}
+                    onClick={() => setShowUpgradeModal(true)}
                     className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
