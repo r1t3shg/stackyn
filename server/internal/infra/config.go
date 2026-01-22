@@ -405,9 +405,10 @@ func GetEnv(key, defaultValue string) string {
 }
 
 // parseVariantIDs parses variant IDs from environment variable
-// Supports two formats:
+// Supports three formats:
 // 1. JSON format: {"starter":"123","pro":"456"}
-// 2. Comma-separated format: "starter=123,pro=456"
+// 2. Comma-separated format with equals: "starter=123,pro=456"
+// 3. Comma-separated format with colon: "starter:123,pro:456"
 func parseVariantIDs(variantIDsStr string) map[string]string {
 	result := make(map[string]string)
 	if variantIDsStr == "" {
@@ -421,11 +422,21 @@ func parseVariantIDs(variantIDsStr string) map[string]string {
 		return jsonMap
 	}
 	
-	// Fall back to comma-separated format: "starter=123,pro=456"
+	// Fall back to comma-separated format: "starter=123,pro=456" or "starter:123,pro:456"
 	pairs := strings.Split(variantIDsStr, ",")
 	for _, pair := range pairs {
-		// Split by equals sign
-		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		
+		// Try splitting by equals sign first
+		parts := strings.SplitN(pair, "=", 2)
+		// If that didn't work, try colon
+		if len(parts) != 2 {
+			parts = strings.SplitN(pair, ":", 2)
+		}
+		
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
