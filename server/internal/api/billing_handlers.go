@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -130,7 +131,7 @@ func (h *BillingHandlers) CreateCheckoutSession(w http.ResponseWriter, r *http.R
 			zap.String("plan", req.Plan),
 			zap.Any("available_plans", getMapKeys(h.config.LemonSqueezy.TestVariantIDs)),
 		)
-		variantID, ok = h.config.LemonSqueezy.TestVariantIDs[req.Plan]
+		variantID, ok = lookupVariantIDCaseInsensitive(h.config.LemonSqueezy.TestVariantIDs, req.Plan)
 		if !ok {
 			h.logger.Error("Test variant ID not found for plan",
 				zap.String("request_id", fmt.Sprintf("%v", requestID)),
@@ -148,7 +149,7 @@ func (h *BillingHandlers) CreateCheckoutSession(w http.ResponseWriter, r *http.R
 			zap.String("plan", req.Plan),
 			zap.Strings("available_plans", getMapKeys(h.config.LemonSqueezy.LiveVariantIDs)),
 		)
-		variantID, ok = h.config.LemonSqueezy.LiveVariantIDs[req.Plan]
+		variantID, ok = lookupVariantIDCaseInsensitive(h.config.LemonSqueezy.LiveVariantIDs, req.Plan)
 		if !ok {
 			h.logger.Error("Live variant ID not found for plan",
 				zap.String("request_id", fmt.Sprintf("%v", requestID)),
@@ -977,4 +978,23 @@ func getMapKeys(m map[string]string) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// lookupVariantIDCaseInsensitive performs a case-insensitive lookup in the variant IDs map
+// This allows the frontend to send lowercase plan names (e.g., "pro", "starter")
+// while the environment variable can use any case (e.g., "Pro", "Starter", "PRO", etc.)
+func lookupVariantIDCaseInsensitive(variantIDs map[string]string, plan string) (string, bool) {
+	// First try exact match (fast path)
+	if variantID, ok := variantIDs[plan]; ok {
+		return variantID, true
+	}
+	
+	// If not found, try case-insensitive match
+	for key, variantID := range variantIDs {
+		if strings.EqualFold(key, plan) {
+			return variantID, true
+		}
+	}
+	
+	return "", false
 }
