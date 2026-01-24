@@ -195,9 +195,9 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated, userProfile
               </button>
               <button
                 type="submit"
-                disabled={loading || isTrialExpired(userProfile)}
+                disabled={loading || isTrialExpired(userProfile ?? null)}
                 className="px-6 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to create new apps." : undefined}
+                title={isTrialExpired(userProfile ?? null) ? "Your trial has expired. Upgrade to create new apps." : undefined}
               >
                 {loading ? 'Creating...' : 'Create App'}
               </button>

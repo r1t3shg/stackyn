@@ -71,6 +71,15 @@ export default function AppDetailsPage() {
     }
   }, [appId]);
 
+  const loadUserProfile = useCallback(async () => {
+    try {
+      const profile = await userApi.getProfile();
+      setUserProfile(profile);
+    } catch (err) {
+      console.error('Error loading user profile:', err);
+    }
+  }, []);
+
   // Poll for app/deployment status updates (DB is single source of truth)
   // Check app.status, app.deployment.state, and deployments to catch building states immediately
   useEffect(() => {
