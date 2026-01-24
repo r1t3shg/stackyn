@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -266,7 +267,7 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 	ramLimitMB, diskLimitGB := services.GetPlanLimits(planName)
 
 	// Use UPSERT logic for idempotency
-	// Check if subscription already exists
+	// Check if subscription already exists by lemon_subscription_id
 	existingSub, err := h.subscriptionRepo.GetSubscriptionByLemonSubscriptionID(ctx, lemonSubscriptionID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("failed to check existing subscription: %w", err)
@@ -274,8 +275,10 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 
 	if existingSub != nil {
 		// Subscription already exists - update it (idempotent)
-		h.logger.Info("Subscription already exists, updating",
+		h.logger.Info("Subscription already exists by lemon_subscription_id, updating",
 			zap.String("subscription_id", lemonSubscriptionID),
+			zap.String("existing_plan", existingSub.Plan),
+			zap.String("new_plan", planName),
 		)
 		// Update existing subscription
 		if err := h.subscriptionRepo.UpdateSubscription(
@@ -293,7 +296,48 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		return nil
 	}
 
-	// Create new subscription
+	// Check if user already has a subscription (e.g., trial subscription)
+	// If so, update it instead of creating a new one to avoid unique constraint violation
+	existingUserSub, err := h.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to check existing user subscription: %w", err)
+	}
+
+	if existingUserSub != nil {
+		// User already has a subscription (likely a trial) - update it to paid subscription
+		existingLemonSubID := ""
+		if existingUserSub.LemonSubscriptionID != nil {
+			existingLemonSubID = *existingUserSub.LemonSubscriptionID
+		}
+		h.logger.Info("User already has subscription, updating to paid subscription",
+			zap.String("user_id", userID),
+			zap.String("existing_subscription_id", existingLemonSubID),
+			zap.String("new_subscription_id", lemonSubscriptionID),
+			zap.String("existing_plan", existingUserSub.Plan),
+			zap.String("new_plan", planName),
+		)
+		// Update existing subscription with new lemon_subscription_id and plan
+		if err := h.subscriptionRepo.UpdateSubscription(
+			ctx,
+			existingUserSub.ID,
+			planName,
+			status,
+			&ramLimitMB,
+			&diskLimitGB,
+			&lemonSubscriptionID, // Update to new lemon subscription ID
+			&lemonCustomerID,      // Update customer ID
+		); err != nil {
+			return fmt.Errorf("failed to update existing user subscription: %w", err)
+		}
+		return nil
+	}
+
+	// Create new subscription (no existing subscription found)
+	h.logger.Info("Creating new subscription",
+		zap.String("user_id", userID),
+		zap.String("subscription_id", lemonSubscriptionID),
+		zap.String("plan", planName),
+	)
 	_, err = h.subscriptionRepo.CreateSubscription(
 		ctx,
 		userID,
@@ -415,14 +459,27 @@ func (h *WebhookHandlers) handleSubscriptionPlanChanged(ctx context.Context, pay
 
 // handleSubscriptionPaymentSuccess handles subscription_payment_success event
 // Marks subscription as active, updates last_payment_at, clears past_due flags
+// Note: For payment_success events, data.id is the invoice ID, not subscription ID
+// We need to extract subscription_id from attributes.subscription_id
 func (h *WebhookHandlers) handleSubscriptionPaymentSuccess(ctx context.Context, payload LemonSqueezyWebhookPayload) error {
-	subscriptionID := payload.Data.ID
-
-	lemonSubscriptionID := subscriptionID
+	// For subscription_payment_success, data.id is the invoice ID
+	// The actual subscription ID is in attributes.subscription_id
+	lemonSubscriptionID := payload.Data.Attributes.SubscriptionID.String()
+	if lemonSubscriptionID == "" {
+		// Fallback: try data.id (might work for some event types)
+		lemonSubscriptionID = payload.Data.ID
+		h.logger.Warn("subscription_id not found in attributes, using data.id as fallback",
+			zap.String("data_id", payload.Data.ID),
+			zap.String("data_type", payload.Data.Type),
+		)
+	}
+	
 	status := "active" // Payment succeeded - mark as active
 
 	h.logger.Info("Processing subscription_payment_success",
 		zap.String("subscription_id", lemonSubscriptionID),
+		zap.String("invoice_id", payload.Data.ID),
+		zap.String("data_type", payload.Data.Type),
 	)
 
 	// Get existing subscription
@@ -570,29 +627,65 @@ func (h *WebhookHandlers) extractPlanName(attrs LemonSqueezyAttributes) string {
 	if variantID != "" {
 		// Check test variant IDs
 		if h.config.LemonSqueezy.TestMode {
+			h.logger.Debug("Checking test variant IDs",
+				zap.String("variant_id", variantID),
+				zap.Any("available_variants", h.config.LemonSqueezy.TestVariantIDs),
+			)
 			for plan, vid := range h.config.LemonSqueezy.TestVariantIDs {
 				if vid == variantID {
+					h.logger.Info("Matched variant ID to plan",
+						zap.String("variant_id", variantID),
+						zap.String("plan", plan),
+					)
 					return plan
 				}
 			}
 		} else {
 			// Check live variant IDs
+			h.logger.Debug("Checking live variant IDs",
+				zap.String("variant_id", variantID),
+				zap.Any("available_variants", h.config.LemonSqueezy.LiveVariantIDs),
+			)
 			for plan, vid := range h.config.LemonSqueezy.LiveVariantIDs {
 				if vid == variantID {
+					h.logger.Info("Matched variant ID to plan",
+						zap.String("variant_id", variantID),
+						zap.String("plan", plan),
+					)
 					return plan
 				}
 			}
 		}
 	}
 
-	// Fallback: try to extract from product name or variant name
-	productName := attrs.ProductName
-	if productName != "" {
-		// Normalize product name to plan name
-		if productName == "Starter" || productName == "starter" {
+	// Fallback: try to extract from variant name (more reliable than product name)
+	variantName := attrs.VariantName
+	if variantName != "" {
+		h.logger.Info("Using variant name for plan extraction",
+			zap.String("variant_name", variantName),
+		)
+		// Normalize variant name to plan name (case-insensitive)
+		variantNameLower := strings.ToLower(variantName)
+		if variantNameLower == "starter" {
 			return "starter"
 		}
-		if productName == "Pro" || productName == "pro" {
+		if variantNameLower == "pro" {
+			return "pro"
+		}
+	}
+
+	// Fallback: try to extract from product name
+	productName := attrs.ProductName
+	if productName != "" {
+		h.logger.Info("Using product name for plan extraction",
+			zap.String("product_name", productName),
+		)
+		// Normalize product name to plan name (case-insensitive)
+		productNameLower := strings.ToLower(productName)
+		if productNameLower == "starter" || strings.Contains(productNameLower, "starter") {
+			return "starter"
+		}
+		if productNameLower == "pro" || strings.Contains(productNameLower, "pro") {
 			return "pro"
 		}
 	}
@@ -600,7 +693,11 @@ func (h *WebhookHandlers) extractPlanName(attrs LemonSqueezyAttributes) string {
 	// Default fallback
 	h.logger.Warn("Could not determine plan name from webhook payload",
 		zap.String("variant_id", variantID),
+		zap.String("variant_name", variantName),
 		zap.String("product_name", productName),
+		zap.Bool("test_mode", h.config.LemonSqueezy.TestMode),
+		zap.Any("test_variants", h.config.LemonSqueezy.TestVariantIDs),
+		zap.Any("live_variants", h.config.LemonSqueezy.LiveVariantIDs),
 	)
 	return "starter" // Default fallback
 }
@@ -674,12 +771,14 @@ func (fs FlexibleString) String() string {
 
 // LemonSqueezyAttributes represents subscription attributes from Lemon Squeezy
 type LemonSqueezyAttributes struct {
-	Status      string         `json:"status"`       // active, on_trial, past_due, cancelled, expired, paused
-	CustomerID  FlexibleString `json:"customer_id"`  // Lemon customer ID (can be number or string)
-	VariantID   FlexibleString `json:"variant_id"`   // Lemon variant ID (can be number or string)
-	ProductName string         `json:"product_name"` // Product name (e.g., "Starter", "Pro")
-	RenewsAt    string         `json:"renews_at"`     // Next renewal date (current_period_end) - ISO 8601 string
-	EndsAt      string         `json:"ends_at"`       // When subscription ends (if cancelled) - ISO 8601 string
+	Status        string         `json:"status"`         // active, on_trial, past_due, cancelled, expired, paused
+	CustomerID    FlexibleString `json:"customer_id"`   // Lemon customer ID (can be number or string)
+	VariantID     FlexibleString `json:"variant_id"`    // Lemon variant ID (can be number or string)
+	SubscriptionID FlexibleString `json:"subscription_id"` // Subscription ID (for payment events - can be number or string)
+	ProductName   string         `json:"product_name"`  // Product name (e.g., "Starter", "Pro")
+	VariantName   string         `json:"variant_name"`  // Variant name (e.g., "Starter", "Pro")
+	RenewsAt      string         `json:"renews_at"`     // Next renewal date (current_period_end) - ISO 8601 string
+	EndsAt        string         `json:"ends_at"`       // When subscription ends (if cancelled) - ISO 8601 string
 }
 
 // Helper to write JSON response
