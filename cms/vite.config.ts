@@ -4,9 +4,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/cms/', // Base path for the CMS
+  base: '/cms/', // Base path for the CMS (with trailing slash for Vite asset resolution)
   server: {
-    port: 5174, // Different port from main frontend (3000) to avoid conflicts
+    port: 3001, // Match the port in docker-compose.yml
     host: true,
   },
   build: {

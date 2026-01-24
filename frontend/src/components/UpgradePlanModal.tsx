@@ -29,11 +29,17 @@ export default function UpgradePlanModal({
   const handlePlanSelect = async (plan: 'starter' | 'pro') => {
     try {
       setLoadingPlan(plan);
+      // Set flag in localStorage before redirect so we can show congratulations on return
+      localStorage.setItem('payment_success', 'true');
+      localStorage.setItem('payment_plan', plan);
       const response = await billingApi.createCheckout(plan);
       // Redirect to Lemon Squeezy checkout
       window.location.href = response.checkout_url;
     } catch (error) {
       console.error('Error creating checkout session:', error);
+      // Clear flags on error
+      localStorage.removeItem('payment_success');
+      localStorage.removeItem('payment_plan');
       alert(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.');
       setLoadingPlan(null);
     }

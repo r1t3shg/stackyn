@@ -4,11 +4,13 @@ import { appsApi, userApi } from '@/lib/api';
 import type { App, UserProfile } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import TrialBanner from '@/components/TrialBanner';
+import ExpiredTrialBanner from '@/components/ExpiredTrialBanner';
 import Paywall from '@/components/Paywall';
 import BillingTestPanel from '@/components/BillingTestPanel';
 import ConfirmModal from '@/components/ConfirmModal';
 import UpgradePlanModal from '@/components/UpgradePlanModal';
-import { shouldShowPaywall } from '@/lib/billing';
+import CongratulationsModal from '@/components/CongratulationsModal';
+import { shouldShowPaywall, isTrialExpired } from '@/lib/billing';
 import { useAuth } from '@/contexts/AuthContext';
 
 type SortField = 'name' | 'status' | 'last_deployed' | 'created_at';
@@ -28,6 +30,8 @@ export default function Home() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [demoVideoOpen, setDemoVideoOpen] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCongratulations, setShowCongratulations] = useState(false);
+  const [congratulationsPlan, setCongratulationsPlan] = useState<'starter' | 'pro' | null>(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -82,6 +86,58 @@ export default function Home() {
     loadUserProfile();
   }, [loadApps, loadUserProfile]);
 
+  // Check if user just returned from successful payment
+  useEffect(() => {
+    // Check URL for payment success indicator
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentSuccess = urlParams.get('payment_success');
+    const plan = urlParams.get('plan') as 'starter' | 'pro' | null;
+    
+    // Also check localStorage for payment success flag (set before redirect)
+    const paymentSuccessFlag = localStorage.getItem('payment_success');
+    const planFromStorage = localStorage.getItem('payment_plan') as 'starter' | 'pro' | null;
+    
+    if (paymentSuccess === 'true' && plan) {
+      setCongratulationsPlan(plan);
+      setShowCongratulations(true);
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (paymentSuccessFlag === 'true' && planFromStorage) {
+      setCongratulationsPlan(planFromStorage);
+      setShowCongratulations(true);
+      // Clean up localStorage
+      localStorage.removeItem('payment_success');
+      localStorage.removeItem('payment_plan');
+    }
+  }, []);
+
+  // Check if subscription status changed to active (webhook might have updated it)
+  // This handles cases where webhook processes payment and user refreshes page
+  useEffect(() => {
+    if (!userProfile || !userProfile.subscription) return;
+    
+    const subscription = userProfile.subscription;
+    const isActive = subscription.status === 'active';
+    const plan = subscription.plan?.toLowerCase() as 'starter' | 'pro' | null;
+    
+    // Check if we should show congratulations (subscription is active and we have payment success flag)
+    // Only show if we haven't shown it yet in this session
+    if (isActive && (plan === 'starter' || plan === 'pro') && !localStorage.getItem('congrats_shown')) {
+      const paymentSuccessFlag = localStorage.getItem('payment_success');
+      if (paymentSuccessFlag === 'true') {
+        setCongratulationsPlan(plan);
+        setShowCongratulations(true);
+        localStorage.setItem('congrats_shown', 'true');
+        // Clean up payment flags
+        localStorage.removeItem('payment_success');
+        localStorage.removeItem('payment_plan');
+        // Clear the congrats flag after 5 minutes
+        setTimeout(() => {
+          localStorage.removeItem('congrats_shown');
+        }, 5 * 60 * 1000);
+      }
+    }
+  }, [userProfile]);
 
   // Calculate actual RAM and disk usage from all apps
   // Falls back to resource_limits if usage_stats is not available
@@ -206,6 +262,9 @@ export default function Home() {
       {/* Trial Banner */}
       <TrialBanner userProfile={userProfile} />
       
+      {/* Expired Trial Banner */}
+      <ExpiredTrialBanner userProfile={userProfile} />
+      
       {/* Billing Test Panel (dev only) */}
       <BillingTestPanel onUpdate={loadUserProfile} />
       
@@ -219,6 +278,18 @@ export default function Home() {
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
       />
+      
+      {/* Congratulations Modal */}
+      {congratulationsPlan && (
+        <CongratulationsModal
+          isOpen={showCongratulations}
+          onClose={() => {
+            setShowCongratulations(false);
+            setCongratulationsPlan(null);
+          }}
+          plan={congratulationsPlan}
+        />
+      )}
 
       {/* Hide main content if paywall is shown - wait for profile to load */}
       {!profileLoading && !shouldShowPaywall(userProfile) && (
@@ -336,7 +407,9 @@ export default function Home() {
           <div className="flex gap-3">
             <button
               onClick={() => navigate('/apps/new')}
-              className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
+              disabled={isTrialExpired(userProfile)}
+              className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to create new apps." : undefined}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

@@ -47,10 +47,8 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3001
 
 # Start serve with SPA routing support
-# Note: The base path /cms is handled by Vite build, but we need to serve from root
-# Traefik will route /cms/* to this service
-# Listen on 0.0.0.0 to allow Traefik to connect
-# serve binds to all interfaces by default when port is specified
-# Using shell form to ensure proper execution
+# Note: Vite builds with base: '/cms/' so assets are at /cms/assets/...
+# Traefik strips /cms prefix before forwarding, so we serve from root
+# The -s flag enables SPA mode (serve index.html for all routes)
 CMD ["sh", "-c", "serve -s dist -l 3001"]
 

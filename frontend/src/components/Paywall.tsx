@@ -17,11 +17,17 @@ export default function Paywall({ userProfile, message }: PaywallProps) {
     try {
       setLoadingPlan(plan);
       setError(null);
+      // Set flag in localStorage before redirect so we can show congratulations on return
+      localStorage.setItem('payment_success', 'true');
+      localStorage.setItem('payment_plan', plan);
       const response = await billingApi.createCheckout(plan);
       // Redirect to Lemon Squeezy checkout
       window.location.href = response.checkout_url;
     } catch (err) {
       console.error('Error creating checkout session:', err);
+      // Clear flags on error
+      localStorage.removeItem('payment_success');
+      localStorage.removeItem('payment_plan');
       setError(err instanceof Error ? err.message : 'Failed to start checkout. Please try again.');
       setLoadingPlan(null);
     }

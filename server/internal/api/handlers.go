@@ -545,6 +545,18 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
 
+	// Check if trial has expired - block app creation
+	if h.subscriptionService != nil {
+		isExpired, err := h.subscriptionService.IsTrialExpired(r.Context(), userID)
+		if err != nil {
+			h.logger.Warn("Failed to check trial expiration", zap.Error(err), zap.String("user_id", userID))
+			// Continue - don't block on error
+		} else if isExpired {
+			h.writeError(w, http.StatusForbidden, "Your free trial has expired. Upgrade to continue creating apps.")
+			return
+		}
+	}
+
 	// Check subscription status and resource limits before creating app
 	// Default app resource allocation (can be made configurable later)
 	defaultAppRAMMB := 256  // 256 MB per app
@@ -820,6 +832,18 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 	if userID == "" {
 		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
 		return
+	}
+
+	// Check if trial has expired - block redeploy
+	if h.subscriptionService != nil {
+		isExpired, err := h.subscriptionService.IsTrialExpired(r.Context(), userID)
+		if err != nil {
+			h.logger.Warn("Failed to check trial expiration", zap.Error(err), zap.String("user_id", userID))
+			// Continue - don't block on error
+		} else if isExpired {
+			h.writeError(w, http.StatusForbidden, "Your free trial has expired. Upgrade to continue redeploying apps.")
+			return
+		}
 	}
 
 	// Check max concurrent builds limit

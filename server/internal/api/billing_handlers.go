@@ -199,8 +199,9 @@ func (h *BillingHandlers) CreateCheckoutSession(w http.ResponseWriter, r *http.R
 // createLemonSqueezyCheckout calls the Lemon Squeezy v1 API to create a checkout session
 // userID is passed in custom_data so webhook can identify the user
 func (h *BillingHandlers) createLemonSqueezyCheckout(ctx context.Context, variantID, customerEmail, userID string) (string, error) {
-	// Build success URL (cancel URL is handled by Lemon Squeezy checkout options)
-	successURL := fmt.Sprintf("%s/billing/success", h.config.LemonSqueezy.FrontendBaseURL)
+	// Build success URL - redirect to console home (webhook will handle subscription activation)
+	// The frontend will detect payment success via localStorage flag set before redirect
+	successURL := fmt.Sprintf("%s/", h.config.LemonSqueezy.FrontendBaseURL)
 
 	// Prepare request payload for Lemon Squeezy v1 API
 	// Documentation: https://docs.lemonsqueezy.com/api/checkouts#create-a-checkout

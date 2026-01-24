@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { appsApi } from '@/lib/api';
+import { appsApi, userApi } from '@/lib/api';
+import type { UserProfile } from '@/lib/types';
+import { isTrialExpired } from '@/lib/billing';
 
 interface EnvVar {
   key: string;
@@ -18,6 +20,7 @@ export default function NewAppPage() {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +67,19 @@ export default function NewAppPage() {
     updated[index] = { ...updated[index], [field]: value };
     setEnvVars(updated);
   };
+
+  const loadUserProfile = useCallback(async () => {
+    try {
+      const profile = await userApi.getProfile();
+      setUserProfile(profile);
+    } catch (err) {
+      console.error('Error loading user profile:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUserProfile();
+  }, [loadUserProfile]);
 
   return (
     <div className="min-h-screen bg-[var(--app-bg)]">
@@ -242,8 +258,9 @@ export default function NewAppPage() {
               </Link>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || isTrialExpired(userProfile)}
                 className="px-6 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to create new apps." : undefined}
               >
                 {loading ? 'Creating...' : 'Create App'}
               </button>

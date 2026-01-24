@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { appsApi, deploymentsApi } from '@/lib/api';
-import type { App, Deployment, EnvVar, DeploymentLogs } from '@/lib/types';
+import { appsApi, deploymentsApi, userApi } from '@/lib/api';
+import type { App, Deployment, EnvVar, DeploymentLogs, UserProfile } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import LogsViewer from '@/components/LogsViewer';
 import ConfirmModal from '@/components/ConfirmModal';
 import { extractString } from '@/lib/types';
+import { isTrialExpired } from '@/lib/billing';
 
 type Tab = 'overview' | 'deployments' | 'metrics' | 'settings';
 
@@ -30,6 +31,7 @@ export default function AppDetailsPage() {
   const [loadingEnvVars, setLoadingEnvVars] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   const loadApp = useCallback(async () => {
     try {
@@ -169,8 +171,9 @@ export default function AppDetailsPage() {
       loadApp();
       loadDeployments();
       loadEnvVars();
+      loadUserProfile();
     }
-  }, [appId, loadApp, loadDeployments, loadEnvVars]);
+  }, [appId, loadApp, loadDeployments, loadEnvVars, loadUserProfile]);
 
   // Immediate check when app status or deployment state changes to building - start polling right away
   useEffect(() => {
@@ -499,9 +502,9 @@ export default function AppDetailsPage() {
             <div className="flex gap-2">
               <button
                 onClick={handleRedeploy}
-                disabled={actionLoading !== null}
+                disabled={actionLoading !== null || isTrialExpired(userProfile)}
                 className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                title="Redeploy app"
+                title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to redeploy apps." : "Redeploy app"}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1048,8 +1051,9 @@ export default function AppDetailsPage() {
                 </div>
                 <button
                   onClick={handleRedeploy}
-                  disabled={actionLoading !== null}
+                  disabled={actionLoading !== null || isTrialExpired(userProfile)}
                   className="px-4 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to redeploy apps." : undefined}
                 >
                   {actionLoading === 'redeploy' ? 'Redeploying...' : 'Redeploy App'}
                 </button>

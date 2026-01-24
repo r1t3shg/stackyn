@@ -423,6 +423,37 @@ func (s *SubscriptionService) ExpireSubscription(ctx context.Context, userID, us
 	return nil
 }
 
+// IsTrialExpired checks if user's trial has expired
+func (s *SubscriptionService) IsTrialExpired(ctx context.Context, userID string) (bool, error) {
+	sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	if sub == nil {
+		// No subscription - treat as expired
+		return true, nil
+	}
+
+	// Check if status is explicitly expired
+	if sub.Status == "expired" {
+		return true, nil
+	}
+
+	// Check if trial has passed its end date
+	if sub.Status == "trial" {
+		if sub.TrialEndsAt == nil {
+			// Trial without end date - treat as expired for safety
+			return true, nil
+		}
+		if time.Now().After(*sub.TrialEndsAt) || time.Now().Equal(*sub.TrialEndsAt) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // CheckResourceLimits checks if user's total resource usage is within subscription limits
 // Returns error if limits are exceeded
 // If no subscription exists, automatically creates a trial (resilient to signup failures)

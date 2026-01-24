@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { appsApi } from '@/lib/api';
+import type { UserProfile } from '@/lib/types';
+import { isTrialExpired } from '@/lib/billing';
 
 interface NewAppModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAppCreated?: (appId: string) => void; // Optional callback for when an app is created
+  userProfile?: UserProfile | null; // User profile to check trial status
 }
 
-export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppModalProps) {
+export default function NewAppModal({ isOpen, onClose, onAppCreated, userProfile }: NewAppModalProps) {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
@@ -192,8 +195,9 @@ export default function NewAppModal({ isOpen, onClose, onAppCreated }: NewAppMod
               </button>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || isTrialExpired(userProfile)}
                 className="px-6 py-2 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isTrialExpired(userProfile) ? "Your trial has expired. Upgrade to create new apps." : undefined}
               >
                 {loading ? 'Creating...' : 'Create App'}
               </button>

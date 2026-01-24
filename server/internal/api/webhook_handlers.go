@@ -293,6 +293,33 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
+		
+		// Get user email and send activation email if subscription was just activated
+		if status == "active" && (existingSub.Plan != planName || existingSub.Status != "active") {
+			user, err := h.userRepo.GetUserByID(userID)
+			userEmail := ""
+			if err == nil && user != nil {
+				userEmail = user.Email
+				// Send activation email in background
+				go func() {
+					if err := h.subscriptionService.ActivateSubscription(
+						context.Background(),
+						userID,
+						planName,
+						lemonSubscriptionID,
+						ramLimitMB,
+						diskLimitGB,
+						userEmail,
+					); err != nil {
+						h.logger.Warn("Failed to send activation email for updated subscription",
+							zap.Error(err),
+							zap.String("user_id", userID),
+						)
+					}
+				}()
+			}
+		}
+		
 		return nil
 	}
 
@@ -329,6 +356,30 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		); err != nil {
 			return fmt.Errorf("failed to update existing user subscription: %w", err)
 		}
+		
+		// Get user email and send activation email
+		user, err := h.userRepo.GetUserByID(userID)
+		userEmail := ""
+		if err == nil && user != nil {
+			userEmail = user.Email
+		}
+		
+		// Sync billing fields and send activation email
+		if err := h.subscriptionService.ActivateSubscription(
+			ctx,
+			userID,
+			planName,
+			lemonSubscriptionID,
+			ramLimitMB,
+			diskLimitGB,
+			userEmail,
+		); err != nil {
+			h.logger.Warn("Failed to sync billing fields for upgraded subscription",
+				zap.Error(err),
+				zap.String("user_id", userID),
+			)
+		}
+		
 		return nil
 	}
 
@@ -354,7 +405,19 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		return fmt.Errorf("failed to create subscription: %w", err)
 	}
 
-	// Sync billing fields to users table
+	// Get user email for sending activation email
+	user, err := h.userRepo.GetUserByID(userID)
+	userEmail := ""
+	if err == nil && user != nil {
+		userEmail = user.Email
+	} else {
+		h.logger.Warn("Failed to get user email for activation email",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
+	}
+
+	// Sync billing fields to users table and send activation email
 	if err := h.subscriptionService.ActivateSubscription(
 		ctx,
 		userID,
@@ -362,7 +425,7 @@ func (h *WebhookHandlers) handleSubscriptionCreated(ctx context.Context, payload
 		lemonSubscriptionID,
 		ramLimitMB,
 		diskLimitGB,
-		"", // Email not needed for sync
+		userEmail, // Pass user email to send activation email
 	); err != nil {
 		h.logger.Warn("Failed to sync billing fields to users table",
 			zap.Error(err),
