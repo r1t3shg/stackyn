@@ -316,13 +316,13 @@ services:
       - "traefik.http.routers.frontend-localhost.entrypoints=web"
       - "traefik.http.routers.frontend-localhost.service=frontend"
       - "traefik.http.routers.frontend-localhost.tls=false"
-      # HTTP router for production main domain (redirects to HTTPS) - explicit domain match
-      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      # HTTP router for production main domain (redirects to HTTPS) - explicit domain match, exclude /cms path
+      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) && !PathPrefix(`/cms`)"
       - "traefik.http.routers.frontend-http.entrypoints=web"
       - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
       - "traefik.http.routers.frontend-http.tls=false"
-      # HTTPS router for main domain (with SSL) - explicit domain match
-      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
+      # HTTPS router for main domain (with SSL) - explicit domain match, exclude /cms path
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) && !PathPrefix(`/cms`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.tls=true"

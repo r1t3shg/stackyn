@@ -12,6 +12,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // Ensure assets are referenced correctly
+    assetsDir: 'assets',
   },
 })
 
