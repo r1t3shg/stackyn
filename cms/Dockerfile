@@ -50,5 +50,6 @@ EXPOSE 3001
 # Note: Vite builds with base: '/cms/' so assets are at /cms/assets/...
 # Traefik strips /cms prefix before forwarding, so we serve from root
 # The -s flag enables SPA mode (serve index.html for all routes)
-CMD ["sh", "-c", "serve -s dist -l 3001"]
+# The --cors flag allows cross-origin requests if needed
+CMD ["sh", "-c", "serve -s dist -l 3001 --no-clipboard"]
 
