@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import type { UserProfile } from '@/lib/types';
+import { billingApi } from '@/lib/api';
 
 interface PaywallProps {
   userProfile: UserProfile | null;
@@ -7,6 +9,23 @@ interface PaywallProps {
 }
 
 export default function Paywall({ userProfile, message }: PaywallProps) {
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Handle plan selection and start checkout
+  const handlePlanSelect = async (plan: 'starter' | 'pro') => {
+    try {
+      setLoadingPlan(plan);
+      setError(null);
+      const response = await billingApi.createCheckout(plan);
+      // Redirect to Lemon Squeezy checkout
+      window.location.href = response.checkout_url;
+    } catch (err) {
+      console.error('Error creating checkout session:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start checkout. Please try again.');
+      setLoadingPlan(null);
+    }
+  };
   // Determine the paywall message based on billing status
   const getPaywallMessage = () => {
     if (message) return message;
@@ -73,14 +92,13 @@ export default function Paywall({ userProfile, message }: PaywallProps) {
                 <li>• 512 MB RAM</li>
                 <li>• 5 GB Disk</li>
               </ul>
-              <a
-                href="https://stackyn.lemonsqueezy.com/checkout/buy/test-starter-id"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
+              <button
+                onClick={() => handlePlanSelect('starter')}
+                disabled={loadingPlan !== null}
+                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed text-[var(--app-bg)] font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
               >
-                Upgrade to Starter
-              </a>
+                {loadingPlan === 'starter' ? 'Loading...' : 'Upgrade to Starter'}
+              </button>
             </div>
 
             {/* Pro Plan */}
@@ -100,18 +118,22 @@ export default function Paywall({ userProfile, message }: PaywallProps) {
                 <li>• 2 GB RAM</li>
                 <li>• 20 GB Disk</li>
               </ul>
-              <a
-                href="https://stackyn.lemonsqueezy.com/checkout/buy/test-pro-id"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
+              <button
+                onClick={() => handlePlanSelect('pro')}
+                disabled={loadingPlan !== null}
+                className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed text-[var(--app-bg)] font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
               >
-                Upgrade to Pro
-              </a>
+                {loadingPlan === 'pro' ? 'Loading...' : 'Upgrade to Pro'}
+              </button>
             </div>
           </div>
         </div>
 
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
         <div className="text-center">
           <p className="text-sm text-[var(--text-muted)] mb-4">
             💡 <strong>Testing?</strong> Use Lemon Squeezy test mode with card <code className="bg-[var(--surface)] px-2 py-1 rounded">4242 4242 4242 4242</code>
