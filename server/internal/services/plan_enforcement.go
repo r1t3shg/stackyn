@@ -36,8 +36,10 @@ type PlanData struct {
 
 // SubscriptionData represents subscription information
 type SubscriptionData struct {
-	Plan   string
-	Status string
+	Plan        string
+	Status      string
+	RAMLimitMB  int
+	DiskLimitGB int
 }
 
 // PlanEnforcementService enforces plan-based limits
@@ -118,7 +120,22 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 					zap.String("plan_name", plan.Name),
 					zap.String("subscription_status", sub.Status),
 				)
-				return s.planDataToLimits(plan), nil
+
+				// Convert to limits
+				limits := s.planDataToLimits(plan)
+
+				// OVERRIDE with specific subscription limits if they are set (and non-zero)
+				// This handles cases where subscription has custom limits or Admin updated them
+				if sub.RAMLimitMB > 0 {
+					s.logger.Debug("Overriding plan RAM limit with subscription limit",
+						zap.String("user_id", userID),
+						zap.Int("plan_ram_mb", limits.MaxRAMMB),
+						zap.Int("subscription_ram_mb", sub.RAMLimitMB),
+					)
+					limits.MaxRAMMB = sub.RAMLimitMB
+				}
+
+				return limits, nil
 			}
 		}
 	}
