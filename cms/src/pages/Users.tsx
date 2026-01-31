@@ -129,16 +129,26 @@ export default function Users() {
                           {user.full_name || '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <select
-                            value={user.plan}
-                            onChange={(e) => handlePlanChange(user.id, e.target.value)}
-                            className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          >
-                            <option value="free">Free</option>
-                            <option value="starter">Starter</option>
-                            <option value="builder">Builder</option>
-                            <option value="pro">Pro</option>
-                          </select>
+                          <div className="flex flex-col space-y-2">
+                            <select
+                              value={user.plan}
+                              onChange={(e) => handlePlanChange(user.id, e.target.value)}
+                              className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                              <option value="starter">Starter</option>
+                              <option value="pro">Pro</option>
+                            </select>
+                            {user.subscription?.status === 'trial' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Trial ends {user.subscription.trial_ends_at ? new Date(user.subscription.trial_ends_at).toLocaleDateString() : 'soon'}
+                              </span>
+                            )}
+                            {user.subscription?.status === 'expired' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                Trial Expired
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {user.quota?.app_count || 0} / {user.quota?.plan.max_apps || 0}
@@ -199,7 +209,7 @@ export default function Users() {
           )}
         </div>
       </div>
-    </Layout>
+    </Layout >
   );
 }
 

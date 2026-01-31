@@ -13,6 +13,10 @@ import (
 	"strings"
 	"time"
 
+	stackynerrors "stackyn/server/internal/errors"
+	"stackyn/server/internal/services"
+	"stackyn/server/internal/tasks"
+
 	"github.com/docker/docker/client"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -20,32 +24,29 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
-	stackynerrors "stackyn/server/internal/errors"
-	"stackyn/server/internal/services"
-	"stackyn/server/internal/tasks"
 )
 
 // Mock data structures matching frontend types exactly
 
 type App struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	Status    string    `json:"status"`
-	URL       string    `json:"url"`
-	RepoURL   string    `json:"repo_url"`
-	Branch    string    `json:"branch"`
-	CreatedAt string    `json:"created_at"`
-	UpdatedAt string    `json:"updated_at"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Slug       string         `json:"slug"`
+	Status     string         `json:"status"`
+	URL        string         `json:"url"`
+	RepoURL    string         `json:"repo_url"`
+	Branch     string         `json:"branch"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 	Deployment *AppDeployment `json:"deployment,omitempty"`
 }
 
 type AppDeployment struct {
-	ActiveDeploymentID string                 `json:"active_deployment_id"`
-	LastDeployedAt     string                 `json:"last_deployed_at"`
-	State              string                 `json:"state"`
-	ResourceLimits     *ResourceLimits        `json:"resource_limits,omitempty"`
-	UsageStats         *UsageStats            `json:"usage_stats,omitempty"`
+	ActiveDeploymentID string          `json:"active_deployment_id"`
+	LastDeployedAt     string          `json:"last_deployed_at"`
+	State              string          `json:"state"`
+	ResourceLimits     *ResourceLimits `json:"resource_limits,omitempty"`
+	UsageStats         *UsageStats     `json:"usage_stats,omitempty"`
 }
 
 type ResourceLimits struct {
@@ -63,39 +64,39 @@ type UsageStats struct {
 }
 
 type Deployment struct {
-	ID          interface{} `json:"id"` // UUID string from database
-	AppID       interface{} `json:"app_id"` // UUID string from database
-	Status      string      `json:"status"`
-	ImageName   interface{} `json:"image_name,omitempty"`
-	ContainerID interface{} `json:"container_id,omitempty"`
-	Subdomain   interface{} `json:"subdomain,omitempty"`
-	BuildLog    interface{} `json:"build_log,omitempty"`
-	RuntimeLog  interface{} `json:"runtime_log,omitempty"`
+	ID           interface{} `json:"id"`     // UUID string from database
+	AppID        interface{} `json:"app_id"` // UUID string from database
+	Status       string      `json:"status"`
+	ImageName    interface{} `json:"image_name,omitempty"`
+	ContainerID  interface{} `json:"container_id,omitempty"`
+	Subdomain    interface{} `json:"subdomain,omitempty"`
+	BuildLog     interface{} `json:"build_log,omitempty"`
+	RuntimeLog   interface{} `json:"runtime_log,omitempty"`
 	ErrorMessage interface{} `json:"error_message,omitempty"`
-	CreatedAt   string      `json:"created_at"`
-	UpdatedAt   string      `json:"updated_at"`
+	CreatedAt    string      `json:"created_at"`
+	UpdatedAt    string      `json:"updated_at"`
 }
 
 type DeploymentLogs struct {
 	DeploymentID int    `json:"deployment_id"`
-	Status      string `json:"status"`
-	BuildLog    string `json:"build_log,omitempty"`
-	RuntimeLog  string `json:"runtime_log,omitempty"`
+	Status       string `json:"status"`
+	BuildLog     string `json:"build_log,omitempty"`
+	RuntimeLog   string `json:"runtime_log,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 type CreateAppRequest struct {
-	Name    string            `json:"name"`
-	Slug    string            `json:"slug,omitempty"` // Optional slug (will be auto-generated from name if not provided)
-	RepoURL string            `json:"repo_url"`
-	Branch  string            `json:"branch"`
+	Name    string                `json:"name"`
+	Slug    string                `json:"slug,omitempty"` // Optional slug (will be auto-generated from name if not provided)
+	RepoURL string                `json:"repo_url"`
+	Branch  string                `json:"branch"`
 	EnvVars []CreateEnvVarRequest `json:"env_vars,omitempty"` // Optional environment variables
 }
 
 type CreateAppResponse struct {
-	App       App        `json:"app"`
+	App        App        `json:"app"`
 	Deployment Deployment `json:"deployment"`
-	Error     string     `json:"error,omitempty"`
+	Error      string     `json:"error,omitempty"`
 }
 
 type EnvVar struct {
@@ -113,22 +114,22 @@ type CreateEnvVarRequest struct {
 }
 
 type UserProfile struct {
-	ID            string             `json:"id"`
-	Email         string             `json:"email"`
-	FullName      string             `json:"full_name,omitempty"`
-	CompanyName   string             `json:"company_name,omitempty"`
-	EmailVerified bool               `json:"email_verified"`
-	Plan          string             `json:"plan"`
-	BillingStatus string             `json:"billing_status,omitempty"` // trial | active | expired
-	CreatedAt     string             `json:"created_at"`
-	UpdatedAt     string             `json:"updated_at"`
-	Quota         *Quota             `json:"quota,omitempty"`
-	Subscription  *SubscriptionInfo  `json:"subscription,omitempty"`
+	ID            string            `json:"id"`
+	Email         string            `json:"email"`
+	FullName      string            `json:"full_name,omitempty"`
+	CompanyName   string            `json:"company_name,omitempty"`
+	EmailVerified bool              `json:"email_verified"`
+	Plan          string            `json:"plan"`
+	BillingStatus string            `json:"billing_status,omitempty"` // trial | active | expired
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
+	Quota         *Quota            `json:"quota,omitempty"`
+	Subscription  *SubscriptionInfo `json:"subscription,omitempty"`
 }
 
 type SubscriptionInfo struct {
-	Status         string  `json:"status"`          // trial, active, expired, cancelled
-	Plan           string  `json:"plan"`            // starter, pro
+	Status         string  `json:"status"` // trial, active, expired, cancelled
+	Plan           string  `json:"plan"`   // starter, pro
 	TrialStartedAt *string `json:"trial_started_at,omitempty"`
 	TrialEndsAt    *string `json:"trial_ends_at,omitempty"`
 	RAMLimitMB     int     `json:"ram_limit_mb"`
@@ -136,28 +137,28 @@ type SubscriptionInfo struct {
 }
 
 type Quota struct {
-	PlanName  string `json:"plan_name"`
-	Plan      PlanInfo `json:"plan"`
-	AppCount  int    `json:"app_count"`
-	TotalRAMMB int   `json:"total_ram_mb"`
-	TotalDiskMB int  `json:"total_disk_mb"`
+	PlanName    string   `json:"plan_name"`
+	Plan        PlanInfo `json:"plan"`
+	AppCount    int      `json:"app_count"`
+	TotalRAMMB  int      `json:"total_ram_mb"`
+	TotalDiskMB int      `json:"total_disk_mb"`
 }
 
 type PlanInfo struct {
-	Name            string `json:"name"`
-	DisplayName     string `json:"display_name"`
-	Price           int    `json:"price"`
-	MaxRAMMB        int    `json:"max_ram_mb"`
-	MaxDiskMB       int    `json:"max_disk_mb"`
-	MaxApps         int    `json:"max_apps"`
-	AlwaysOn        bool   `json:"always_on"`
-	AutoDeploy      bool   `json:"auto_deploy"`
-	HealthChecks    bool   `json:"health_checks"`
-	Logs            bool   `json:"logs"`
-	ZeroDowntime    bool   `json:"zero_downtime"`
-	Workers         bool   `json:"workers"`
-	PriorityBuilds  bool   `json:"priority_builds"`
-	ManualDeployOnly bool  `json:"manual_deploy_only"`
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	Price            int    `json:"price"`
+	MaxRAMMB         int    `json:"max_ram_mb"`
+	MaxDiskMB        int    `json:"max_disk_mb"`
+	MaxApps          int    `json:"max_apps"`
+	AlwaysOn         bool   `json:"always_on"`
+	AutoDeploy       bool   `json:"auto_deploy"`
+	HealthChecks     bool   `json:"health_checks"`
+	Logs             bool   `json:"logs"`
+	ZeroDowntime     bool   `json:"zero_downtime"`
+	Workers          bool   `json:"workers"`
+	PriorityBuilds   bool   `json:"priority_builds"`
+	ManualDeployOnly bool   `json:"manual_deploy_only"`
 }
 
 type HealthResponse struct {
@@ -167,23 +168,23 @@ type HealthResponse struct {
 // Handlers
 
 type Handlers struct {
-	logger             *zap.Logger
-	logPersistence     LogPersistenceService
-	containerLogs      ContainerLogService
-	planEnforcement    PlanEnforcementService
+	logger              *zap.Logger
+	logPersistence      LogPersistenceService
+	containerLogs       ContainerLogService
+	planEnforcement     PlanEnforcementService
 	billingService      BillingService
-	constraintsService ConstraintsService
+	constraintsService  ConstraintsService
 	subscriptionService *services.SubscriptionService
-	subscriptionRepo   *SubscriptionRepo
-	appRepo            *AppRepo
-	deploymentRepo     *DeploymentRepo
-	envVarRepo         *EnvVarRepo
-	userRepo           *UserRepo
-	planRepo           *PlanRepo
-	userPlanRepo       *UserPlanRepo
-	taskEnqueue        *services.TaskEnqueueService
-	wsHub              *services.Hub
-	deploymentService  DeploymentService
+	subscriptionRepo    *SubscriptionRepo
+	appRepo             *AppRepo
+	deploymentRepo      *DeploymentRepo
+	envVarRepo          *EnvVarRepo
+	userRepo            *UserRepo
+	planRepo            *PlanRepo
+	userPlanRepo        *UserPlanRepo
+	taskEnqueue         *services.TaskEnqueueService
+	wsHub               *services.Hub
+	deploymentService   DeploymentService
 }
 
 // DeploymentService interface for deployment operations
@@ -270,7 +271,7 @@ func NewHandlers(logger *zap.Logger, logPersistence LogPersistenceService, conta
 		billingService:      billingService,
 		constraintsService:  constraintsService,
 		subscriptionService: subscriptionService,
-		subscriptionRepo:   subscriptionRepo,
+		subscriptionRepo:    subscriptionRepo,
 		appRepo:             appRepo,
 		deploymentRepo:      deploymentRepo,
 		envVarRepo:          envVarRepo,
@@ -356,7 +357,7 @@ func (h *Handlers) writeError(w http.ResponseWriter, status int, message string)
 // writeStackynError writes a StackynError in the standardized format
 func (h *Handlers) writeStackynError(w http.ResponseWriter, r *http.Request, status int, err *stackynerrors.StackynError) {
 	requestID := middleware.GetReqID(r.Context())
-	
+
 	// Log the error with context
 	h.logger.Error("Stackyn error",
 		zap.String("error_code", string(err.Code)),
@@ -379,7 +380,7 @@ func (h *Handlers) writeStackynError(w http.ResponseWriter, r *http.Request, sta
 // handleError processes an error and writes appropriate response
 func (h *Handlers) handleError(w http.ResponseWriter, r *http.Request, err error, defaultStatus int) {
 	requestID := middleware.GetReqID(r.Context())
-	
+
 	// Check if it's already a StackynError
 	if stackynErr, ok := stackynerrors.AsStackynError(err); ok {
 		status := defaultStatus
@@ -490,7 +491,7 @@ func (h *Handlers) ListApps(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/apps/{id} - Get app by ID
 func (h *Handlers) GetAppByID(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get user ID from context (set by AuthMiddleware)
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
@@ -559,8 +560,8 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 
 	// Check subscription status and resource limits before creating app
 	// Default app resource allocation (can be made configurable later)
-	defaultAppRAMMB := 256  // 256 MB per app
-	defaultAppDiskGB := 1   // 1 GB per app
+	defaultAppRAMMB := 256 // 256 MB per app
+	defaultAppDiskGB := 1  // 1 GB per app
 
 	// Get current resource usage for user's apps
 	currentRAMMB, currentDiskGB, err := h.getUserResourceUsage(r.Context(), userID)
@@ -673,7 +674,7 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 			if envVar.Key == "" {
 				continue
 			}
-			
+
 			_, err := h.envVarRepo.CreateEnvVar(r.Context(), app.ID, envVar.Key, envVar.Value)
 			if err != nil {
 				// Log error but don't fail app creation - env vars can be added later
@@ -711,14 +712,14 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 
 		taskInfo, err := h.taskEnqueue.EnqueueBuildTask(r.Context(), buildPayload, userID)
 		if err != nil {
-			h.logger.Error("Failed to enqueue build task", 
-				zap.Error(err), 
+			h.logger.Error("Failed to enqueue build task",
+				zap.Error(err),
 				zap.String("app_id", app.ID),
 				zap.String("request_id", requestID),
 				zap.String("user_id", userID),
 			)
 			// Log error but don't fail the app creation - user can manually redeploy
-			h.logger.Warn("App created but deployment not started", 
+			h.logger.Warn("App created but deployment not started",
 				zap.String("app_id", app.ID),
 				zap.String("request_id", requestID),
 			)
@@ -732,7 +733,7 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 	} else {
-		h.logger.Warn("Task enqueue service not available - deployment will not start automatically", 
+		h.logger.Warn("Task enqueue service not available - deployment will not start automatically",
 			zap.String("app_id", app.ID),
 			zap.String("request_id", requestID),
 		)
@@ -749,7 +750,7 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := CreateAppResponse{
-		App:       *app,
+		App:        *app,
 		Deployment: deployment,
 	}
 	h.writeJSON(w, http.StatusCreated, response)
@@ -758,16 +759,16 @@ func (h *Handlers) CreateApp(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/v1/apps/{id} - Delete app
 func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
 		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
 		return
 	}
-	
+
 	h.logger.Info("Deleting app and cleaning up resources", zap.String("app_id", appID), zap.String("user_id", userID))
-	
+
 	// Get app info before deletion (needed for cleanup)
 	app, err := h.appRepo.GetAppByID(appID, userID)
 	if err != nil {
@@ -779,12 +780,12 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// Step 1: Clean up Docker resources (containers and images)
 	if h.deploymentService != nil {
 		if err := h.deploymentService.CleanupAppResources(r.Context(), appID); err != nil {
-			h.logger.Warn("Failed to cleanup Docker resources during app deletion", 
-				zap.Error(err), 
+			h.logger.Warn("Failed to cleanup Docker resources during app deletion",
+				zap.Error(err),
 				zap.String("app_id", appID),
 			)
 			// Continue with deletion even if cleanup fails
@@ -792,7 +793,7 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.logger.Warn("Deployment service not available, skipping Docker resource cleanup", zap.String("app_id", appID))
 	}
-	
+
 	// Step 2: Delete the app from database (this will also delete app_logs, and cascade will handle: deployments, env_vars, build_jobs, runtime_instances)
 	err = h.appRepo.DeleteApp(appID, userID)
 	if err != nil {
@@ -804,21 +805,21 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to delete app")
 		return
 	}
-	
+
 	// Step 3: Clean up cloned repositories
 	// Note: This is best-effort cleanup. Cloned repos are typically cleaned up after builds,
 	// but we clean them up here to be thorough. We'll need GitService access for this.
 	// For now, we log a warning if we can't access it. This can be enhanced later.
-	h.logger.Info("App deleted successfully, cloned repos should be cleaned up by build worker", 
+	h.logger.Info("App deleted successfully, cloned repos should be cleaned up by build worker",
 		zap.String("app_id", appID),
 		zap.String("repo_url", app.RepoURL),
 	)
-	
+
 	h.logger.Info("App deletion completed",
 		zap.String("app_id", appID),
 		zap.String("user_id", userID),
 	)
-	
+
 	// Return 204 No Content on success
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -826,7 +827,7 @@ func (h *Handlers) DeleteApp(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/apps/{id}/redeploy - Redeploy app
 func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
@@ -880,15 +881,15 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 		buildPayload := tasks.BuildTaskPayload{
 			AppID:      app.ID,
 			BuildJobID: buildJobID,
-			RepoURL:    app.RepoURL,    // Always use current repo URL from database
-			Branch:     app.Branch,      // Always use current branch from database (ensures latest code from this branch)
+			RepoURL:    app.RepoURL, // Always use current repo URL from database
+			Branch:     app.Branch,  // Always use current branch from database (ensures latest code from this branch)
 			UserID:     userID,
 		}
 
 		taskInfo, err := h.taskEnqueue.EnqueueBuildTask(r.Context(), buildPayload, userID)
 		if err != nil {
-			h.logger.Error("Failed to enqueue build task for redeploy", 
-				zap.Error(err), 
+			h.logger.Error("Failed to enqueue build task for redeploy",
+				zap.Error(err),
 				zap.String("app_id", appID),
 				zap.String("request_id", requestID),
 				zap.String("user_id", userID),
@@ -905,7 +906,7 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 			zap.String("user_id", userID),
 		)
 	} else {
-		h.logger.Error("Task enqueue service not available - cannot redeploy", 
+		h.logger.Error("Task enqueue service not available - cannot redeploy",
 			zap.String("app_id", appID),
 			zap.String("request_id", requestID),
 		)
@@ -924,7 +925,7 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := CreateAppResponse{
-		App:       *app,
+		App:        *app,
 		Deployment: deployment,
 	}
 	h.writeJSON(w, http.StatusOK, response)
@@ -934,20 +935,20 @@ func (h *Handlers) RedeployApp(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetAppDeployments(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	appID := id // Use string ID directly
-	
+
 	if h.deploymentRepo == nil {
 		h.logger.Error("Deployment repository not initialized")
 		h.writeError(w, http.StatusInternalServerError, "Deployment repository not available")
 		return
 	}
-	
+
 	deploymentsData, err := h.deploymentRepo.GetDeploymentsByAppID(appID)
 	if err != nil {
 		h.logger.Error("Failed to get deployments", zap.Error(err), zap.String("app_id", appID))
 		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve deployments")
 		return
 	}
-	
+
 	// Convert to Deployment structs for response
 	deployments := make([]Deployment, 0, len(deploymentsData))
 	for _, d := range deploymentsData {
@@ -961,15 +962,15 @@ func (h *Handlers) GetAppDeployments(w http.ResponseWriter, r *http.Request) {
 		if updatedAtVal, ok := d["updated_at"].(string); ok {
 			updatedAt = updatedAtVal
 		}
-		
+
 		deployment := Deployment{
-			ID:        d["id"], // Keep as-is (UUID string)
+			ID:        d["id"],     // Keep as-is (UUID string)
 			AppID:     d["app_id"], // Keep as-is (UUID string)
 			Status:    status,
 			CreatedAt: createdAt,
 			UpdatedAt: updatedAt,
 		}
-		
+
 		if img, ok := d["image_name"].(map[string]interface{}); ok {
 			deployment.ImageName = img
 		}
@@ -988,10 +989,10 @@ func (h *Handlers) GetAppDeployments(w http.ResponseWriter, r *http.Request) {
 		if errMsg, ok := d["error_message"].(map[string]interface{}); ok {
 			deployment.ErrorMessage = errMsg
 		}
-		
+
 		deployments = append(deployments, deployment)
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, deployments)
 }
 
@@ -1053,13 +1054,13 @@ func (h *Handlers) GetEnvVars(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/apps/{id}/env - Create environment variable
 func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Validate appID is a valid UUID
 	if _, err := uuid.Parse(appID); err != nil {
 		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid app ID format: %s", appID))
 		return
 	}
-	
+
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
 		h.writeError(w, http.StatusUnauthorized, "User ID not found in context")
@@ -1106,9 +1107,9 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check for context deadline exceeded first
 		if errors.Is(err, context.DeadlineExceeded) {
-			h.logger.Error("Timeout creating env var", 
-				zap.Error(err), 
-				zap.String("app_id", appID), 
+			h.logger.Error("Timeout creating env var",
+				zap.Error(err),
+				zap.String("app_id", appID),
 				zap.String("key", req.Key),
 			)
 			h.writeError(w, http.StatusGatewayTimeout, "Request timed out while creating environment variable")
@@ -1122,9 +1123,9 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 				h.writeError(w, http.StatusConflict, fmt.Sprintf("Environment variable '%s' already exists for this app", req.Key))
 				return
 			case "23503": // Foreign key constraint violation
-				h.logger.Error("Foreign key constraint violation when creating env var", 
-					zap.Error(err), 
-					zap.String("app_id", appID), 
+				h.logger.Error("Foreign key constraint violation when creating env var",
+					zap.Error(err),
+					zap.String("app_id", appID),
 					zap.String("key", req.Key),
 					zap.String("pg_error_code", pgErr.Code),
 					zap.String("pg_error_message", pgErr.Message),
@@ -1132,9 +1133,9 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 				h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid app ID or app does not exist: %s", pgErr.Message))
 				return
 			case "23514": // Check constraint violation
-				h.logger.Error("Check constraint violation when creating env var", 
-					zap.Error(err), 
-					zap.String("app_id", appID), 
+				h.logger.Error("Check constraint violation when creating env var",
+					zap.Error(err),
+					zap.String("app_id", appID),
 					zap.String("key", req.Key),
 					zap.String("pg_error_code", pgErr.Code),
 					zap.String("pg_error_message", pgErr.Message),
@@ -1142,9 +1143,9 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 				h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid environment variable: %s", pgErr.Message))
 				return
 			default:
-				h.logger.Error("Database error when creating env var", 
-					zap.Error(err), 
-					zap.String("app_id", appID), 
+				h.logger.Error("Database error when creating env var",
+					zap.Error(err),
+					zap.String("app_id", appID),
 					zap.String("key", req.Key),
 					zap.String("pg_error_code", pgErr.Code),
 					zap.String("pg_error_message", pgErr.Message),
@@ -1155,9 +1156,9 @@ func (h *Handlers) CreateEnvVar(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Non-PostgreSQL errors
-		h.logger.Error("Failed to create env var", 
-			zap.Error(err), 
-			zap.String("app_id", appID), 
+		h.logger.Error("Failed to create env var",
+			zap.Error(err),
+			zap.String("app_id", appID),
 			zap.String("key", req.Key),
 			zap.String("error_type", fmt.Sprintf("%T", err)),
 		)
@@ -1227,18 +1228,18 @@ func (h *Handlers) GetDeploymentByID(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	deploymentID, _ := strconv.Atoi(id)
 	now := time.Now().Format(time.RFC3339)
-	
+
 	deployment := Deployment{
-		ID:        deploymentID,
-		AppID:     1,
-		Status:    "running",
-		ImageName: map[string]interface{}{"String": "my-app:latest", "Valid": true},
+		ID:          deploymentID,
+		AppID:       1,
+		Status:      "running",
+		ImageName:   map[string]interface{}{"String": "my-app:latest", "Valid": true},
 		ContainerID: map[string]interface{}{"String": "container-123", "Valid": true},
-		Subdomain: map[string]interface{}{"String": "my-app", "Valid": true},
-		BuildLog: map[string]interface{}{"String": "Building...", "Valid": true},
-		RuntimeLog: map[string]interface{}{"String": "Running...", "Valid": true},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Subdomain:   map[string]interface{}{"String": "my-app", "Valid": true},
+		BuildLog:    map[string]interface{}{"String": "Building...", "Valid": true},
+		RuntimeLog:  map[string]interface{}{"String": "Running...", "Valid": true},
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	h.writeJSON(w, http.StatusOK, deployment)
 }
@@ -1247,12 +1248,12 @@ func (h *Handlers) GetDeploymentByID(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	deploymentID := id
-	
+
 	h.logger.Info("GetDeploymentLogs called",
 		zap.String("deployment_id", deploymentID),
 		zap.String("url_path", r.URL.Path),
 	)
-	
+
 	// Verify user has access to this deployment
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
@@ -1306,7 +1307,7 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Get build_log from filesystem (using build_job_id) or database (fallback)
 	var buildLog, errorMsg string
-	
+
 	// First try to get build logs from filesystem using build_job_id
 	if h.logPersistence != nil {
 		// Check if build_job_id exists in deployment data (stored as plain string)
@@ -1318,13 +1319,13 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			zap.Any("build_job_id_value", buildJobIDVal),
 			zap.String("build_job_id_type", fmt.Sprintf("%T", buildJobIDVal)),
 		)
-		
+
 		if buildJobIDExists && buildJobIDVal != nil {
 			var buildJobID string
 			if idStr, ok := buildJobIDVal.(string); ok && idStr != "" {
 				buildJobID = idStr
 			}
-			
+
 			if buildJobID != "" {
 				h.logger.Info("Attempting to retrieve build logs from filesystem",
 					zap.String("build_job_id", buildJobID),
@@ -1366,7 +1367,7 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 	}
-	
+
 	// Fallback to database if filesystem doesn't have logs (for older deployments)
 	if buildLog == "" {
 		if buildLogVal, ok := deploymentData["build_log"].(map[string]interface{}); ok {
@@ -1382,7 +1383,7 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	if errorMsgVal, ok := deploymentData["error_message"].(map[string]interface{}); ok {
 		if valid, ok := errorMsgVal["Valid"].(bool); ok && valid {
 			if str, ok := errorMsgVal["String"].(string); ok {
@@ -1399,7 +1400,7 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 			zap.String("deployment_id", deploymentID),
 			zap.String("app_id", appID),
 		)
-		
+
 		// Get container_id from deployment data
 		containerIDVal, ok := deploymentData["container_id"].(map[string]interface{})
 		if !ok {
@@ -1421,12 +1422,12 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 						zap.String("app_id", appID),
 						zap.String("deployment_id", deploymentID),
 					)
-					
+
 					runtimeLogContent, err := h.logPersistence.GetLogsByDeploymentID(r.Context(), appID, containerID)
 					if err != nil {
-						h.logger.Warn("Failed to get runtime logs from persistence service", 
-							zap.Error(err), 
-							zap.String("app_id", appID), 
+						h.logger.Warn("Failed to get runtime logs from persistence service",
+							zap.Error(err),
+							zap.String("app_id", appID),
 							zap.String("container_id", containerID),
 							zap.String("deployment_id", deploymentID))
 						// Continue with empty runtime log rather than failing
@@ -1491,13 +1492,13 @@ func (h *Handlers) GetDeploymentLogs(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/apps/{id}/logs/build - Get build logs for an app
 func (h *Handlers) GetBuildLogs(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
-	
+
 	limit := 100
 	offset := 0
-	
+
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
 			limit = l
@@ -1521,13 +1522,13 @@ func (h *Handlers) GetBuildLogs(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/apps/{id}/logs/runtime - Get runtime logs for an app
 func (h *Handlers) GetRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
-	
+
 	limit := 100
 	offset := 0
-	
+
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil {
 			limit = l
@@ -1552,7 +1553,7 @@ func (h *Handlers) GetRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) StreamRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 	_ = chi.URLParam(r, "id") // App ID (for future use)
 	containerID := r.URL.Query().Get("container_id")
-	
+
 	if containerID == "" {
 		h.writeError(w, http.StatusBadRequest, "container_id query parameter required")
 		return
@@ -1577,7 +1578,7 @@ func (h *Handlers) StreamRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	
+
 	if follow {
 		w.Header().Set("Transfer-Encoding", "chunked")
 	}
@@ -1657,7 +1658,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	// Users have subscriptions (trial or paid), not direct plan assignments
 	var plan *Plan
 	planName := "starter" // Default fallback
-	
+
 	// Try to get plan from subscription if available
 	if subscription != nil && h.planRepo != nil {
 		subPlan, err := h.planRepo.GetPlanByName(r.Context(), subscription.Plan)
@@ -1666,26 +1667,26 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			planName = plan.Name
 		}
 	}
-	
+
 	// Fallback to starter plan if no subscription or plan not found
 	if plan == nil && h.planRepo != nil {
 		defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
 		if err != nil {
 			planName = "starter"
 			plan = &Plan{
-				Name:        "starter",
-				DisplayName: "Starter",
-				Price:       1900,
-				MaxRAMMB:    512,
-				MaxDiskMB:   5120,
-				MaxApps:     1,
-				AlwaysOn:     true,
-				AutoDeploy:   true,
-				HealthChecks: true,
-				Logs:         true,
-				ZeroDowntime: false,
-				Workers:      false,
-				PriorityBuilds: false,
+				Name:             "starter",
+				DisplayName:      "Starter",
+				Price:            1900,
+				MaxRAMMB:         512,
+				MaxDiskMB:        5120,
+				MaxApps:          1,
+				AlwaysOn:         true,
+				AutoDeploy:       true,
+				HealthChecks:     true,
+				Logs:             true,
+				ZeroDowntime:     false,
+				Workers:          false,
+				PriorityBuilds:   false,
 				ManualDeployOnly: false,
 			}
 		} else {
@@ -1693,23 +1694,23 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			planName = plan.Name
 		}
 	}
-	
+
 	// Final fallback if plan is still nil
 	if plan == nil {
 		plan = &Plan{
-			Name:        "starter",
-			DisplayName: "Starter",
-			Price:       1900,
-			MaxRAMMB:    512,
-			MaxDiskMB:   5120,
-			MaxApps:     1,
-			AlwaysOn:     true,
-			AutoDeploy:   true,
-			HealthChecks: true,
-			Logs:         true,
-			ZeroDowntime: false,
-			Workers:      false,
-			PriorityBuilds: false,
+			Name:             "starter",
+			DisplayName:      "Starter",
+			Price:            1900,
+			MaxRAMMB:         512,
+			MaxDiskMB:        5120,
+			MaxApps:          1,
+			AlwaysOn:         true,
+			AutoDeploy:       true,
+			HealthChecks:     true,
+			Logs:             true,
+			ZeroDowntime:     false,
+			Workers:          false,
+			PriorityBuilds:   false,
 			ManualDeployOnly: false,
 		}
 		planName = "starter"
@@ -1719,19 +1720,19 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	var appCount int
 	var totalRAMMB int
 	var totalDiskMB int
-	
+
 	if h.appRepo != nil {
 		apps, err := h.appRepo.GetAppsByUserID(userID)
 		if err != nil {
 			h.logger.Warn("Failed to get user apps for quota calculation", zap.Error(err), zap.String("user_id", userID))
 		} else {
 			appCount = len(apps)
-			
+
 			// Calculate total RAM and disk usage from apps' deployments
 			for _, app := range apps {
 				// Enrich app with deployment data to get usage stats
 				h.enrichAppWithDeployment(r.Context(), &app)
-				
+
 				if app.Deployment != nil && app.Deployment.UsageStats != nil {
 					totalRAMMB += app.Deployment.UsageStats.MemoryUsageMB
 					// Convert disk usage from GB to MB
@@ -1780,19 +1781,19 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 			TotalRAMMB:  totalRAMMB,
 			TotalDiskMB: totalDiskMB,
 			Plan: PlanInfo{
-				Name:            plan.Name,
-				DisplayName:     plan.DisplayName,
-				Price:           plan.Price,
-				MaxRAMMB:        plan.MaxRAMMB,
-				MaxDiskMB:       plan.MaxDiskMB,
-				MaxApps:         plan.MaxApps,
-				AlwaysOn:        plan.AlwaysOn,
-				AutoDeploy:      plan.AutoDeploy,
-				HealthChecks:    plan.HealthChecks,
-				Logs:            plan.Logs,
-				ZeroDowntime:    plan.ZeroDowntime,
-				Workers:         plan.Workers,
-				PriorityBuilds:  plan.PriorityBuilds,
+				Name:             plan.Name,
+				DisplayName:      plan.DisplayName,
+				Price:            plan.Price,
+				MaxRAMMB:         plan.MaxRAMMB,
+				MaxDiskMB:        plan.MaxDiskMB,
+				MaxApps:          plan.MaxApps,
+				AlwaysOn:         plan.AlwaysOn,
+				AutoDeploy:       plan.AutoDeploy,
+				HealthChecks:     plan.HealthChecks,
+				Logs:             plan.Logs,
+				ZeroDowntime:     plan.ZeroDowntime,
+				Workers:          plan.Workers,
+				PriorityBuilds:   plan.PriorityBuilds,
 				ManualDeployOnly: plan.ManualDeployOnly,
 			},
 		},
@@ -1805,7 +1806,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/apps/{id}/verify - Verify deployment status
 func (h *Handlers) VerifyDeployment(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get user ID from context
 	userID := h.getUserIDFromContext(r)
 	if userID == "" {
@@ -1833,8 +1834,8 @@ func (h *Handlers) VerifyDeployment(w http.ResponseWriter, r *http.Request) {
 
 	verification, err := h.deploymentService.VerifyDeployment(r.Context(), appID)
 	if err != nil {
-		h.logger.Error("Failed to verify deployment", 
-			zap.Error(err), 
+		h.logger.Error("Failed to verify deployment",
+			zap.Error(err),
 			zap.String("app_id", appID),
 			zap.String("request_id", middleware.GetReqID(r.Context())),
 		)
@@ -1846,21 +1847,21 @@ func (h *Handlers) VerifyDeployment(w http.ResponseWriter, r *http.Request) {
 		"app_id":              appID,
 		"app_name":            app.Name,
 		"is_running":          verification.IsRunning,
-		"container_id":         verification.ContainerID,
-		"container_name":       verification.ContainerName,
-		"port":                 verification.Port,
-		"subdomain":            verification.Subdomain,
-		"url":                  verification.URL,
-		"traefik_configured":   verification.TraefikConfigured,
-		"health_check_passed":  verification.HealthCheckPassed,
-		"errors":               verification.Errors,
-		"success":              verification.IsRunning && verification.TraefikConfigured && len(verification.Errors) == 0,
+		"container_id":        verification.ContainerID,
+		"container_name":      verification.ContainerName,
+		"port":                verification.Port,
+		"subdomain":           verification.Subdomain,
+		"url":                 verification.URL,
+		"traefik_configured":  verification.TraefikConfigured,
+		"health_check_passed": verification.HealthCheckPassed,
+		"errors":              verification.Errors,
+		"success":             verification.IsRunning && verification.TraefikConfigured && len(verification.Errors) == 0,
 	}
 
 	h.writeJSON(w, http.StatusOK, response)
 }
 
-	// POST /api/webhooks/lemon-squeezy - Handle Lemon Squeezy webhook
+// POST /api/webhooks/lemon-squeezy - Handle Lemon Squeezy webhook
 func (h *Handlers) HandleLemonSqueezyWebhook(w http.ResponseWriter, r *http.Request) {
 	// Verify webhook signature (stub - should verify in production)
 	// Lemon Squeezy signs webhooks with a secret
@@ -2000,7 +2001,7 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 	type DockerClientGetter interface {
 		GetDockerClient() *client.Client
 	}
-	
+
 	var dockerClient *client.Client
 	if getter, ok := h.deploymentService.(DockerClientGetter); ok {
 		dockerClient = getter.GetDockerClient()
@@ -2079,7 +2080,7 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 	memoryLimit := float64(containerJSON.HostConfig.Memory)
 	memoryUsageMB := 0
 	memoryUsagePercent := 0.0
-	
+
 	if stats.Body != nil {
 		// Parse stats JSON
 		var statsJSON map[string]interface{}
@@ -2105,7 +2106,7 @@ func (h *Handlers) enrichAppWithDeployment(ctx context.Context, app *App) {
 
 	// Calculate disk usage (Docker stats don't provide this directly)
 	// We'll use a placeholder or estimate based on container size
-	diskUsageGB := 0.5 // Default placeholder
+	diskUsageGB := 0.5      // Default placeholder
 	diskUsagePercent := 5.0 // Default placeholder
 
 	// Get restart count
@@ -2148,11 +2149,11 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
 	search := r.URL.Query().Get("search")
-	
+
 	limit := 50
 	offset := 0
 	var err error
-	
+
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit < 1 || limit > 100 {
@@ -2165,7 +2166,7 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 			offset = 0
 		}
 	}
-	
+
 	// Get users from repository
 	users, total, err := h.userRepo.ListAllUsers(limit, offset, search)
 	if err != nil {
@@ -2173,21 +2174,22 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve users")
 		return
 	}
-	
+
 	// Build response with quota information for each user
 	type AdminUserResponse struct {
-		ID           string    `json:"id"`
-		Email        string    `json:"email"`
-		FullName     string    `json:"full_name,omitempty"`
-		CompanyName  string    `json:"company_name,omitempty"`
-		EmailVerified bool     `json:"email_verified"`
-		Plan         string    `json:"plan"`
-		IsAdmin      bool      `json:"is_admin"`
-		CreatedAt    string    `json:"created_at"`
-		UpdatedAt    string    `json:"updated_at"`
-		Quota        *Quota    `json:"quota,omitempty"`
+		ID            string            `json:"id"`
+		Email         string            `json:"email"`
+		FullName      string            `json:"full_name,omitempty"`
+		CompanyName   string            `json:"company_name,omitempty"`
+		EmailVerified bool              `json:"email_verified"`
+		Plan          string            `json:"plan"`
+		IsAdmin       bool              `json:"is_admin"`
+		CreatedAt     string            `json:"created_at"`
+		UpdatedAt     string            `json:"updated_at"`
+		Quota         *Quota            `json:"quota,omitempty"`
+		Subscription  *SubscriptionInfo `json:"subscription,omitempty"`
 	}
-	
+
 	var adminUsers []AdminUserResponse
 	for _, user := range users {
 		// Get user dates
@@ -2197,7 +2199,7 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 			createdAt = time.Now()
 			updatedAt = time.Now()
 		}
-		
+
 		// Get user's subscription (for plan info)
 		var subscription *Subscription
 		if h.subscriptionRepo != nil {
@@ -2208,12 +2210,12 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 				subscription = sub
 			}
 		}
-		
+
 		// Get user's plan from subscription (not from user_plans table)
 		// Users have subscriptions (trial or paid), not direct plan assignments
 		var plan *Plan
 		planName := "starter" // Default fallback
-		
+
 		// Try to get plan from subscription if available
 		if subscription != nil && h.planRepo != nil {
 			subPlan, err := h.planRepo.GetPlanByName(r.Context(), subscription.Plan)
@@ -2222,26 +2224,26 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 				planName = plan.Name
 			}
 		}
-		
+
 		// Fallback to starter plan if no subscription or plan not found
 		if plan == nil && h.planRepo != nil {
 			defaultPlan, err := h.planRepo.GetDefaultPlan(r.Context())
 			if err != nil {
 				planName = "starter"
 				plan = &Plan{
-					Name:        "starter",
-					DisplayName: "Starter",
-					Price:       1900,
-					MaxRAMMB:    512,
-					MaxDiskMB:   5120,
-					MaxApps:     1,
-					AlwaysOn:     true,
-					AutoDeploy:   true,
-					HealthChecks: true,
-					Logs:         true,
-					ZeroDowntime: false,
-					Workers:      false,
-					PriorityBuilds: false,
+					Name:             "starter",
+					DisplayName:      "Starter",
+					Price:            1900,
+					MaxRAMMB:         512,
+					MaxDiskMB:        5120,
+					MaxApps:          1,
+					AlwaysOn:         true,
+					AutoDeploy:       true,
+					HealthChecks:     true,
+					Logs:             true,
+					ZeroDowntime:     false,
+					Workers:          false,
+					PriorityBuilds:   false,
 					ManualDeployOnly: false,
 				}
 			} else {
@@ -2249,7 +2251,7 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 				planName = plan.Name
 			}
 		}
-		
+
 		// Get user's apps to calculate usage
 		var appCount int
 		var totalRAMMB int
@@ -2269,28 +2271,28 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		
+
 		// Final fallback if plan is still nil
 		if plan == nil {
 			plan = &Plan{
-				Name:        "starter",
-				DisplayName: "Starter",
-				Price:       1900,
-				MaxRAMMB:    512,
-				MaxDiskMB:   5120,
-				MaxApps:     1,
-				AlwaysOn:     true,
-				AutoDeploy:   true,
-				HealthChecks: true,
-				Logs:         true,
-				ZeroDowntime: false,
-				Workers:      false,
-				PriorityBuilds: false,
+				Name:             "starter",
+				DisplayName:      "Starter",
+				Price:            1900,
+				MaxRAMMB:         512,
+				MaxDiskMB:        5120,
+				MaxApps:          1,
+				AlwaysOn:         true,
+				AutoDeploy:       true,
+				HealthChecks:     true,
+				Logs:             true,
+				ZeroDowntime:     false,
+				Workers:          false,
+				PriorityBuilds:   false,
 				ManualDeployOnly: false,
 			}
 			planName = "starter"
 		}
-		
+
 		adminUsers = append(adminUsers, AdminUserResponse{
 			ID:            user.ID,
 			Email:         user.Email,
@@ -2307,32 +2309,52 @@ func (h *Handlers) AdminListUsers(w http.ResponseWriter, r *http.Request) {
 				TotalRAMMB:  totalRAMMB,
 				TotalDiskMB: totalDiskMB,
 				Plan: PlanInfo{
-					Name:            plan.Name,
-					DisplayName:     plan.DisplayName,
-					Price:           plan.Price,
-					MaxRAMMB:        plan.MaxRAMMB,
-					MaxDiskMB:       plan.MaxDiskMB,
-					MaxApps:         plan.MaxApps,
-					AlwaysOn:        plan.AlwaysOn,
-					AutoDeploy:      plan.AutoDeploy,
-					HealthChecks:    plan.HealthChecks,
-					Logs:            plan.Logs,
-					ZeroDowntime:    plan.ZeroDowntime,
-					Workers:         plan.Workers,
-					PriorityBuilds:  plan.PriorityBuilds,
+					Name:             plan.Name,
+					DisplayName:      plan.DisplayName,
+					Price:            plan.Price,
+					MaxRAMMB:         plan.MaxRAMMB,
+					MaxDiskMB:        plan.MaxDiskMB,
+					MaxApps:          plan.MaxApps,
+					AlwaysOn:         plan.AlwaysOn,
+					AutoDeploy:       plan.AutoDeploy,
+					HealthChecks:     plan.HealthChecks,
+					Logs:             plan.Logs,
+					ZeroDowntime:     plan.ZeroDowntime,
+					Workers:          plan.Workers,
+					PriorityBuilds:   plan.PriorityBuilds,
 					ManualDeployOnly: plan.ManualDeployOnly,
 				},
 			},
+			Subscription: func() *SubscriptionInfo {
+				if subscription == nil {
+					return nil
+				}
+				info := &SubscriptionInfo{
+					Status:      subscription.Status,
+					Plan:        subscription.Plan,
+					RAMLimitMB:  subscription.RAMLimitMB,
+					DiskLimitGB: subscription.DiskLimitGB,
+				}
+				if subscription.TrialStartedAt != nil {
+					t := subscription.TrialStartedAt.Format(time.RFC3339)
+					info.TrialStartedAt = &t
+				}
+				if subscription.TrialEndsAt != nil {
+					t := subscription.TrialEndsAt.Format(time.RFC3339)
+					info.TrialEndsAt = &t
+				}
+				return info
+			}(),
 		})
 	}
-	
+
 	response := map[string]interface{}{
 		"users":  adminUsers,
 		"total":  total,
 		"limit":  limit,
 		"offset": offset,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
@@ -2341,11 +2363,11 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
-	
+
 	limit := 50
 	offset := 0
 	var err error
-	
+
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit < 1 || limit > 100 {
@@ -2358,7 +2380,7 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 			offset = 0
 		}
 	}
-	
+
 	// Get apps from repository
 	apps, total, err := h.appRepo.ListAllApps(limit, offset)
 	if err != nil {
@@ -2366,33 +2388,33 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to retrieve apps")
 		return
 	}
-	
+
 	// Enrich apps with deployment data
 	for i := range apps {
 		h.enrichAppWithDeployment(r.Context(), &apps[i])
 	}
-	
+
 	// Build response
 	type AdminAppResponse struct {
-		ID              string    `json:"id"`
-		Name            string    `json:"name"`
-		Slug            string    `json:"slug"`
-		Status          string    `json:"status"`
-		URL             string    `json:"url"`
-		RepoURL         string    `json:"repo_url"`
-		Branch          string    `json:"branch"`
-		CreatedAt       string    `json:"created_at"`
-		UpdatedAt       string    `json:"updated_at"`
-		DeploymentCount int       `json:"deployment_count"`
+		ID              string `json:"id"`
+		Name            string `json:"name"`
+		Slug            string `json:"slug"`
+		Status          string `json:"status"`
+		URL             string `json:"url"`
+		RepoURL         string `json:"repo_url"`
+		Branch          string `json:"branch"`
+		CreatedAt       string `json:"created_at"`
+		UpdatedAt       string `json:"updated_at"`
+		DeploymentCount int    `json:"deployment_count"`
 	}
-	
+
 	var adminApps []AdminAppResponse
 	for _, app := range apps {
 		deploymentCount := 0
 		if deployments, err := h.deploymentRepo.GetDeploymentsByAppID(app.ID); err == nil {
 			deploymentCount = len(deployments)
 		}
-		
+
 		adminApps = append(adminApps, AdminAppResponse{
 			ID:              app.ID,
 			Name:            app.Name,
@@ -2406,21 +2428,21 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 			DeploymentCount: deploymentCount,
 		})
 	}
-	
+
 	response := map[string]interface{}{
 		"apps":   adminApps,
 		"total":  total,
 		"limit":  limit,
 		"offset": offset,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // PATCH /admin/users/{id}/plan - Update user plan
 func (h *Handlers) AdminUpdateUserPlan(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	
+
 	var req struct {
 		Plan string `json:"plan"`
 	}
@@ -2428,13 +2450,13 @@ func (h *Handlers) AdminUpdateUserPlan(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	
+
 	// Get plan by name
 	if h.planRepo == nil {
 		h.writeError(w, http.StatusInternalServerError, "Plan repository not available")
 		return
 	}
-	
+
 	plan, err := h.planRepo.GetPlanByName(r.Context(), req.Plan)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -2445,33 +2467,33 @@ func (h *Handlers) AdminUpdateUserPlan(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get plan")
 		return
 	}
-	
+
 	// Update user plan
 	if h.userPlanRepo == nil {
 		h.writeError(w, http.StatusInternalServerError, "User plan repository not available")
 		return
 	}
-	
+
 	err = h.userPlanRepo.UpdateUserPlanID(r.Context(), userID, plan.ID)
 	if err != nil {
 		h.logger.Error("Failed to update user plan", zap.Error(err), zap.String("user_id", userID), zap.String("plan_id", plan.ID))
 		h.writeError(w, http.StatusInternalServerError, "Failed to update user plan")
 		return
 	}
-	
+
 	response := map[string]interface{}{
 		"message": "User plan updated successfully",
 		"user_id": userID,
 		"plan":    req.Plan,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // POST /admin/apps/{id}/stop - Stop app (admin version, no ownership check)
 func (h *Handlers) AdminStopApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get app (no ownership check for admin)
 	_, err := h.appRepo.GetAppByIDWithoutUserCheck(appID)
 	if err != nil {
@@ -2483,22 +2505,22 @@ func (h *Handlers) AdminStopApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// TODO: Implement stop logic
 	// For now, return success
 	response := map[string]interface{}{
-		"message":           "App stopped successfully",
-		"app_id":            appID,
+		"message":            "App stopped successfully",
+		"app_id":             appID,
 		"stopped_containers": 0,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // POST /admin/apps/{id}/start - Start app (admin version, no ownership check)
 func (h *Handlers) AdminStartApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get app (no ownership check for admin)
 	_, err := h.appRepo.GetAppByIDWithoutUserCheck(appID)
 	if err != nil {
@@ -2510,21 +2532,21 @@ func (h *Handlers) AdminStartApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// TODO: Implement start logic
 	// For now, return success
 	response := map[string]interface{}{
 		"message": "App started successfully",
 		"app_id":  appID,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // POST /admin/apps/{id}/redeploy - Redeploy app (admin version, no ownership check)
 func (h *Handlers) AdminRedeployApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	// Get app (no ownership check for admin)
 	_, err := h.appRepo.GetAppByIDWithoutUserCheck(appID)
 	if err != nil {
@@ -2536,7 +2558,7 @@ func (h *Handlers) AdminRedeployApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// Reuse existing redeploy logic but skip ownership check
 	// For now, return success (full implementation would trigger redeploy)
 	response := map[string]interface{}{
@@ -2544,16 +2566,16 @@ func (h *Handlers) AdminRedeployApp(w http.ResponseWriter, r *http.Request) {
 		"app_id":     appID,
 		"deployment": map[string]interface{}{},
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // DELETE /admin/apps/{id} - Delete app (admin version, no ownership check)
 func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "id")
-	
+
 	h.logger.Info("Admin deleting app", zap.String("app_id", appID))
-	
+
 	// Get app info before deletion (no ownership check for admin)
 	app, err := h.appRepo.GetAppByIDWithoutUserCheck(appID)
 	if err != nil {
@@ -2565,7 +2587,7 @@ func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// Clean up deployment resources if deployment service is available
 	if h.deploymentService != nil {
 		if err := h.deploymentService.CleanupAppResources(r.Context(), appID); err != nil {
@@ -2573,7 +2595,7 @@ func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 			// Continue with deletion even if cleanup fails
 		}
 	}
-	
+
 	// Delete app from database (no ownership check - admin can delete any app)
 	// We need to get the user_id from the app to pass to DeleteApp
 	// But DeleteApp checks ownership, so we'll need a different approach
@@ -2584,7 +2606,7 @@ func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "App repository not available")
 		return
 	}
-	
+
 	// Get user_id from app for deletion
 	// Since DeleteApp requires userID and checks ownership, we need to get it first
 	userID, err := h.appRepo.GetAppUserID(r.Context(), appID)
@@ -2597,7 +2619,7 @@ func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get app")
 		return
 	}
-	
+
 	// Delete app (this will cascade delete related records)
 	// Note: DeleteApp checks ownership, but since we're admin, we'll bypass that check
 	// by using the user_id from the app itself
@@ -2611,33 +2633,33 @@ func (h *Handlers) AdminDeleteApp(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to delete app")
 		return
 	}
-	
+
 	h.logger.Info("App deleted successfully by admin",
 		zap.String("app_id", appID),
 		zap.String("app_name", app.Name),
 	)
-	
+
 	response := map[string]interface{}{
 		"message": "App deleted successfully",
 		"app_id":  appID,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
 // DELETE /admin/users/{id} - Delete user (admin only)
 func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
-	
+
 	h.logger.Info("Admin deleting user", zap.String("user_id", userID))
-	
+
 	// Verify user exists
 	if h.userRepo == nil {
 		h.logger.Error("User repository not initialized")
 		h.writeError(w, http.StatusInternalServerError, "User repository not available")
 		return
 	}
-	
+
 	user, err := h.userRepo.GetUserByID(userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -2648,7 +2670,7 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to get user")
 		return
 	}
-	
+
 	// Get user's apps count for logging
 	appCount := 0
 	if h.appRepo != nil {
@@ -2656,7 +2678,7 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 			appCount = count
 		}
 	}
-	
+
 	// Delete user (this will cascade delete related records: apps, subscriptions, etc.)
 	// We need to delete from database directly since there's no DeleteUser method
 	// Let's add a direct SQL delete with CASCADE
@@ -2667,19 +2689,19 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "Failed to delete user")
 		return
 	}
-	
+
 	h.logger.Info("User deleted successfully by admin",
 		zap.String("user_id", userID),
 		zap.String("user_email", user.Email),
 		zap.Int("apps_deleted", appCount),
 	)
-	
+
 	response := map[string]interface{}{
-		"message":     "User deleted successfully",
-		"user_id":     userID,
+		"message":      "User deleted successfully",
+		"user_id":      userID,
 		"apps_deleted": appCount,
 	}
-	
+
 	h.writeJSON(w, http.StatusOK, response)
 }
 
@@ -2788,7 +2810,7 @@ func generateSlugFromName(name string) string {
 	// Convert to lowercase and replace spaces with hyphens
 	slug := strings.ToLower(name)
 	slug = strings.ReplaceAll(slug, " ", "-")
-	
+
 	// Remove special characters, keep only alphanumeric and hyphens
 	var slugBuilder strings.Builder
 	for _, char := range slug {
@@ -2797,30 +2819,29 @@ func generateSlugFromName(name string) string {
 		}
 	}
 	slug = slugBuilder.String()
-	
+
 	// Remove leading/trailing hyphens
 	slug = strings.Trim(slug, "-")
-	
+
 	// Ensure it matches the validation regex: ^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$
 	// If empty or doesn't start with alphanumeric, default to "app"
 	if slug == "" || (len(slug) > 0 && (slug[0] < 'a' || slug[0] > 'z') && (slug[0] < '0' || slug[0] > '9')) {
 		slug = "app"
 	}
-	
+
 	// If it ends with hyphen, remove it
 	slug = strings.TrimRight(slug, "-")
-	
+
 	// Ensure it's within length limit (max 32 chars)
 	if len(slug) > 32 {
 		slug = slug[:32]
 		slug = strings.TrimRight(slug, "-")
 	}
-	
+
 	// Final safety check: if empty or invalid, use default
 	if slug == "" || (len(slug) > 0 && (slug[0] < 'a' || slug[0] > 'z') && (slug[0] < '0' || slug[0] > '9')) {
 		slug = "app"
 	}
-	
+
 	return slug
 }
-

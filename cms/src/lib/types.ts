@@ -11,6 +11,16 @@ export interface User {
   created_at: string;
   updated_at: string;
   quota?: UserQuota;
+  subscription?: UserSubscription;
+}
+
+export interface UserSubscription {
+  status: string;
+  plan: string;
+  trial_started_at?: string;
+  trial_ends_at?: string;
+  ram_limit_mb: number;
+  disk_limit_gb: number;
 }
 
 export interface UserQuota {
