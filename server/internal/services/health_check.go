@@ -21,10 +21,10 @@ type HealthCheckCallback func(appID, deploymentID, errorMsg string)
 
 // HealthCheckService monitors app accessibility and health
 type HealthCheckService struct {
-	client          *client.Client
-	logger          *zap.Logger
-	healthCallback  HealthCheckCallback
-	httpClient      *http.Client
+	client         *client.Client
+	logger         *zap.Logger
+	healthCallback HealthCheckCallback
+	httpClient     *http.Client
 }
 
 // NewHealthCheckService creates a new health check service
@@ -227,14 +227,14 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 	if err != nil {
 		errStr := err.Error()
 		// Check for SSL/TLS certificate errors
-		if strings.Contains(errStr, "certificate") || 
-		   strings.Contains(errStr, "x509") || 
-		   strings.Contains(errStr, "SSL") || 
-		   strings.Contains(errStr, "TLS") ||
-		   strings.Contains(errStr, "certificate verify failed") ||
-		   strings.Contains(errStr, "self-signed") ||
-		   strings.Contains(errStr, "unknown authority") ||
-		   strings.Contains(errStr, "certificate signed by unknown authority") {
+		if strings.Contains(errStr, "certificate") ||
+			strings.Contains(errStr, "x509") ||
+			strings.Contains(errStr, "SSL") ||
+			strings.Contains(errStr, "TLS") ||
+			strings.Contains(errStr, "certificate verify failed") ||
+			strings.Contains(errStr, "self-signed") ||
+			strings.Contains(errStr, "unknown authority") ||
+			strings.Contains(errStr, "certificate signed by unknown authority") {
 			// Certificate issue - try again with insecure to see if app is reachable
 			insecureClient := &http.Client{
 				Transport: &http.Transport{
@@ -257,10 +257,10 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 			return false, fmt.Sprintf("SSL certificate issue: certificate not valid or not issued yet (%v)", err)
 		}
 		// Check for connection/timeout errors
-		if strings.Contains(errStr, "timeout") || 
-		   strings.Contains(errStr, "connection refused") ||
-		   strings.Contains(errStr, "no such host") ||
-		   strings.Contains(errStr, "connection reset") {
+		if strings.Contains(errStr, "timeout") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no such host") ||
+			strings.Contains(errStr, "connection reset") {
 			return false, fmt.Sprintf("Connection error: application not responding or not reachable (%v)", err)
 		}
 		return false, fmt.Sprintf("Request failed: %v", err)
@@ -279,4 +279,3 @@ func (s *HealthCheckService) checkURLAccessible(url string) (bool, string) {
 
 	return false, fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
-

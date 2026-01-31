@@ -12,8 +12,8 @@ import (
 
 // ConstraintsService enforces MVP constraints
 type ConstraintsService struct {
-	logger        *zap.Logger
-	maxBuildTime  int // Maximum build time in minutes
+	logger       *zap.Logger
+	maxBuildTime int // Maximum build time in minutes
 }
 
 // NewConstraintsService creates a new constraints service
@@ -274,14 +274,14 @@ func (s *ConstraintsService) ValidateHTTPOnly(ctx context.Context, repoPath stri
 			if err == nil {
 				contentStr := strings.ToLower(string(content))
 				// Check for SSL/HTTPS configuration
-				if strings.Contains(contentStr, "ssl") || 
-				   strings.Contains(contentStr, "https") ||
-				   strings.Contains(contentStr, "tls") ||
-				   strings.Contains(contentStr, "certificate") {
+				if strings.Contains(contentStr, "ssl") ||
+					strings.Contains(contentStr, "https") ||
+					strings.Contains(contentStr, "tls") ||
+					strings.Contains(contentStr, "certificate") {
 					// Only error if it's a required configuration
-					if strings.Contains(contentStr, "ssl=true") || 
-					   strings.Contains(contentStr, "https=true") ||
-					   strings.Contains(contentStr, "require_ssl") {
+					if strings.Contains(contentStr, "ssl=true") ||
+						strings.Contains(contentStr, "https=true") ||
+						strings.Contains(contentStr, "require_ssl") {
 						return &ConstraintError{
 							Constraint: "http_only",
 							Message:    "SSL/HTTPS requirements are not supported. MVP supports HTTP-only applications.",
@@ -338,4 +338,3 @@ func (s *ConstraintsService) ValidateAllConstraints(ctx context.Context, repoURL
 
 	return nil
 }
-

@@ -8,18 +8,19 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/bcrypt"
-	"go.uber.org/zap"
 	"stackyn/server/internal/services"
+
+	"github.com/jackc/pgx/v5"
+	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandlers struct {
-	logger             *zap.Logger
-	otpService         *services.OTPService
-	jwtService         *services.JWTService
-	userRepo           UserRepository
-	otpRepo            OTPRepository
+	logger              *zap.Logger
+	otpService          *services.OTPService
+	jwtService          *services.JWTService
+	userRepo            UserRepository
+	otpRepo             OTPRepository
 	subscriptionService *services.SubscriptionService
 }
 
@@ -33,7 +34,7 @@ type User struct {
 	Email          string     `json:"email"`
 	FullName       string     `json:"full_name,omitempty"`
 	CompanyName    string     `json:"company_name,omitempty"`
-	PasswordHash   string     `json:"-"` // Never return password hash in JSON
+	PasswordHash   string     `json:"-"`                        // Never return password hash in JSON
 	BillingStatus  string     `json:"billing_status,omitempty"` // trial | active | expired
 	Plan           string     `json:"plan,omitempty"`           // free_trial | starter | pro
 	TrialStartedAt *time.Time `json:"trial_started_at,omitempty"`
@@ -115,8 +116,8 @@ func (h *AuthHandlers) SendOTP(w http.ResponseWriter, r *http.Request) {
 	// Generate and send OTP
 	otp, err := h.otpService.SendOTP(req.Email)
 	if err != nil {
-		h.logger.Error("Failed to send OTP", 
-			zap.Error(err), 
+		h.logger.Error("Failed to send OTP",
+			zap.Error(err),
 			zap.String("email", req.Email),
 			zap.String("error_type", fmt.Sprintf("%T", err)),
 		)
@@ -133,7 +134,7 @@ func (h *AuthHandlers) SendOTP(w http.ResponseWriter, r *http.Request) {
 	response := SendOTPResponse{
 		Message: "OTP sent to email",
 	}
-	
+
 	// Only include OTP in development mode
 	if r.URL.Query().Get("dev") == "true" {
 		response.OTP = otp
@@ -219,8 +220,8 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 			// Create new user with password if provided
 			user, err = h.userRepo.CreateUser(req.Email, "", "", passwordHash)
 			if err != nil {
-				h.logger.Error("Failed to create user", 
-					zap.Error(err), 
+				h.logger.Error("Failed to create user",
+					zap.Error(err),
 					zap.String("email", req.Email),
 					zap.String("error_type", fmt.Sprintf("%T", err)),
 				)
@@ -228,7 +229,7 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 				h.writeError(w, http.StatusInternalServerError, errorMsg)
 				return
 			}
-			
+
 			// Create 7-day free trial for new user
 			// Email failures must NOT block signup
 			ctx := r.Context()
@@ -254,8 +255,8 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
-			h.logger.Error("Failed to get user", 
-				zap.Error(err), 
+			h.logger.Error("Failed to get user",
+				zap.Error(err),
 				zap.String("email", req.Email),
 				zap.String("error_type", fmt.Sprintf("%T", err)),
 			)
@@ -267,8 +268,8 @@ func (h *AuthHandlers) VerifyOTP(w http.ResponseWriter, r *http.Request) {
 		// User exists, update password if provided
 		user, err = h.userRepo.UpdateUser(user.ID, user.FullName, user.CompanyName, passwordHash)
 		if err != nil {
-			h.logger.Error("Failed to update password", 
-				zap.Error(err), 
+			h.logger.Error("Failed to update password",
+				zap.Error(err),
 				zap.String("user_id", user.ID),
 				zap.String("error_type", fmt.Sprintf("%T", err)),
 			)
@@ -662,4 +663,3 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 	h.writeJSON(w, http.StatusOK, response)
 }
-
