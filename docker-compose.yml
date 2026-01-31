@@ -373,7 +373,7 @@ services:
       # HTTP router for localhost (no TLS, no redirect) - for local development
       - "traefik.http.routers.cms-localhost.rule=Host(`localhost`) && PathPrefix(`/cms`)"
       - "traefik.http.routers.cms-localhost.entrypoints=web"
-      - "traefik.http.routers.cms-localhost.middlewares=cms-stripprefix"
+      # - "traefik.http.routers.cms-localhost.middlewares=cms-stripprefix"
       - "traefik.http.routers.cms-localhost.service=cms"
       - "traefik.http.routers.cms-localhost.tls=false"
       # HTTP router for production (redirects to HTTPS)
@@ -387,14 +387,14 @@ services:
       # Priority 10 ensures CMS router matches before frontend router (default priority 0)
       - "traefik.http.routers.cms-v2.rule=(Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) || Host(`staging.stackyn.com`)) && PathPrefix(`/cms`)"
       - "traefik.http.routers.cms-v2.entrypoints=websecure"
-      - "traefik.http.routers.cms-v2.middlewares=cms-v2-stripprefix"
+      # - "traefik.http.routers.cms-v2.middlewares=cms-v2-stripprefix"
       - "traefik.http.routers.cms-v2.service=cms"
       - "traefik.http.routers.cms-v2.priority=10"
       - "traefik.http.routers.cms-v2.tls=true"
       - "traefik.http.routers.cms-v2.tls.certresolver=letsencrypt"
       # Middlewares
-      - "traefik.http.middlewares.cms-v2-stripprefix.stripprefix.prefixes=/cms"
-      - "traefik.http.middlewares.cms-stripprefix.stripprefix.prefixes=/cms"
+      # - "traefik.http.middlewares.cms-v2-stripprefix.stripprefix.prefixes=/cms"
+      # - "traefik.http.middlewares.cms-stripprefix.stripprefix.prefixes=/cms"
       - "traefik.http.middlewares.cms-v2-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.cms-v2-redirect.redirectscheme.permanent=true"
 

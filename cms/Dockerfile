@@ -43,6 +43,13 @@ RUN npm install -g serve
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Create cms directory structure to support requests with /cms prefix
+# This ensures that requests to /cms/assets/... are found in dist/cms/assets/...
+# We keep the root files for SPA fallback (serve -s uses root index.html)
+RUN mkdir -p ./dist/cms && \
+    cp -r ./dist/assets ./dist/cms/ && \
+    cp ./dist/index.html ./dist/cms/
+
 # Expose port
 EXPOSE 3001
 
