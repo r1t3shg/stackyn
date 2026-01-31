@@ -25,17 +25,17 @@ type SubscriptionService struct {
 
 // Subscription represents a subscription from the database
 type Subscription struct {
-	ID                 string
-	UserID             string
+	ID                  string
+	UserID              string
 	LemonSubscriptionID *string    // nullable
-	Plan               string      // starter | pro
-	Status             string      // trial | active | expired | cancelled
-	TrialStartedAt     *time.Time  // nullable
-	TrialEndsAt        *time.Time  // nullable
-	RAMLimitMB         int
-	DiskLimitGB        int
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	Plan                string     // starter | pro
+	Status              string     // trial | active | expired | cancelled
+	TrialStartedAt      *time.Time // nullable
+	TrialEndsAt         *time.Time // nullable
+	RAMLimitMB          int
+	DiskLimitGB         int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // User represents a user (minimal fields needed for subscription service)
@@ -241,11 +241,11 @@ func (s *SubscriptionService) ExpireTrial(ctx context.Context, userID, userEmail
 	err := s.subscriptionRepo.UpdateSubscriptionByUserID(
 		ctx,
 		userID,
-		"",    // Don't change plan
+		"", // Don't change plan
 		"expired",
-		nil,   // Don't change RAM limit
-		nil,   // Don't change disk limit
-		nil,   // Don't change lemon_subscription_id
+		nil, // Don't change RAM limit
+		nil, // Don't change disk limit
+		nil, // Don't change lemon_subscription_id
 	)
 	if err != nil {
 		s.logger.Error("Failed to expire trial",
@@ -319,11 +319,11 @@ func (s *SubscriptionService) CancelSubscription(ctx context.Context, userID str
 	err := s.subscriptionRepo.UpdateSubscriptionByUserID(
 		ctx,
 		userID,
-		"",    // Don't change plan
+		"", // Don't change plan
 		"cancelled",
-		nil,   // Don't change RAM limit
-		nil,   // Don't change disk limit
-		nil,   // Don't change lemon_subscription_id
+		nil, // Don't change RAM limit
+		nil, // Don't change disk limit
+		nil, // Don't change lemon_subscription_id
 	)
 	if err != nil {
 		s.logger.Error("Failed to cancel subscription",
@@ -346,11 +346,11 @@ func (s *SubscriptionService) ExpireSubscription(ctx context.Context, userID, us
 	err := s.subscriptionRepo.UpdateSubscriptionByUserID(
 		ctx,
 		userID,
-		"",    // Don't change plan
+		"", // Don't change plan
 		"expired",
-		nil,   // Don't change RAM limit
-		nil,   // Don't change disk limit
-		nil,   // Don't change lemon_subscription_id
+		nil, // Don't change RAM limit
+		nil, // Don't change disk limit
+		nil, // Don't change lemon_subscription_id
 	)
 	if err != nil {
 		s.logger.Error("Failed to expire subscription",
@@ -456,109 +456,54 @@ func (s *SubscriptionService) IsTrialExpired(ctx context.Context, userID string)
 
 // CheckResourceLimits checks if user's total resource usage is within subscription limits
 // Returns error if limits are exceeded
-// If no subscription exists, automatically creates a trial (resilient to signup failures)
 func (s *SubscriptionService) CheckResourceLimits(ctx context.Context, userID string, currentRAMMB, currentDiskGB int, newAppRAMMB, newAppDiskGB int) error {
 	sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 	if err != nil {
 		// If no subscription found, automatically create a trial
-		// This handles cases where trial creation failed during signup
 		s.logger.Warn("No subscription found for user, creating trial automatically",
 			zap.String("user_id", userID),
 			zap.Error(err),
 		)
-		
-		// Get user email for trial creation
+
+		// Get user email
 		user, userErr := s.userRepo.GetUserByID(userID)
 		if userErr != nil {
-			s.logger.Error("Failed to get user for trial creation",
-				zap.Error(userErr),
-				zap.String("user_id", userID),
-			)
 			return fmt.Errorf("subscription not found and failed to get user: %w", userErr)
 		}
-		
+
 		// Create trial
 		if createErr := s.CreateTrial(ctx, userID, user.Email); createErr != nil {
-			s.logger.Error("Failed to create trial automatically",
-				zap.Error(createErr),
-				zap.String("user_id", userID),
-			)
-			// Check if error is due to unique constraint (user already has a subscription)
-			// In that case, try to get it again
+			// Check if error is due to unique constraint, try to get existing
 			if retrySub, retryErr := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID); retryErr == nil {
-				s.logger.Info("Found existing subscription after trial creation attempt",
-					zap.String("user_id", userID),
-					zap.String("subscription_id", retrySub.ID),
-					zap.String("status", retrySub.Status),
-				)
 				sub = retrySub
 			} else {
 				return fmt.Errorf("failed to create trial: %w", createErr)
 			}
 		} else {
-			// Retry getting subscription after successful creation
+			// Get created subscription
 			sub, err = s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 			if err != nil {
-				s.logger.Error("Failed to get subscription after creating trial",
-					zap.Error(err),
-					zap.String("user_id", userID),
-				)
 				return fmt.Errorf("subscription not found after trial creation: %w", err)
 			}
-			
-			s.logger.Info("Trial created automatically for user",
-				zap.String("user_id", userID),
-				zap.String("subscription_id", sub.ID),
-			)
 		}
 	}
 
-	// Check subscription status - only allow deployments for trial or active
+	// Double check subscription is valid now
+	if sub == nil {
+		return fmt.Errorf("failed to retrieve or create subscription")
+	}
+
+	// Check status
 	if !s.IsSubscriptionActive(sub) {
-		// If subscription exists but is expired/cancelled, try to create a new trial
-		// This handles cases where a user's trial expired but they should get a new one
-		if sub.Status == "expired" || sub.Status == "cancelled" {
-			s.logger.Info("User has expired/cancelled subscription, creating new trial",
-				zap.String("user_id", userID),
-				zap.String("old_status", sub.Status),
-			)
-			
-			// Get user email for trial creation
-			user, userErr := s.userRepo.GetUserByID(userID)
-			if userErr != nil {
-				return fmt.Errorf("subscription is not active (status: %s) and failed to get user: %w", sub.Status, userErr)
-			}
-			
-			// Create new trial
-			if createErr := s.CreateTrial(ctx, userID, user.Email); createErr != nil {
-				s.logger.Error("Failed to create new trial for expired subscription",
-					zap.Error(createErr),
-					zap.String("user_id", userID),
-				)
-				// If creation fails, still return the original error
-				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
-			}
-			
-			// Get the new subscription
-			sub, err = s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
-			if err != nil {
-				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
-			}
-			
-			// Verify the new subscription is active
-			if !s.IsSubscriptionActive(sub) {
-				return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
-			}
-		} else {
-			return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
-		}
+		return fmt.Errorf("subscription is not active (status: %s). Upgrade to continue", sub.Status)
 	}
 
-	// Calculate total usage after adding new app
+	// Calculate total usage
 	totalRAMMB := currentRAMMB + newAppRAMMB
 	totalDiskGB := currentDiskGB + newAppDiskGB
 
 	// Check RAM limit
+	// Use limits from the subscription record, which we now know are correct (e.g. 2048 for Pro)
 	if totalRAMMB > sub.RAMLimitMB {
 		return fmt.Errorf("plan limit exceeded. Total RAM usage (%d MB) exceeds limit (%d MB). Upgrade to continue", totalRAMMB, sub.RAMLimitMB)
 	}
@@ -654,4 +599,3 @@ func (s *SubscriptionService) ProcessTrialLifecycle(ctx context.Context) error {
 
 	return nil
 }
-
