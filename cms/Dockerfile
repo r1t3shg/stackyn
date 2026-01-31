@@ -32,32 +32,22 @@ ARG VITE_API_BASE_URL=http://localhost:8080
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
-# Production stage with simple static server
-FROM node:20-alpine
+# Production stage with Nginx
+FROM nginx:alpine
 
-WORKDIR /app
+# Remove default nginx static assets
+RUN rm -rf /usr/share/nginx/html/*
 
-# Install serve globally for serving static files
-RUN npm install -g serve
+# Copy built files from builder to /cms subdirectory to support prefix
+# This ensures physical path matches the URL path /cms/...
+COPY --from=builder /app/dist /usr/share/nginx/html/cms
 
-# Copy built files from builder
-# Copy built files from builder
-COPY --from=builder /app/dist ./dist
+# Copy custom nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create cms directory structure to support non-stripped requests
-# This ensures that requests to /cms/assets/... are found in dist/cms/assets/...
-# We keep the root files for SPA fallback (serve -s uses root index.html)
-RUN mkdir -p ./dist/cms && \
-    cp -r ./dist/assets ./dist/cms/ && \
-    cp ./dist/index.html ./dist/cms/
+# Expose port 80
+EXPOSE 80
 
-# Expose port
-EXPOSE 3001
-
-# Start serve with SPA routing support
-# Note: Vite builds with base: '/cms/' so assets are at /cms/assets/...
-# Traefik strips /cms prefix before forwarding, so we serve from root
-# The -s flag enables SPA mode (serve index.html for all routes)
-# The --cors flag allows cross-origin requests if needed
-CMD ["sh", "-c", "serve -s dist -l 3001 --no-clipboard"]
+# Start Nginx
+CMD ["nginx", "-g", "daemon off;"]
 
