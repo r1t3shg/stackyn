@@ -126,6 +126,8 @@ func Router(logger *zap.Logger, config *infra.Config, pool *pgxpool.Pool) http.H
 			allowedOrigins := []string{
 				"https://staging.stackyn.com",
 				"https://console.staging.stackyn.com",
+				"https://stackyn.com",
+				"https://www.stackyn.com",
 				"http://localhost:3000",
 				"http://localhost:3001",
 				"http://localhost:5173",
