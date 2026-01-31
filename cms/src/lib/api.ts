@@ -29,7 +29,7 @@ async function safeFetch(url: string, options?: RequestInit): Promise<Response> 
 
   // If unauthorized, redirect to login
   if (response.status === 401 || response.status === 403) {
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem('cms_auth_token');
     // Use relative path since we're already under /cms base path
     window.location.href = '/cms/login';
   }

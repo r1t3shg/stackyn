@@ -13,16 +13,16 @@ export const API_ENDPOINTS = {
 
 // Get auth token from localStorage
 export function getAuthToken(): string | null {
-  return localStorage.getItem('auth_token');
+  return localStorage.getItem('cms_auth_token');
 }
 
 // Set auth token in localStorage
 export function setAuthToken(token: string): void {
-  localStorage.setItem('auth_token', token);
+  localStorage.setItem('cms_auth_token', token);
 }
 
 // Remove auth token from localStorage
 export function removeAuthToken(): void {
-  localStorage.removeItem('auth_token');
+  localStorage.removeItem('cms_auth_token');
 }
 
