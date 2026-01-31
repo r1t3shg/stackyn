@@ -74,6 +74,16 @@ if [ -d "frontend" ]; then
         REBUILD_NEEDED=true
     fi
 fi
+
+# Check if cms code changed
+if [ -d "cms" ]; then
+    if git diff --quiet HEAD HEAD~1 cms/ 2>/dev/null; then
+        echo "   CMS code unchanged"
+    else
+        echo "   ⚠️  CMS code changed - rebuild recommended"
+        REBUILD_NEEDED=true
+    fi
+fi
 echo ""
 
 # Ask user if they want to rebuild
