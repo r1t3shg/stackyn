@@ -42,15 +42,15 @@ type SubscriptionData struct {
 
 // PlanEnforcementService enforces plan-based limits
 type PlanEnforcementService struct {
-	logger            *zap.Logger
-	planRepo          PlanRepository
-	subscriptionRepo  SubscriptionRepository
-	userPlanRepo      UserPlanRepository
-	
+	logger           *zap.Logger
+	planRepo         PlanRepository
+	subscriptionRepo SubscriptionRepository
+	userPlanRepo     UserPlanRepository
+
 	// In-memory tracking for concurrent builds and RAM usage
 	// In production, this should be in Redis or database
-	buildCounts   map[string]int           // userID -> concurrent build count
-	ramUsage      map[string]int           // userID -> RAM usage in MB
+	buildCounts   map[string]int // userID -> concurrent build count
+	ramUsage      map[string]int // userID -> RAM usage in MB
 	buildCountsMu sync.RWMutex
 	ramUsageMu    sync.RWMutex
 }
@@ -58,7 +58,7 @@ type PlanEnforcementService struct {
 // NewPlanEnforcementService creates a new plan enforcement service
 func NewPlanEnforcementService(logger *zap.Logger) *PlanEnforcementService {
 	return &PlanEnforcementService{
-		logger:     logger,
+		logger:      logger,
 		buildCounts: make(map[string]int),
 		ramUsage:    make(map[string]int),
 	}
@@ -67,12 +67,12 @@ func NewPlanEnforcementService(logger *zap.Logger) *PlanEnforcementService {
 // NewPlanEnforcementServiceWithRepos creates a new plan enforcement service with repositories
 func NewPlanEnforcementServiceWithRepos(logger *zap.Logger, planRepo PlanRepository, subscriptionRepo SubscriptionRepository, userPlanRepo UserPlanRepository) *PlanEnforcementService {
 	return &PlanEnforcementService{
-		logger:          logger,
-		planRepo:        planRepo,
+		logger:           logger,
+		planRepo:         planRepo,
 		subscriptionRepo: subscriptionRepo,
-		userPlanRepo:    userPlanRepo,
-		buildCounts:     make(map[string]int),
-		ramUsage:        make(map[string]int),
+		userPlanRepo:     userPlanRepo,
+		buildCounts:      make(map[string]int),
+		ramUsage:         make(map[string]int),
 	}
 }
 
@@ -85,10 +85,10 @@ func (s *PlanEnforcementService) SetRepositories(planRepo PlanRepository, subscr
 
 // PlanLimits represents the limits for a plan
 type PlanLimits struct {
-	MaxApps            int
-	MaxRAMMB           int
+	MaxApps             int
+	MaxRAMMB            int
 	MaxConcurrentBuilds int
-	QueuePriority      int // Higher number = higher priority
+	QueuePriority       int // Higher number = higher priority
 }
 
 // GetPlanLimits gets the limits for a user's plan
@@ -97,10 +97,10 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 	if s.planRepo == nil {
 		s.logger.Debug("Plan repository not set, using default free plan limits", zap.String("user_id", userID))
 		return &PlanLimits{
-			MaxApps:            3,
-			MaxRAMMB:           1024, // 1 GB
+			MaxApps:             3,
+			MaxRAMMB:            1024, // 1 GB
 			MaxConcurrentBuilds: 1,
-			QueuePriority:      1, // Low priority
+			QueuePriority:       1, // Low priority
 		}, nil
 	}
 
@@ -110,32 +110,15 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 	if s.subscriptionRepo != nil {
 		sub, err := s.subscriptionRepo.GetSubscriptionByUserID(ctx, userID)
 		if err == nil && sub != nil && (sub.Status == "active" || sub.Status == "trial") {
-			// TRIAL USERS: Always limit to Starter plan regardless of subscription plan name
-			if sub.Status == "trial" {
-				s.logger.Debug("Trial user - forcing Starter plan limits",
+			// Use the plan from the subscription (works for both "active" and "trial" status)
+			plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
+			if err == nil && plan != nil {
+				s.logger.Debug("Retrieved plan from subscription",
 					zap.String("user_id", userID),
-					zap.String("subscription_plan", sub.Plan),
+					zap.String("plan_name", plan.Name),
+					zap.String("subscription_status", sub.Status),
 				)
-				// Get Starter plan instead of the plan in subscription
-				plan, err = s.planRepo.GetPlanByName(ctx, "starter")
-				if err == nil && plan != nil {
-					s.logger.Debug("Retrieved Starter plan for trial user",
-						zap.String("user_id", userID),
-						zap.String("plan_name", plan.Name),
-					)
-					return s.planDataToLimits(plan), nil
-				}
-			} else {
-				// Active subscriptions use their assigned plan
-				plan, err = s.planRepo.GetPlanByName(ctx, sub.Plan)
-				if err == nil && plan != nil {
-					s.logger.Debug("Retrieved plan from subscription",
-						zap.String("user_id", userID),
-						zap.String("plan_name", plan.Name),
-						zap.String("subscription_status", sub.Status),
-					)
-					return s.planDataToLimits(plan), nil
-				}
+				return s.planDataToLimits(plan), nil
 			}
 		}
 	}
@@ -172,10 +155,10 @@ func (s *PlanEnforcementService) GetPlanLimits(ctx context.Context, userID strin
 	// Fall back to hardcoded default free plan limits
 	s.logger.Warn("Failed to retrieve plan, using hardcoded default limits", zap.String("user_id", userID))
 	return &PlanLimits{
-		MaxApps:            3,
-		MaxRAMMB:           1024, // 1 GB
+		MaxApps:             3,
+		MaxRAMMB:            1024, // 1 GB
 		MaxConcurrentBuilds: 1,
-		QueuePriority:      1, // Low priority
+		QueuePriority:       1, // Low priority
 	}, nil
 }
 
@@ -197,10 +180,10 @@ func (s *PlanEnforcementService) planDataToLimits(plan *PlanData) *PlanLimits {
 	}
 
 	return &PlanLimits{
-		MaxApps:            maxApps,
-		MaxRAMMB:           maxRAMMB,
+		MaxApps:             maxApps,
+		MaxRAMMB:            maxRAMMB,
 		MaxConcurrentBuilds: 1, // Can be made configurable per plan later
-		QueuePriority:      queuePriority,
+		QueuePriority:       queuePriority,
 	}
 }
 
@@ -231,11 +214,11 @@ func (s *PlanEnforcementService) CheckMaxApps(ctx context.Context, userID string
 			zap.Int("max_apps", limits.MaxApps),
 		)
 		return &PlanLimitError{
-			Limit:     "max_apps",
-			Current:   currentAppCount,
-			Max:       limits.MaxApps,
-			UserID:    userID,
-			Message:   fmt.Sprintf("You have reached the maximum number of apps (%d) for your plan. Please upgrade your plan to create more apps.", limits.MaxApps),
+			Limit:   "max_apps",
+			Current: currentAppCount,
+			Max:     limits.MaxApps,
+			UserID:  userID,
+			Message: fmt.Sprintf("You have reached the maximum number of apps (%d) for your plan. Please upgrade your plan to create more apps.", limits.MaxApps),
 		}
 	}
 
@@ -286,11 +269,11 @@ func (s *PlanEnforcementService) CheckMaxConcurrentBuilds(ctx context.Context, u
 
 	if currentBuilds >= limits.MaxConcurrentBuilds {
 		return &PlanLimitError{
-			Limit:     "max_concurrent_builds",
-			Current:   currentBuilds,
-			Max:       limits.MaxConcurrentBuilds,
-			UserID:    userID,
-			Message:   fmt.Sprintf("You have reached the maximum number of concurrent builds (%d) for your plan. Please wait for current builds to complete or upgrade your plan.", limits.MaxConcurrentBuilds),
+			Limit:   "max_concurrent_builds",
+			Current: currentBuilds,
+			Max:     limits.MaxConcurrentBuilds,
+			UserID:  userID,
+			Message: fmt.Sprintf("You have reached the maximum number of concurrent builds (%d) for your plan. Please wait for current builds to complete or upgrade your plan.", limits.MaxConcurrentBuilds),
 		}
 	}
 
@@ -313,7 +296,7 @@ func (s *PlanEnforcementService) IncrementBuildCount(ctx context.Context, userID
 	defer s.buildCountsMu.Unlock()
 
 	s.buildCounts[userID]++
-	
+
 	s.logger.Debug("Incremented build count",
 		zap.String("user_id", userID),
 		zap.Int("current_builds", s.buildCounts[userID]),
@@ -413,4 +396,3 @@ func GetPlanLimitError(err error) (*PlanLimitError, bool) {
 	planErr, ok := err.(*PlanLimitError)
 	return planErr, ok
 }
-
