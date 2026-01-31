@@ -2481,6 +2481,18 @@ func (h *Handlers) AdminUpdateUserPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ALSO update the subscription if it exists
+	// This ensures that the plan enforcement service (which prioritizes subscription) uses the correct limits
+	if h.subscriptionRepo != nil {
+		err = h.subscriptionRepo.UpdateSubscriptionPlan(r.Context(), userID, plan.Name, plan.MaxRAMMB, plan.MaxDiskMB/1024) // Disk is MB in plan but GB in subscription
+		if err != nil {
+			// Log error but don't fail, as the user plan was updated
+			h.logger.Warn("Failed to sync subscription plan", zap.Error(err), zap.String("user_id", userID), zap.String("plan", plan.Name))
+		} else {
+			h.logger.Info("Synced subscription plan with user plan", zap.String("user_id", userID), zap.String("plan", plan.Name))
+		}
+	}
+
 	response := map[string]interface{}{
 		"message": "User plan updated successfully",
 		"user_id": userID,

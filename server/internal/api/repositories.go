@@ -210,11 +210,11 @@ func (r *UserRepo) CreateUser(email, fullName, companyName, passwordHash string)
 	if passwordHash != "" {
 		hash = sql.NullString{String: passwordHash, Valid: true}
 	}
-	
+
 	// No default plan - users get a trial subscription instead
 	var planID sql.NullString
 	planID = sql.NullString{Valid: false}
-	
+
 	err := r.pool.QueryRow(ctx,
 		"INSERT INTO users (email, full_name, company_name, password_hash, plan_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, company_name, password_hash",
 		email, fullName, companyName, hash, planID,
@@ -234,7 +234,7 @@ func (r *UserRepo) UpdateUser(userID, fullName, companyName, passwordHash string
 	ctx := context.Background()
 	var user User
 	var hash sql.NullString
-	
+
 	// Build query dynamically based on whether password is being updated
 	if passwordHash != "" {
 		hash = sql.NullString{String: passwordHash, Valid: true}
@@ -335,27 +335,27 @@ func (r *UserRepo) ListAllUsers(limit, offset int, search string) ([]User, int, 
 	// Build query with optional search
 	query := `SELECT id, email, full_name, company_name, password_hash FROM users`
 	countQuery := `SELECT COUNT(*) FROM users`
-	
+
 	args := []interface{}{}
 	argNum := 1
-	
+
 	if search != "" {
 		query += ` WHERE email ILIKE $` + fmt.Sprintf("%d", argNum)
 		countQuery += ` WHERE email ILIKE $` + fmt.Sprintf("%d", argNum)
 		args = append(args, "%"+search+"%")
 		argNum++
 	}
-	
+
 	query += ` ORDER BY created_at DESC LIMIT $` + fmt.Sprintf("%d", argNum) + ` OFFSET $` + fmt.Sprintf("%d", argNum+1)
 	args = append(args, limit, offset)
-	
+
 	// Get total count
 	err = r.pool.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total)
 	if err != nil {
 		r.logger.Error("Failed to get total users count", zap.Error(err))
 		return nil, 0, err
 	}
-	
+
 	// Get users
 	rows, err = r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -472,14 +472,14 @@ func (r *AppRepo) GetAppCountByUserID(userID string) (int, error) {
 func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
 	ctx := context.Background()
 	var total int
-	
+
 	// Get total count
 	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM apps").Scan(&total)
 	if err != nil {
 		r.logger.Error("Failed to get total apps count", zap.Error(err))
 		return nil, 0, err
 	}
-	
+
 	// Get apps
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, name, slug, status, url, repo_url, branch, created_at, updated_at 
@@ -608,7 +608,7 @@ func (r *AppRepo) GetAppByID(appID, userID string) (*App, error) {
 // slug is now a required parameter (validated and generated in the handler if not provided)
 func (r *AppRepo) CreateApp(userID, name, slug, repoURL, branch string) (*App, error) {
 	ctx := context.Background()
-	
+
 	var app App
 	var url sql.NullString
 	var createdAt, updatedAt time.Time
@@ -637,7 +637,7 @@ func (r *AppRepo) CreateApp(userID, name, slug, repoURL, branch string) (*App, e
 	}
 	app.CreatedAt = createdAt.Format(time.RFC3339)
 	app.UpdatedAt = updatedAt.Format(time.RFC3339)
-	
+
 	return &app, nil
 }
 
@@ -679,7 +679,7 @@ func (r *AppRepo) GetAppSlug(appID string) (string, error) {
 // DeleteApp deletes an app by ID (must belong to the user)
 func (r *AppRepo) DeleteApp(appID, userID string) error {
 	ctx := context.Background()
-	
+
 	// First verify the app exists and belongs to the user
 	var exists bool
 	err := r.pool.QueryRow(ctx,
@@ -693,7 +693,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 	if !exists {
 		return pgx.ErrNoRows
 	}
-	
+
 	// Begin transaction to ensure atomic deletion of app and logs
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -706,7 +706,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 			r.logger.Warn("Transaction rollback error (may be expected if commit succeeded)", zap.Error(err))
 		}
 	}()
-	
+
 	// Step 1: Delete all app_logs associated with this app
 	// Note: app_logs uses TEXT for app_id, so it doesn't cascade automatically
 	// Note: app_logs table is optional (only exists if Postgres log persistence is enabled)
@@ -723,7 +723,7 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		r.logger.Error("Failed to check if app_logs table exists", zap.Error(err), zap.String("app_id", appID))
 		return err
 	}
-	
+
 	if tableExists {
 		logsResult, err := tx.Exec(ctx,
 			"DELETE FROM app_logs WHERE app_id = $1",
@@ -733,14 +733,14 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 			r.logger.Error("Failed to delete app logs", zap.Error(err), zap.String("app_id", appID))
 			return err
 		}
-		r.logger.Info("Deleted app logs", 
-			zap.String("app_id", appID), 
+		r.logger.Info("Deleted app logs",
+			zap.String("app_id", appID),
 			zap.Int64("logs_deleted", logsResult.RowsAffected()),
 		)
 	} else {
 		r.logger.Debug("app_logs table does not exist, skipping log deletion", zap.String("app_id", appID))
 	}
-	
+
 	// Step 2: Delete the app (cascade will handle related records: build_jobs, deployments, env_vars, runtime_instances)
 	result, err := tx.Exec(ctx,
 		"DELETE FROM apps WHERE id = $1 AND user_id = $2",
@@ -751,20 +751,20 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 		r.logger.Error("Failed to delete app", zap.Error(err), zap.String("app_id", appID), zap.String("user_id", userID))
 		return err
 	}
-	
+
 	if result.RowsAffected() == 0 {
 		r.logger.Warn("No app deleted", zap.String("app_id", appID), zap.String("user_id", userID))
 		return pgx.ErrNoRows
 	}
-	
+
 	// Commit transaction (this will prevent the defer rollback from executing)
 	if err := tx.Commit(ctx); err != nil {
 		r.logger.Error("Failed to commit transaction for app deletion", zap.Error(err), zap.String("app_id", appID))
 		return err
 	}
-	
-	r.logger.Info("App and all associated resources deleted successfully", 
-		zap.String("app_id", appID), 
+
+	r.logger.Info("App and all associated resources deleted successfully",
+		zap.String("app_id", appID),
 		zap.String("user_id", userID),
 	)
 	return nil
@@ -773,12 +773,12 @@ func (r *AppRepo) DeleteApp(appID, userID string) error {
 // UpdateApp updates app status and URL
 func (r *AppRepo) UpdateApp(appID, status, url string) error {
 	ctx := context.Background()
-	
+
 	var urlValue sql.NullString
 	if url != "" {
 		urlValue = sql.NullString{String: url, Valid: true}
 	}
-	
+
 	_, err := r.pool.Exec(ctx,
 		`UPDATE apps SET status = $1, url = $2, updated_at = NOW() WHERE id = $3`,
 		status, urlValue, appID,
@@ -787,7 +787,7 @@ func (r *AppRepo) UpdateApp(appID, status, url string) error {
 		r.logger.Error("Failed to update app", zap.Error(err), zap.String("app_id", appID), zap.String("status", status))
 		return err
 	}
-	
+
 	r.logger.Info("App updated successfully", zap.String("app_id", appID), zap.String("status", status), zap.String("url", url))
 	return nil
 }
@@ -851,7 +851,7 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 	} else {
 		buildJobIDPtr = nil
 	}
-	
+
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO deployments (app_id, build_job_id, status, image_name, container_id, subdomain)
 		 VALUES ($1, $2, $3, $4, $5, $6)
@@ -867,7 +867,7 @@ func (r *DeploymentRepo) CreateDeployment(appID, buildJobID, status, imageName, 
 		)
 		return "", err
 	}
-	
+
 	r.logger.Info("Deployment created successfully",
 		zap.String("deployment_id", id),
 		zap.String("app_id", appID),
@@ -994,7 +994,7 @@ func (r *DeploymentRepo) UpdateDeploymentsByContainerIDs(ctx context.Context, co
 	if len(containerIDs) == 0 {
 		return nil
 	}
-	
+
 	_, err := r.pool.Exec(ctx,
 		`UPDATE deployments 
 		 SET status = $1, updated_at = NOW()
@@ -1002,14 +1002,14 @@ func (r *DeploymentRepo) UpdateDeploymentsByContainerIDs(ctx context.Context, co
 		status, containerIDs,
 	)
 	if err != nil {
-		r.logger.Error("Failed to update deployments by container IDs", 
-			zap.Error(err), 
+		r.logger.Error("Failed to update deployments by container IDs",
+			zap.Error(err),
 			zap.Strings("container_ids", containerIDs),
 			zap.String("status", status),
 		)
 		return err
 	}
-	
+
 	r.logger.Info("Updated deployments to stopped status",
 		zap.Int("count", len(containerIDs)),
 		zap.String("status", status),
@@ -1202,19 +1202,19 @@ func NewSubscriptionRepo(pool *pgxpool.Pool, logger *zap.Logger) *SubscriptionRe
 
 // Subscription represents a subscription from the database
 type Subscription struct {
-	ID                 string     `json:"id"`
-	UserID             string     `json:"user_id"`
+	ID                  string     `json:"id"`
+	UserID              string     `json:"user_id"`
 	LemonSubscriptionID *string    `json:"lemon_subscription_id,omitempty"` // External subscription ID (e.g., Lemon Squeezy) - nullable
-	LemonCustomerID   *string    `json:"lemon_customer_id,omitempty"`       // Lemon Squeezy customer ID - nullable
-	Plan               string     `json:"plan"`                             // Plan name (starter | pro)
-	Status             string     `json:"status"`                           // trial | active | expired | cancelled
-	TrialStartedAt     *time.Time `json:"trial_started_at,omitempty"`       // When trial started
-	TrialEndsAt        *time.Time `json:"trial_ends_at,omitempty"`          // When trial ends
-	RAMLimitMB         int        `json:"ram_limit_mb"`                     // RAM limit in MB
-	DiskLimitGB        int        `json:"disk_limit_gb"`                    // Disk limit in GB
-	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`             // true if subscription is set to cancel at period end
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	LemonCustomerID     *string    `json:"lemon_customer_id,omitempty"`     // Lemon Squeezy customer ID - nullable
+	Plan                string     `json:"plan"`                            // Plan name (starter | pro)
+	Status              string     `json:"status"`                          // trial | active | expired | cancelled
+	TrialStartedAt      *time.Time `json:"trial_started_at,omitempty"`      // When trial started
+	TrialEndsAt         *time.Time `json:"trial_ends_at,omitempty"`         // When trial ends
+	RAMLimitMB          int        `json:"ram_limit_mb"`                    // RAM limit in MB
+	DiskLimitGB         int        `json:"disk_limit_gb"`                   // Disk limit in GB
+	CancelAtPeriodEnd   bool       `json:"cancel_at_period_end"`            // true if subscription is set to cancel at period end
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // GetSubscriptionByUserID retrieves a subscription for a user
@@ -1223,9 +1223,9 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 	var sub Subscription
 	var lemonSubID sql.NullString
 	var trialStartedAt, trialEndsAt sql.NullTime
-	
+
 	var lemonCustomerID sql.NullString
-	
+
 	// First try to get an active or trial subscription
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
@@ -1241,7 +1241,7 @@ func (r *SubscriptionRepo) GetSubscriptionByUserID(ctx context.Context, userID s
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
-	
+
 	// If no active/trial subscription found, get the most recent one (might be expired)
 	if err != nil && errors.Is(err, pgx.ErrNoRows) {
 		err = r.pool.QueryRow(ctx,
@@ -1287,7 +1287,7 @@ func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Cont
 	var lemonSubID sql.NullString
 	var lemonCustomerID sql.NullString
 	var trialStartedAt, trialEndsAt sql.NullTime
-	
+
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id, plan, status, trial_started_at, trial_ends_at, 
 		        ram_limit_mb, disk_limit_gb, cancel_at_period_end, created_at, updated_at
@@ -1301,7 +1301,7 @@ func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Cont
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
-	
+
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -1309,7 +1309,7 @@ func (r *SubscriptionRepo) GetSubscriptionByLemonSubscriptionID(ctx context.Cont
 		r.logger.Error("Failed to get subscription by lemon subscription ID", zap.Error(err), zap.String("lemon_subscription_id", lemonSubscriptionID))
 		return nil, err
 	}
-	
+
 	if lemonSubID.Valid {
 		sub.LemonSubscriptionID = &lemonSubID.String
 	}
@@ -1335,7 +1335,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 	var lemonSubID sql.NullString
 	var lemonCustomerID sql.NullString
 	var trialStartedAt, trialEndsAt sql.NullTime
-	
+
 	// Priority 1: Try to get active subscription
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
@@ -1352,7 +1352,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
-	
+
 	if err == nil {
 		// Found active subscription
 		if lemonSubID.Valid {
@@ -1369,12 +1369,12 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		}
 		return &sub, nil
 	}
-	
+
 	if !errors.Is(err, pgx.ErrNoRows) {
 		r.logger.Error("Failed to get active subscription", zap.Error(err), zap.String("user_id", userID))
 		return nil, err
 	}
-	
+
 	// Priority 2: Try to get past_due subscription
 	err = r.pool.QueryRow(ctx,
 		`SELECT id, user_id, lemon_subscription_id, lemon_customer_id,
@@ -1391,7 +1391,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
-	
+
 	if err == nil {
 		// Found past_due subscription
 		if lemonSubID.Valid {
@@ -1408,12 +1408,12 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		}
 		return &sub, nil
 	}
-	
+
 	if !errors.Is(err, pgx.ErrNoRows) {
 		r.logger.Error("Failed to get past_due subscription", zap.Error(err), zap.String("user_id", userID))
 		return nil, err
 	}
-	
+
 	// Priority 3: Try to get cancelled subscription (if still within period_end)
 	// Note: Since we don't have period_end stored yet, we check if updated_at is within last 30 days
 	// This is a temporary solution until period_end is added to the schema
@@ -1432,7 +1432,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
 		&sub.CancelAtPeriodEnd, &sub.CreatedAt, &sub.UpdatedAt,
 	)
-	
+
 	if err == nil {
 		// Found cancelled subscription within grace period
 		if lemonSubID.Valid {
@@ -1449,12 +1449,12 @@ func (r *SubscriptionRepo) GetActiveSubscriptionByUserID(ctx context.Context, us
 		}
 		return &sub, nil
 	}
-	
+
 	// No valid subscription found
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, pgx.ErrNoRows
 	}
-	
+
 	r.logger.Error("Failed to get cancelled subscription", zap.Error(err), zap.String("user_id", userID))
 	return nil, err
 }
@@ -1467,7 +1467,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	var lemonSubID sql.NullString
 	var lemonCustomerIDNull sql.NullString
 	var trialStart, trialEnd sql.NullTime
-	
+
 	// Handle nullable lemon_subscription_id
 	var lemonSubIDPtr interface{}
 	if lemonSubscriptionID != "" {
@@ -1475,7 +1475,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	} else {
 		lemonSubIDPtr = nil
 	}
-	
+
 	// Handle nullable lemon_customer_id
 	var lemonCustomerIDPtr interface{}
 	if lemonCustomerID != "" {
@@ -1483,7 +1483,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	} else {
 		lemonCustomerIDPtr = nil
 	}
-	
+
 	// Handle nullable trial dates
 	var trialStartPtr, trialEndPtr interface{}
 	if trialStartedAt != nil {
@@ -1496,7 +1496,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	} else {
 		trialEndPtr = nil
 	}
-	
+
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO subscriptions (user_id, lemon_subscription_id, lemon_customer_id, plan, status, trial_started_at, trial_ends_at, ram_limit_mb, disk_limit_gb, cancel_at_period_end)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -1507,6 +1507,7 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 		&trialStart, &trialEnd, &sub.RAMLimitMB, &sub.DiskLimitGB, &sub.CancelAtPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
+
 	if err != nil {
 		// Check if error is due to unique constraint (user already has active/trial subscription)
 		var pgErr *pgconn.PgError
@@ -1540,12 +1541,27 @@ func (r *SubscriptionRepo) CreateSubscription(ctx context.Context, userID, lemon
 	return &sub, nil
 }
 
+// UpdateSubscriptionPlan updates the plan and limits for a user's subscription
+func (r *SubscriptionRepo) UpdateSubscriptionPlan(ctx context.Context, userID, planName string, ramLimitMB, diskLimitGB int) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE subscriptions 
+		 SET plan = $1, ram_limit_mb = $2, disk_limit_gb = $3, updated_at = NOW()
+		 WHERE user_id = $4 AND status IN ('active', 'trial')`,
+		planName, ramLimitMB, diskLimitGB, userID,
+	)
+	if err != nil {
+		r.logger.Error("Failed to update subscription plan", zap.Error(err), zap.String("user_id", userID), zap.String("plan", planName))
+		return err
+	}
+	return nil
+}
+
 // UpdateSubscription updates a subscription by internal ID
 func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionID, plan, status string, ramLimitMB, diskLimitGB *int, lemonSubID, lemonCustomerID *string) error {
 	setParts := []string{"updated_at = NOW()"}
 	args := []interface{}{subscriptionID}
 	argNum := 2
-	
+
 	if plan != "" {
 		setParts = append(setParts, fmt.Sprintf("plan = $%d", argNum))
 		args = append(args, plan)
@@ -1584,7 +1600,7 @@ func (r *SubscriptionRepo) UpdateSubscription(ctx context.Context, subscriptionI
 			argNum++
 		}
 	}
-	
+
 	query := fmt.Sprintf("UPDATE subscriptions SET %s WHERE id = $1", strings.Join(setParts, ", "))
 	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -1599,7 +1615,7 @@ func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userI
 	setParts := []string{"updated_at = NOW()"}
 	args := []interface{}{userID}
 	argNum := 2
-	
+
 	if plan != "" {
 		setParts = append(setParts, fmt.Sprintf("plan = $%d", argNum))
 		args = append(args, plan)
@@ -1629,7 +1645,7 @@ func (r *SubscriptionRepo) UpdateSubscriptionByUserID(ctx context.Context, userI
 			argNum++
 		}
 	}
-	
+
 	query := fmt.Sprintf("UPDATE subscriptions SET %s WHERE user_id = $1", strings.Join(setParts, ", "))
 	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -1692,7 +1708,7 @@ func (r *SubscriptionRepo) GetTrialSubscriptions(ctx context.Context) ([]*Subscr
 		var sub Subscription
 		var lemonSubID sql.NullString
 		var trialStartedAt, trialEndsAt sql.NullTime
-		
+
 		err := rows.Scan(
 			&sub.ID, &sub.UserID, &lemonSubID, &sub.Plan, &sub.Status,
 			&trialStartedAt, &trialEndsAt, &sub.RAMLimitMB, &sub.DiskLimitGB,
@@ -1702,7 +1718,7 @@ func (r *SubscriptionRepo) GetTrialSubscriptions(ctx context.Context) ([]*Subscr
 			r.logger.Error("Failed to scan subscription", zap.Error(err))
 			continue
 		}
-		
+
 		if lemonSubID.Valid {
 			sub.LemonSubscriptionID = &lemonSubID.String
 		}
@@ -1712,7 +1728,7 @@ func (r *SubscriptionRepo) GetTrialSubscriptions(ctx context.Context) ([]*Subscr
 		if trialEndsAt.Valid {
 			sub.TrialEndsAt = &trialEndsAt.Time
 		}
-		
+
 		subscriptions = append(subscriptions, &sub)
 	}
 
@@ -1839,7 +1855,7 @@ func (r *EnvVarRepo) GetEnvVarsByAppID(ctx context.Context, appID string) ([]*En
 func (r *EnvVarRepo) CreateEnvVar(ctx context.Context, appID, key, value string) (*EnvVar, error) {
 	var envVar EnvVar
 	var createdAt, updatedAt time.Time
-	
+
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO env_vars (app_id, key, value) 
 		 VALUES ($1, $2, $3) 
@@ -1859,7 +1875,7 @@ func (r *EnvVarRepo) CreateEnvVar(ctx context.Context, appID, key, value string)
 		r.logger.Error("Failed to create env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
 		return nil, err
 	}
-	
+
 	envVar.CreatedAt = createdAt.Format(time.RFC3339)
 	envVar.UpdatedAt = updatedAt.Format(time.RFC3339)
 	return &envVar, nil
@@ -1875,11 +1891,11 @@ func (r *EnvVarRepo) DeleteEnvVar(ctx context.Context, appID, key string) error 
 		r.logger.Error("Failed to delete env var", zap.Error(err), zap.String("app_id", appID), zap.String("key", key))
 		return err
 	}
-	
+
 	if result.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
-	
+
 	return nil
 }
 
@@ -1915,7 +1931,7 @@ func (r *BuildJobRepo) CreateBuildJob(ctx context.Context, buildJobID, appID, st
 		)
 		return err
 	}
-	
+
 	r.logger.Info("Build job created in database",
 		zap.String("build_job_id", buildJobID),
 		zap.String("app_id", appID),
@@ -1930,7 +1946,7 @@ func (r *BuildJobRepo) UpdateBuildJob(ctx context.Context, buildJobID, status, b
 	if errorMsg != "" {
 		errorMsg = strings.ReplaceAll(errorMsg, "\x00", "")
 	}
-	
+
 	_, err := r.pool.Exec(ctx,
 		`UPDATE build_jobs 
 		 SET status = COALESCE(NULLIF($2, ''), status),
@@ -1949,4 +1965,3 @@ func (r *BuildJobRepo) UpdateBuildJob(ctx context.Context, buildJobID, status, b
 	}
 	return nil
 }
-
