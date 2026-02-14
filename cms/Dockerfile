@@ -43,19 +43,14 @@ RUN npm install -g serve
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Create cms directory structure to support requests with /cms prefix
-# This ensures that requests to /cms/assets/... are found in dist/cms/assets/...
-# We keep the root files for SPA fallback (serve -s uses root index.html)
-RUN mkdir -p ./dist/cms && \
-    cp -r ./dist/assets ./dist/cms/ && \
-    cp ./dist/index.html ./dist/cms/
 
 # Expose port
 EXPOSE 3001
 
 # Start serve with SPA routing support
-# Note: Vite builds with base: '/cms/' so assets are at /cms/assets/...
-# Traefik strips /cms prefix before forwarding, so we serve from root
+# Start serve with SPA routing support
+# Note: Vite builds with base: '/' so assets are at /assets/...
+# Traefik handles routing to this container based on Host header
 # The -s flag enables SPA mode (serve index.html for all routes)
 # The --cors flag allows cross-origin requests if needed
 CMD ["sh", "-c", "serve -s dist -l 3001 --no-clipboard"]

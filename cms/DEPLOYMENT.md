@@ -2,16 +2,16 @@
 
 ## Access URL
 
-The CMS is accessible at: **https://staging.stackyn.com/cms**
+The CMS is accessible at: **https://admin.staging.stackyn.com**
 
 ## Configuration
 
 ### 1. Build Configuration
 
-The CMS is configured to use `/cms/` as the base path:
-- `vite.config.ts` has `base: '/cms/'`
-- `App.tsx` uses `basename="/cms"` for React Router
-- All routes are relative to `/cms`
+The CMS is configured to use `/` as the base path (root):
+- `vite.config.ts` has `base: '/'`
+- `App.tsx` uses `basename="/"` for React Router
+- All routes are relative to root
 
 ### 2. Docker Compose
 
@@ -25,16 +25,16 @@ cms:
     args:
       - VITE_API_BASE_URL=https://api.staging.stackyn.com
   labels:
-    - "traefik.http.routers.cms-https.rule=Host(`staging.stackyn.com`) && PathPrefix(`/cms`)"
-    - "traefik.http.routers.cms-https.middlewares=cms-stripprefix"
-    - "traefik.http.middlewares.cms-stripprefix.stripprefix.prefixes=/cms"
+    - "traefik.http.routers.cms-v2.rule=Host(`admin.staging.stackyn.com`)"
+    - "traefik.http.routers.cms-v2.tls=true"
+    - "traefik.http.routers.cms-v2.tls.certresolver=letsencrypt"
 ```
 
 ### 3. Traefik Routing
 
 Traefik routes requests to the CMS:
-- **Path**: `/cms/*` → CMS container
-- **Prefix stripping**: `/cms` is stripped before forwarding to the container
+- **Host**: `admin.staging.stackyn.com` → CMS container
+- **Path**: `/*` (root)
 - **SSL**: Automatic SSL via Let's Encrypt
 
 ## Deployment Steps
@@ -45,7 +45,7 @@ Traefik routes requests to the CMS:
    ```
 
 2. **Verify CMS is accessible**:
-   - Open: https://staging.stackyn.com/cms
+   - Open: https://admin.staging.stackyn.com
    - Should see the login page
 
 3. **Create admin user** (if not already done):
@@ -73,8 +73,8 @@ Access at: http://localhost:5174
 4. Verify Traefik routing: Check that `/cms` path is configured
 
 ### 404 errors on routes
-- Ensure `base: '/cms/'` is set in `vite.config.ts`
-- Ensure `basename="/cms"` is set in `App.tsx`
+- Ensure `base: '/'` is set in `vite.config.ts`
+- Ensure `basename="/"` is set in `App.tsx`
 - Rebuild the Docker image after changes
 
 ### API errors

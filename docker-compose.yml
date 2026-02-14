@@ -316,13 +316,13 @@ services:
       - "traefik.http.routers.frontend-localhost.entrypoints=web"
       - "traefik.http.routers.frontend-localhost.service=frontend"
       - "traefik.http.routers.frontend-localhost.tls=false"
-      # HTTP router for production main domain (redirects to HTTPS) - explicit domain match, exclude /cms path
-      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) && !PathPrefix(`/cms`)"
+      # HTTP router for production main domain (redirects to HTTPS) - explicit domain match
+      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend-http.entrypoints=web"
       - "traefik.http.routers.frontend-http.middlewares=frontend-redirect"
       - "traefik.http.routers.frontend-http.tls=false"
-      # HTTPS router for main domain (with SSL) - explicit domain match, exclude /cms path
-      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) && !PathPrefix(`/cms`)"
+      # HTTPS router for main domain (with SSL) - explicit domain match
+      - "traefik.http.routers.frontend.rule=Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.tls=true"
@@ -352,6 +352,8 @@ services:
       args:
         VITE_API_BASE_URL: ${CMS_API_URL:-https://api.staging.stackyn.com}
     container_name: stackyn-cms
+    ports:
+      - "3001:3001"
     networks:
       - stackyn-network
     depends_on:
@@ -371,25 +373,25 @@ services:
       - "traefik.http.services.cms.loadbalancer.server.port=3001"
       - "traefik.http.services.cms.loadbalancer.server.scheme=http"
       # HTTP router for localhost (no TLS, no redirect) - for local development
-      - "traefik.http.routers.cms-localhost.rule=Host(`localhost`) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-localhost.rule=Host(`admin.localhost`)"
       - "traefik.http.routers.cms-localhost.entrypoints=web"
       # - "traefik.http.routers.cms-localhost.middlewares=cms-stripprefix"
       - "traefik.http.routers.cms-localhost.service=cms"
       - "traefik.http.routers.cms-localhost.tls=false"
       # HTTP router for production (redirects to HTTPS)
       # Priority 10 ensures CMS router matches before frontend router
-      - "traefik.http.routers.cms-v2-http.rule=(Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) || Host(`staging.stackyn.com`)) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-v2-http.rule=Host(`admin.staging.stackyn.com`)"
       - "traefik.http.routers.cms-v2-http.entrypoints=web"
       - "traefik.http.routers.cms-v2-http.middlewares=cms-v2-redirect"
-      - "traefik.http.routers.cms-v2-http.priority=10"
+
       - "traefik.http.routers.cms-v2-http.tls=false"
       # HTTPS router (main router with SSL)
       # Priority 10 ensures CMS router matches before frontend router (default priority 0)
-      - "traefik.http.routers.cms-v2.rule=(Host(`${FRONTEND_DOMAIN:-staging.stackyn.com}`) || Host(`staging.stackyn.com`)) && PathPrefix(`/cms`)"
+      - "traefik.http.routers.cms-v2.rule=Host(`admin.staging.stackyn.com`)"
       - "traefik.http.routers.cms-v2.entrypoints=websecure"
       # - "traefik.http.routers.cms-v2.middlewares=cms-v2-stripprefix"
       - "traefik.http.routers.cms-v2.service=cms"
-      - "traefik.http.routers.cms-v2.priority=10"
+
       - "traefik.http.routers.cms-v2.tls=true"
       - "traefik.http.routers.cms-v2.tls.certresolver=letsencrypt"
       # Middlewares

@@ -1,5 +1,5 @@
 import { API_ENDPOINTS, getAuthToken } from './config';
-import type { User, UsersListResponse, App, AppsListResponse } from './types';
+import type { User, UsersListResponse, AppsListResponse } from './types';
 
 // Helper function to handle API responses
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -31,7 +31,7 @@ async function safeFetch(url: string, options?: RequestInit): Promise<Response> 
   if (response.status === 401 || response.status === 403) {
     localStorage.removeItem('cms_auth_token');
     // Use relative path since we're already under /cms base path
-    window.location.href = '/cms/login';
+    window.location.href = '/login';
   }
 
   return response;

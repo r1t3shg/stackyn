@@ -29,7 +29,7 @@ npm run dev
 
 The CMS will run on port **5174** (different from the main frontend on port 3000).
 
-**Note**: In production, the CMS is accessible at `https://staging.stackyn.com/cms`
+**Note**: In production, the CMS is accessible at `https://admin.staging.stackyn.com`
 
 ## Production Build
 
@@ -59,9 +59,9 @@ docker run -p 3001:3001 stackyn-cms
 
 The CMS service is already configured in `docker-compose.yml` with Traefik routing.
 
-**Access URL**: https://staging.stackyn.com/cms
+**Access URL**: https://admin.staging.stackyn.com
 
-The CMS is served at the `/cms` path on the main domain, not as a subdomain.
+The CMS is served at the root `/` path on the admin subdomain.
 
 ## Authentication
 
