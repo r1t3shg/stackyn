@@ -175,6 +175,15 @@ jobs:
           
           # Pull latest code
           echo "📥 Pulling latest code..."
+          export GIT_TERMINAL_PROMPT=0
+          
+          # Update remote URL if needed (handle repo rename)
+          CURRENT_REMOTE=$(git remote get-url origin || echo "")
+          if [[ "$CURRENT_REMOTE" == *"stackyn-be.git"* ]]; then
+            echo "⚠️  Old remote detected. Updating to new URL..."
+            git remote set-url origin https://github.com/r1t3shg/stackyn.git || true
+          fi
+          
           git checkout develop
           git pull origin develop
           NEW_COMMIT=$(git rev-parse HEAD)
@@ -285,7 +294,8 @@ jobs:
           
           # Build new images
           echo "📦 Building new images..."
-          if ! docker compose -f "$COMPOSE_FILE" build --no-cache; then
+          # Removed --no-cache to prevent build timeouts and improve speed
+          if ! docker compose -f "$COMPOSE_FILE" build; then
             echo "❌ Build failed. Showing recent logs:"
             docker compose build --no-cache 2>&1 | tail -n 100
             exit 1
