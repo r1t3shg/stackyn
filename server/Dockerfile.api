@@ -5,15 +5,15 @@ WORKDIR /app
 # Install git (needed for go-git)
 RUN apk add --no-cache git
 
+# Install sqlc using pre-built binary (faster and cached)
+COPY --from=sqlc/sqlc:1.25.0 /bin/sqlc /usr/local/bin/sqlc
+
 # Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
 COPY . .
-
-# Install sqlc
-RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 # Generate sqlc code
 RUN sqlc generate
