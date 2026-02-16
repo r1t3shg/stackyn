@@ -2,11 +2,11 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# Install git (needed for go-git)
-RUN apk add --no-cache git
+# Install git and curl (needed for downloading sqlc)
+RUN apk add --no-cache git curl
 
-# Install sqlc using pre-built binary (faster and cached)
-COPY --from=sqlc/sqlc:1.25.0 /app/sqlc /usr/local/bin/sqlc
+# Install sqlc using pre-built binary (faster and reliable)
+RUN curl -L https://github.com/sqlc-dev/sqlc/releases/download/v1.25.0/sqlc_1.25.0_linux_amd64.tar.gz | tar xvz -C /usr/local/bin sqlc
 
 # Copy go mod files
 COPY go.mod go.sum ./
