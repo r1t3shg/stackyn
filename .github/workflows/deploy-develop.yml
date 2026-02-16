@@ -211,6 +211,24 @@ jobs:
           echo "🚀 Starting deployment..."
           cd /opt/stackyn
           
+          # Restart Docker daemon to resolve potential hangs (and clear memory)
+          echo "🔄 Restarting Docker service..."
+          systemctl restart docker
+          
+          # Wait for Docker to be available
+          echo "⏳ Waiting for Docker to be ready..."
+          count=0
+          while ! docker info > /dev/null 2>&1; do
+            echo "   Waiting for Docker daemon... ($count)"
+            sleep 2
+            count=$((count+1))
+            if [ $count -gt 30 ]; then
+              echo "❌ Docker failed to start within 60 seconds"
+              exit 1
+            fi
+          done
+          echo "✅ Docker service restarted and ready"
+          
           # Backup current deployment
           echo "📦 Creating backup..."
           if [ -d ".git" ]; then
