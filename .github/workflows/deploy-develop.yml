@@ -229,6 +229,11 @@ jobs:
           done
           echo "✅ Docker service restarted and ready"
           
+          # Cleanup stale 'alt' containers that are consuming resources
+          echo "🧹 Removing stale 'stackyn-alt' containers..."
+          docker ps -aq --filter "name=stackyn-alt" | xargs -r docker rm -f || true
+          echo "✅ Stale containers removed"
+
           # Backup current deployment
           echo "📦 Creating backup..."
           if [ -d ".git" ]; then
