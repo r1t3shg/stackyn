@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 # Install sqlc using pre-built binary (faster and cached)
-COPY --from=sqlc/sqlc:1.25.0 /bin/sqlc /usr/local/bin/sqlc
+COPY --from=sqlc/sqlc:1.25.0 /app/sqlc /usr/local/bin/sqlc
 
 # Copy go mod files
 COPY go.mod go.sum ./
