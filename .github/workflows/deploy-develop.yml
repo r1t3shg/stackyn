@@ -136,16 +136,40 @@ jobs:
           chmod 600 ~/.ssh/config
           
           # Test SSH connection
+          echo "🔍 Testing network connectivity..."
+          
+          # Check if host is reachable via ICMP
+          if ping -c 4 "$STAGING_HOST" > /dev/null 2>&1; then
+            echo "✅ Host is reachable via ICMP (ping)"
+          else
+            echo "⚠️  Host is NOT reachable via ICMP (ping)"
+          fi
+
+          # Check if port 22 is open
+          if command -v nc >/dev/null 2>&1; then
+            if nc -z -v -w 5 "$STAGING_HOST" 22 2>/dev/null; then
+              echo "✅ Port 22 is open"
+            else
+              echo "⚠️  Port 22 is NOT accessible (timeout or refused)"
+            fi
+          else
+             echo "⚠️  nc (netcat) not found, skipping port check"
+          fi
+
           echo "🔍 Testing SSH connection..."
-          ssh -i "$KEY_FILE" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes root@$STAGING_HOST "echo 'SSH connection successful'" || {
+          # Increased timeout to 30s and added verbose flag for debugging
+          ssh -i "$KEY_FILE" -v -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o BatchMode=yes root@$STAGING_HOST "echo 'SSH connection successful'" || {
             echo "❌ SSH connection test failed"
             echo "Key file: $KEY_FILE"
             echo "Key file exists: $(test -f "$KEY_FILE" && echo 'yes' || echo 'no')"
             if [ -f "$KEY_FILE" ]; then
               echo "Key file permissions: $(ls -la "$KEY_FILE")"
-              echo "Key file first line: $(head -n1 "$KEY_FILE")"
-              echo "Key file last line: $(tail -n1 "$KEY_FILE")"
             fi
+            echo ""
+            echo "💡 Troubleshooting networking:"
+            echo "1. Check server firewall (UFW/Security Groups) allows port 22 from GitHub Actions IPs"
+            echo "2. Verify the server is running and SSH service is active"
+            echo "3. Check if STAGING_HOST resolves to the correct IP"
             echo ""
             echo "💡 Troubleshooting tips:"
             echo "1. Ensure STAGING_SSH_KEY secret includes the full private key with headers"
