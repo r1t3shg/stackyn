@@ -60,6 +60,7 @@ export interface App {
   updated_at: string;
   deployment_count?: number;
   latest_status?: string;
+  user?: User;
 }
 
 export interface UsersListResponse {

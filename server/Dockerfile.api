@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
@@ -10,7 +11,7 @@ RUN curl -L https://github.com/sqlc-dev/sqlc/releases/download/v1.25.0/sqlc_1.25
 
 # Copy go mod files
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy source code
 COPY . .
@@ -19,7 +20,7 @@ COPY . .
 RUN sqlc generate
 
 # Build API binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api ./cmd/api
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api ./cmd/api
 
 # Final stage
 FROM alpine:latest
