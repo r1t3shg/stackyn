@@ -591,11 +591,7 @@ export default function LandingPage() {
               <button
                 onClick={(e) => {
                   e.preventDefault();
-                  if (user) {
-                    handleConsoleRedirect();
-                  } else {
-                    navigate('/signup');
-                  }
+                  navigate('/signup');
                 }}
                 className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
               >
@@ -684,11 +680,7 @@ export default function LandingPage() {
               <button
                 onClick={(e) => {
                   e.preventDefault();
-                  if (user) {
-                    handleConsoleRedirect();
-                  } else {
-                    navigate('/signup');
-                  }
+                  navigate('/signup');
                 }}
                 className="block w-full text-center bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--app-bg)] font-semibold py-3 px-6 rounded-lg transition-colors"
               >
