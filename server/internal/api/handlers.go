@@ -39,7 +39,6 @@ type App struct {
 	CreatedAt  string         `json:"created_at"`
 	UpdatedAt  string         `json:"updated_at"`
 	Deployment *AppDeployment `json:"deployment,omitempty"`
-	User       *User          `json:"user,omitempty"`
 }
 
 type AppDeployment struct {
@@ -2407,7 +2406,6 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 		CreatedAt       string `json:"created_at"`
 		UpdatedAt       string `json:"updated_at"`
 		DeploymentCount int    `json:"deployment_count"`
-		User            *User  `json:"user,omitempty"`
 	}
 
 	var adminApps []AdminAppResponse
@@ -2428,7 +2426,6 @@ func (h *Handlers) AdminListApps(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:       app.CreatedAt,
 			UpdatedAt:       app.UpdatedAt,
 			DeploymentCount: deploymentCount,
-			User:            app.User,
 		})
 	}
 

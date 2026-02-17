@@ -480,13 +480,11 @@ func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
 		return nil, 0, err
 	}
 
-	// Get apps with user info
+	// Get apps
 	rows, err := r.pool.Query(ctx,
-		`SELECT a.id, a.name, a.slug, a.status, a.url, a.repo_url, a.branch, a.created_at, a.updated_at,
-		        u.id, u.email, u.full_name, u.company_name
-		 FROM apps a
-		 LEFT JOIN users u ON a.user_id = u.id
-		 ORDER BY a.created_at DESC 
+		`SELECT id, name, slug, status, url, repo_url, branch, created_at, updated_at 
+		 FROM apps 
+		 ORDER BY created_at DESC 
 		 LIMIT $1 OFFSET $2`,
 		limit, offset,
 	)
@@ -501,12 +499,6 @@ func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
 		var app App
 		var url sql.NullString
 		var createdAt, updatedAt time.Time
-
-		var userID sql.NullString
-		var userEmail sql.NullString
-		var userFullName sql.NullString
-		var userCompanyName sql.NullString
-
 		err := rows.Scan(
 			&app.ID,
 			&app.Name,
@@ -517,10 +509,6 @@ func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
 			&app.Branch,
 			&createdAt,
 			&updatedAt,
-			&userID,
-			&userEmail,
-			&userFullName,
-			&userCompanyName,
 		)
 		if err != nil {
 			r.logger.Error("Failed to scan app", zap.Error(err))
@@ -531,16 +519,6 @@ func (r *AppRepo) ListAllApps(limit, offset int) ([]App, int, error) {
 		}
 		app.CreatedAt = createdAt.Format(time.RFC3339)
 		app.UpdatedAt = updatedAt.Format(time.RFC3339)
-
-		if userID.Valid {
-			app.User = &User{
-				ID:          userID.String,
-				Email:       userEmail.String,
-				FullName:    userFullName.String,
-				CompanyName: userCompanyName.String,
-			}
-		}
-
 		apps = append(apps, app)
 	}
 

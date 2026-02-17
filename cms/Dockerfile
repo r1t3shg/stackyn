@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # CMS Dockerfile - React/Vite Application
 # Multi-stage build for optimized production image
 #
@@ -21,7 +20,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 
 # Copy source code
 COPY . .

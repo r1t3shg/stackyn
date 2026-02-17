@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Frontend Dockerfile - React/Vite Application
 # Multi-stage build for optimized production image
 #
@@ -25,8 +24,10 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-# Using npm ci for faster, reproducible builds with cache mount
-RUN --mount=type=cache,target=/root/.npm npm ci
+# Note: Using npm install instead of npm ci because package-lock.json 
+# needs to be updated with new dependencies. After updating the lock file
+# locally, switch back to 'npm ci' for faster, reproducible builds.
+RUN npm install
 
 # Copy source code
 COPY . .
